@@ -14,10 +14,11 @@ import type { AxonFlowPluginConfig } from "./config.js";
  *
  * Evaluates outbound message content against AxonFlow output policies.
  * Can cancel (prevent sending) or redact (modify content) before delivery.
+ * Respects config.onError for fail-open/fail-closed behavior.
  */
 export function createMessageSendingHandler(
   client: AxonFlowClient,
-  _config: AxonFlowPluginConfig,
+  config: AxonFlowPluginConfig,
 ) {
   return async (event: {
     to: string;
@@ -28,10 +29,19 @@ export function createMessageSendingHandler(
       return undefined;
     }
 
-    const check = await client.mcpCheckOutput(
-      "openclaw.message_sending",
-      event.content,
-    );
+    let check;
+    try {
+      check = await client.mcpCheckOutput(
+        "openclaw.message_sending",
+        event.content,
+      );
+    } catch {
+      if (config.onError === "allow") {
+        return undefined; // Fail-open: allow message through ungoverned
+      }
+      // Fail-closed: cancel the message rather than send ungoverned
+      return { cancel: true };
+    }
 
     if (!check.allowed) {
       return {

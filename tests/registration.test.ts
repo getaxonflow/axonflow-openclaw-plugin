@@ -5,7 +5,7 @@ const mockFetch = jest.fn();
 global.fetch = mockFetch as unknown as typeof fetch;
 
 describe("registerAxonFlowGovernance", () => {
-  it("registers all three hooks", () => {
+  it("registers all five hooks", () => {
     const hooks: Array<{ event: string; handler: unknown; priority?: number }> = [];
     const api = {
       pluginConfig: {
@@ -14,7 +14,7 @@ describe("registerAxonFlowGovernance", () => {
         clientSecret: "secret",
       },
       logger: { info: jest.fn(), error: jest.fn() },
-      registerHook: jest.fn((event: string | string[], handler: unknown, opts?: { priority?: number }) => {
+      on: jest.fn((event: string | string[], handler: unknown, opts?: { priority?: number }) => {
         const eventStr = Array.isArray(event) ? event.join(",") : event;
         hooks.push({ event: eventStr, handler, priority: opts?.priority });
       }),
@@ -22,19 +22,17 @@ describe("registerAxonFlowGovernance", () => {
 
     registerAxonFlowGovernance(api);
 
-    expect(api.registerHook).toHaveBeenCalledTimes(6);
+    expect(api.on).toHaveBeenCalledTimes(5);
     expect(hooks[0]?.event).toBe("before_tool_call");
     expect(hooks[0]?.priority).toBe(10);
-    expect(hooks[1]?.event).toBe("tool_result_persist");
-    expect(hooks[1]?.priority).toBe(10);
-    expect(hooks[2]?.event).toBe("after_tool_call");
-    expect(hooks[2]?.priority).toBe(90);
-    expect(hooks[3]?.event).toBe("message_sending");
-    expect(hooks[3]?.priority).toBe(10);
-    expect(hooks[4]?.event).toBe("llm_input");
+    expect(hooks[1]?.event).toBe("after_tool_call");
+    expect(hooks[1]?.priority).toBe(90);
+    expect(hooks[2]?.event).toBe("message_sending");
+    expect(hooks[2]?.priority).toBe(10);
+    expect(hooks[3]?.event).toBe("llm_input");
+    expect(hooks[3]?.priority).toBe(90);
+    expect(hooks[4]?.event).toBe("llm_output");
     expect(hooks[4]?.priority).toBe(90);
-    expect(hooks[5]?.event).toBe("llm_output");
-    expect(hooks[5]?.priority).toBe(90);
   });
 
   it("logs configuration on startup", () => {
@@ -47,7 +45,7 @@ describe("registerAxonFlowGovernance", () => {
         highRiskTools: ["web_fetch", "message"],
       },
       logger,
-      registerHook: jest.fn(),
+      on: jest.fn(),
     };
 
     registerAxonFlowGovernance(api);
@@ -64,7 +62,7 @@ describe("registerAxonFlowGovernance", () => {
     const api = {
       pluginConfig: undefined,
       logger: { info: jest.fn(), error: jest.fn() },
-      registerHook: jest.fn(),
+      on: jest.fn(),
     };
 
     expect(() => registerAxonFlowGovernance(api)).toThrow("requires configuration");
@@ -74,7 +72,7 @@ describe("registerAxonFlowGovernance", () => {
     const api = {
       pluginConfig: { clientId: "test", clientSecret: "secret" },
       logger: { info: jest.fn(), error: jest.fn() },
-      registerHook: jest.fn(),
+      on: jest.fn(),
     };
 
     expect(() => registerAxonFlowGovernance(api)).toThrow("'endpoint' is required");

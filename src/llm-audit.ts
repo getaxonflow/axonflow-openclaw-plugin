@@ -45,6 +45,17 @@ export function createLlmInputHandler(
       prompt: event.prompt.slice(0, 500),
       startMs: Date.now(),
     });
+
+    // Prevent unbounded growth: evict entries older than 5 minutes.
+    // Handles cases where llm_input fires without a matching llm_output
+    // (LLM errors, timeouts, network failures).
+    const MAX_AGE_MS = 5 * 60 * 1000;
+    const now = Date.now();
+    for (const [key, val] of callState) {
+      if (now - val.startMs > MAX_AGE_MS) {
+        callState.delete(key);
+      }
+    }
   };
 }
 

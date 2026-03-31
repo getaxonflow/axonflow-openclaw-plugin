@@ -1,7 +1,7 @@
 {
   "name": "@axonflow/openclaw-plugin",
   "version": "0.1.0",
-  "description": "AxonFlow governance plugin for OpenClaw \u2014 policy enforcement, PII detection, and audit trails for tool execution",
+  "description": "Governance, security, and compliance plugin for OpenClaw — protects against reverse shells, data exfiltration, PII leakage, credential exposure, prompt injection, and supply chain attacks",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,7 +16,8 @@
     "policies",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "openclaw.plugin.json"
   ],
   "scripts": {
     "build": "tsc",
@@ -28,12 +29,24 @@
   "keywords": [
     "axonflow",
     "openclaw",
-    "governance",
+    "openclaw-security",
+    "openclaw-plugin",
+    "ai-agent-security",
     "ai-safety",
+    "governance",
     "policy-enforcement",
     "pii-detection",
+    "pii-redaction",
+    "data-exfiltration",
+    "prompt-injection",
+    "reverse-shell",
+    "credential-detection",
     "audit-logging",
-    "tool-governance"
+    "audit-trail",
+    "tool-governance",
+    "supply-chain-security",
+    "compliance",
+    "ssrf-protection"
   ],
   "author": "AxonFlow Team <team@getaxonflow.com>",
   "license": "MIT",
@@ -60,5 +73,15 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependenciesMeta": {
+    "@axonflow/sdk": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
   }
 }

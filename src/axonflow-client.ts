@@ -2,8 +2,7 @@
  * Lightweight AxonFlow API client for the plugin.
  *
  * Uses direct HTTP calls to avoid requiring the full @axonflow/sdk
- * as a runtime dependency (it's a peer dependency for users who want
- * the full SDK, but the plugin only needs check-input/check-output/audit).
+ * as a runtime dependency.
  */
 
 import type { AxonFlowPluginConfig } from "./config.js";
@@ -21,11 +20,6 @@ export interface MCPCheckOutputResponse {
   policies_evaluated: number;
 }
 
-export interface AuditToolCallResponse {
-  success: boolean;
-  audit_id?: string;
-}
-
 /**
  * Extract policies_evaluated count from API response.
  * The platform returns this as a top-level number on 403 responses,
@@ -33,11 +27,9 @@ export interface AuditToolCallResponse {
  * array of policy names) on 200 responses.
  */
 function extractPoliciesEvaluated(data: Record<string, unknown>): number {
-  // Top-level number (common in 403 responses)
   if (typeof data["policies_evaluated"] === "number") {
     return data["policies_evaluated"];
   }
-  // Inside policy_info (common in 200 responses)
   const policyInfo = data["policy_info"];
   if (typeof policyInfo === "object" && policyInfo !== null) {
     const pi = policyInfo as Record<string, unknown>;
@@ -54,6 +46,7 @@ function extractPoliciesEvaluated(data: Record<string, unknown>): number {
 export class AxonFlowClient {
   private readonly endpoint: string;
   private readonly authHeader: string;
+  private readonly tenantId: string;
 
   constructor(config: AxonFlowPluginConfig) {
     this.endpoint = config.endpoint.replace(/\/+$/, "");
@@ -61,6 +54,18 @@ export class AxonFlowClient {
       `${config.clientId}:${config.clientSecret}`,
     ).toString("base64");
     this.authHeader = `Basic ${credentials}`;
+    // clientId serves as tenantId for single-tenant setups.
+    // The Agent proxy normally injects X-Tenant-ID after auth, but
+    // direct Orchestrator calls (audit/tool-call) require it explicitly.
+    this.tenantId = config.clientId;
+  }
+
+  private baseHeaders(): Record<string, string> {
+    return {
+      "Content-Type": "application/json",
+      Authorization: this.authHeader,
+      "X-Tenant-ID": this.tenantId,
+    };
   }
 
   async mcpCheckInput(
@@ -71,10 +76,7 @@ export class AxonFlowClient {
     const url = `${this.endpoint}/api/v1/mcp/check-input`;
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: this.authHeader,
-      },
+      headers: this.baseHeaders(),
       body: JSON.stringify({
         connector_type: connectorType,
         statement,
@@ -84,7 +86,6 @@ export class AxonFlowClient {
 
     const data = (await response.json()) as Record<string, unknown>;
 
-    // 403 with response body is a policy block (not an auth error)
     if (response.status === 403) {
       return {
         allowed: false,
@@ -121,10 +122,7 @@ export class AxonFlowClient {
     const url = `${this.endpoint}/api/v1/mcp/check-output`;
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: this.authHeader,
-      },
+      headers: this.baseHeaders(),
       body: JSON.stringify({
         connector_type: connectorType,
         message,
@@ -163,6 +161,10 @@ export class AxonFlowClient {
     };
   }
 
+  /**
+   * Log a tool execution to the audit trail.
+   * Uses POST /api/v1/audit/tool-call (requires X-Tenant-ID header).
+   */
   async auditToolCall(
     toolName: string,
     params: Record<string, unknown>,
@@ -174,25 +176,30 @@ export class AxonFlowClient {
     try {
       await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: this.authHeader,
-        },
+        headers: this.baseHeaders(),
         body: JSON.stringify({
           tool_name: toolName,
           tool_type: "openclaw",
           input: params,
-          output: result != null ? { result: String(result).slice(0, 500) } : undefined,
+          output: result != null ? { result: JSON.stringify(result).slice(0, 500) } : undefined,
           success: error == null,
           error_message: error,
           duration_ms: durationMs,
         }),
       });
     } catch {
-      // Audit failures are non-fatal — governance already enforced
+      // Audit failures are non-fatal
     }
   }
 
+  /**
+   * Log an LLM call to the audit trail.
+   *
+   * Uses the same audit/tool-call endpoint with tool_type "llm_call".
+   * The dedicated audit/llm-call endpoint requires context_id (from pre_check)
+   * which the plugin doesn't have. This approach logs LLM calls as tool-call
+   * audit entries, providing audit evidence without requiring prior context.
+   */
   async auditLLMCall(
     provider: string,
     model: string,
@@ -201,21 +208,18 @@ export class AxonFlowClient {
     tokenUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
     latencyMs: number,
   ): Promise<void> {
-    const url = `${this.endpoint}/api/audit/llm-call`;
+    const url = `${this.endpoint}/api/v1/audit/tool-call`;
     try {
       await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: this.authHeader,
-        },
+        headers: this.baseHeaders(),
         body: JSON.stringify({
-          provider,
-          model,
-          query: query.slice(0, 500),
-          response_summary: responseSummary.slice(0, 200),
-          token_usage: tokenUsage,
-          latency_ms: latencyMs,
+          tool_name: `${provider}.${model}`,
+          tool_type: "llm_call",
+          input: { query: query.slice(0, 500) },
+          output: { response_summary: responseSummary.slice(0, 200), token_usage: tokenUsage },
+          success: true,
+          duration_ms: latencyMs,
         }),
       });
     } catch {

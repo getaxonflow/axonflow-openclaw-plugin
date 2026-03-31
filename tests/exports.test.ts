@@ -7,7 +7,6 @@ import {
   resolveConfig,
   shouldGovernTool,
   deriveConnectorType,
-  extractTextContent,
 } from "../src/index.js";
 
 describe("package exports", () => {
@@ -45,10 +44,5 @@ describe("package exports", () => {
   it("exports deriveConnectorType", () => {
     expect(deriveConnectorType).toBeDefined();
     expect(deriveConnectorType("test")).toBe("openclaw.test");
-  });
-
-  it("exports extractTextContent", () => {
-    expect(extractTextContent).toBeDefined();
-    expect(extractTextContent({ content: "hello" })).toBe("hello");
   });
 });

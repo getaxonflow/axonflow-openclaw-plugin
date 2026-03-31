@@ -120,6 +120,7 @@ describe("AxonFlowClient", () => {
       const headers = (call?.[1] as RequestInit).headers as Record<string, string>;
       // base64("test-client:test-secret") = "dGVzdC1jbGllbnQ6dGVzdC1zZWNyZXQ="
       expect(headers["Authorization"]).toBe("Basic dGVzdC1jbGllbnQ6dGVzdC1zZWNyZXQ=");
+      expect(headers["X-Tenant-ID"]).toBe("test-client");
     });
 
     it("passes operation parameter", async () => {
@@ -219,7 +220,7 @@ describe("AxonFlowClient", () => {
       expect(body.tool_name).toBe("web_fetch");
       expect(body.tool_type).toBe("openclaw");
       expect(body.input).toEqual({ url: "https://x.com" });
-      expect(body.output).toEqual({ result: "result" });
+      expect(body.output).toEqual({ result: '"result"' });
       expect(body.success).toBe(true);
       expect(body.error_message).toBeUndefined();
       expect(body.duration_ms).toBe(100);
@@ -230,6 +231,43 @@ describe("AxonFlowClient", () => {
       const client = makeClient();
       // Should not throw
       await client.auditToolCall("tool", {});
+    });
+  });
+
+  describe("auditLLMCall", () => {
+    it("uses audit/tool-call endpoint with tool_type llm_call", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(200, { success: true }));
+      const client = makeClient();
+      await client.auditLLMCall(
+        "anthropic", "claude-sonnet-4-6",
+        "Hello world", "Hi there!",
+        { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        150,
+      );
+
+      // Must use audit/tool-call, NOT audit/llm-call (which requires context_id)
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/audit/tool-call",
+        expect.objectContaining({ method: "POST" }),
+      );
+
+      const call = mockFetch.mock.calls[0];
+      const headers = (call?.[1] as RequestInit).headers as Record<string, string>;
+      expect(headers["X-Tenant-ID"]).toBe("test-client");
+
+      const body = JSON.parse((call?.[1] as RequestInit).body as string);
+      expect(body.tool_name).toBe("anthropic.claude-sonnet-4-6");
+      expect(body.tool_type).toBe("llm_call");
+      expect(body.input.query).toBe("Hello world");
+      expect(body.output.response_summary).toBe("Hi there!");
+      expect(body.success).toBe(true);
+      expect(body.duration_ms).toBe(150);
+    });
+
+    it("does not throw on failure", async () => {
+      mockFetch.mockRejectedValueOnce(new Error("Network error"));
+      const client = makeClient();
+      await client.auditLLMCall("test", "model", "q", "r", { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, 0);
     });
   });
 

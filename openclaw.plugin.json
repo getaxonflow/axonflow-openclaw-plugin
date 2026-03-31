@@ -56,21 +56,41 @@
       },
       "highRiskTools": {
         "type": "array",
-        "items": { "type": "string" }
+        "items": {
+          "type": "string"
+        }
       },
       "governedTools": {
         "type": "array",
-        "items": { "type": "string" }
+        "items": {
+          "type": "string"
+        }
       },
       "excludedTools": {
         "type": "array",
-        "items": { "type": "string" }
+        "items": {
+          "type": "string"
+        }
       },
       "defaultOperation": {
         "type": "string",
-        "enum": ["execute", "query"]
+        "enum": [
+          "execute",
+          "query"
+        ]
+      },
+      "onError": {
+        "type": "string",
+        "enum": [
+          "block",
+          "allow"
+        ]
       }
     },
-    "required": ["endpoint", "clientId", "clientSecret"]
+    "required": [
+      "endpoint",
+      "clientId",
+      "clientSecret"
+    ]
   }
 }
