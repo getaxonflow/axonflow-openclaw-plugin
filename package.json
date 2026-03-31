@@ -1,7 +1,7 @@
 {
   "name": "@axonflow/openclaw-plugin",
   "version": "0.1.0",
-  "description": "Governance, security, and compliance plugin for OpenClaw — protects against reverse shells, data exfiltration, PII leakage, credential exposure, prompt injection, and supply chain attacks",
+  "description": "Policy enforcement, approval gates, and audit trails for OpenClaw — govern tool inputs before execution, scan outbound messages for PII/secrets, and record agent activity for review and compliance",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

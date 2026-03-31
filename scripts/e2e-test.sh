@@ -8,8 +8,13 @@
 # Prerequisites:
 #   - Node.js 20+
 #   - OpenClaw installed: npm install -g openclaw@latest
-#   - AxonFlow running: docker compose up -d (from axonflow-enterprise)
+#   - AxonFlow running: docker compose up -d (from axonflow community repo)
 #   - An LLM API key (ANTHROPIC_API_KEY or OPENAI_API_KEY)
+#
+# IMPORTANT: If audit/tool-call returns 404, force rebuild Docker images:
+#   docker compose down && docker compose build --no-cache && docker compose up -d
+#   The audit/tool-call endpoint was added in v5.2.0 and stale build cache
+#   may serve an older binary.
 #
 # Usage:
 #   # Start AxonFlow first:

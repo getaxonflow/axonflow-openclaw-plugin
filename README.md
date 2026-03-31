@@ -1,30 +1,40 @@
 # @axonflow/openclaw-plugin
 
-**Governance, security, and compliance plugin for [OpenClaw](https://github.com/openclaw/openclaw).** Protects against the top OpenClaw security risks: reverse shells via exec tool, data exfiltration via web_fetch, PII leakage in outbound messages, credential exposure, prompt injection, and outbound message exfiltration.
+**Policy enforcement, approval gates, and audit trails for [OpenClaw](https://github.com/openclaw/openclaw).**
 
-Built in response to real-world incidents including [CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253) (CVSS 8.8), [CVE-2026-33573](https://nvd.nist.gov/vuln/detail/CVE-2026-33573) (workspace boundary bypass), the [ClawHavoc supply chain attack](https://www.antiy.net/p/clawhavoc-analysis-of-large-scale-poisoning-campaign-targeting-the-openclaw-skill-market-for-ai-agents/) (1,184 malicious skills), and [Microsoft's security advisory](https://www.microsoft.com/en-us/security/blog/2026/02/19/running-openclaw-safely-identity-isolation-runtime-risk/) recommending VM isolation for all OpenClaw deployments.
+OpenClaw handles agent runtime, tool execution, MCP connectivity, and channel delivery. AxonFlow adds a governance layer for production use: inspect tool inputs before execution, scan outbound messages before delivery, and record tool + LLM activity for review, security, and compliance.
 
-AxonFlow adds the governance layer that OpenClaw's local safety controls don't cover: centralized policy enforcement for tool inputs, PII/secrets scanning and redaction on outbound messages, audit trails with decision context, and enterprise compliance evidence.
+This plugin is useful when you want to:
+- block dangerous tool calls before they run
+- require approval for selected high-risk tools
+- prevent PII or secrets from being sent to users
+- keep an audit trail of agent activity with policy context
 
-## What It Does
+Much of the OpenClaw ecosystem today focuses on routing, memory, integrations, and observability. This plugin focuses on governance: policy enforcement, approval gates, and reviewable audit trails.
 
-| Hook | When | Action |
-|------|------|--------|
-| `before_tool_call` | Before tool executes | Evaluates tool arguments against policies. Blocks dangerous commands, detects PII, enforces rate limits. |
-| `after_tool_call` | After tool executes | Logs tool execution to AxonFlow audit trail. Fire-and-forget (non-blocking). |
-| `message_sending` | Before message reaches user | Scans outbound messages for PII/secrets. Can cancel or redact before delivery to Telegram/Discord/Slack. |
-| `llm_input` | Before LLM call | Records prompt, model, and provider to AxonFlow audit trail. |
-| `llm_output` | After LLM response | Records response, token usage, and latency. Correlates with `llm_input` for complete audit entries. |
+## What v0.1.0 Covers
 
-### Known Limitation: Tool Result Scanning
+| Hook | Purpose |
+|------|---------|
+| `before_tool_call` | Evaluate tool inputs against AxonFlow policies before execution |
+| `after_tool_call` | Record tool execution in AxonFlow audit trail |
+| `message_sending` | Scan outbound messages for PII/secrets before delivery |
+| `llm_input` | Record prompt, model, and provider for audit |
+| `llm_output` | Record response summary, token usage, and latency for audit |
 
-OpenClaw's `tool_result_persist` hook is synchronous, which means it cannot make async HTTP calls to AxonFlow for policy evaluation. Tool results written to the session transcript are **not** scanned for PII/secrets by this plugin.
+## Current Limitation
 
-**What IS protected:** Tool inputs are governed before execution (`before_tool_call`), and outbound messages to users are scanned before delivery (`message_sending`). LLM calls are audited.
+Tool results written into the OpenClaw session transcript are not yet scanned by this plugin. OpenClaw's `tool_result_persist` hook is synchronous today, so it cannot call AxonFlow's HTTP policy APIs.
 
-**What is NOT protected:** Tool results entering the LLM context window via the session transcript are not scanned. If a tool returns PII, it will be visible to the LLM but will be caught before reaching the end user via `message_sending`.
+What is protected today:
+- tool inputs before execution
+- outbound messages before delivery
+- tool and LLM audit trails
 
-We have filed an upstream request for async `tool_result_persist` support. When available, this plugin will add output scanning immediately.
+What is not protected yet:
+- tool results entering the LLM context through the session transcript
+
+If OpenClaw adds async support for `tool_result_persist`, AxonFlow can add transcript/result scanning immediately. Upstream issue: [openclaw/openclaw#58558](https://github.com/openclaw/openclaw/issues/58558).
 
 ## Install
 
@@ -118,7 +128,7 @@ Message delivered to user channel
 
 ## Starter Policies
 
-See [policies/README.md](./policies/README.md) for recommended policy setup for OpenClaw deployments.
+See [policies/README.md](./policies/README.md) for recommended policy setup for OpenClaw deployments, including protections against reverse shells, credential exfiltration, SSRF, path traversal, and agent config file poisoning.
 
 ## Links
 
