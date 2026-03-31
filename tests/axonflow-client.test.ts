@@ -47,15 +47,58 @@ describe("AxonFlowClient", () => {
       );
     });
 
-    it("returns blocked on 403", async () => {
+    it("extracts policies_evaluated from policy_info (number)", async () => {
       mockFetch.mockResolvedValueOnce(
-        jsonResponse(403, { error: "PII detected", policies_evaluated: 76 }),
+        jsonResponse(200, {
+          allowed: true,
+          policy_info: { policies_evaluated: 42, blocked: false },
+        }),
+      );
+      const client = makeClient();
+      const result = await client.mcpCheckInput("test", "stmt");
+      expect(result.policies_evaluated).toBe(42);
+    });
+
+    it("extracts policies_evaluated from policy_info (array)", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(200, {
+          allowed: true,
+          policy_info: { policies_evaluated: ["sys_pii_ssn", "sys_sqli_drop"] },
+        }),
+      );
+      const client = makeClient();
+      const result = await client.mcpCheckInput("test", "stmt");
+      expect(result.policies_evaluated).toBe(2);
+    });
+
+    it("defaults policies_evaluated to 0 when missing", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(200, { allowed: true }),
+      );
+      const client = makeClient();
+      const result = await client.mcpCheckInput("test", "stmt");
+      expect(result.policies_evaluated).toBe(0);
+    });
+
+    it("returns blocked on 403 with block_reason", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(403, { block_reason: "PII detected", policies_evaluated: 76 }),
       );
       const client = makeClient();
       const result = await client.mcpCheckInput("openclaw.message", '{"text": "SSN 123-45-6789"}');
 
       expect(result.allowed).toBe(false);
       expect(result.block_reason).toBe("PII detected");
+      expect(result.policies_evaluated).toBe(76);
+    });
+
+    it("falls back to error field on 403 without block_reason", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(403, { error: "Request blocked: DROP TABLE" }),
+      );
+      const client = makeClient();
+      const result = await client.mcpCheckInput("test", "stmt");
+      expect(result.block_reason).toBe("Request blocked: DROP TABLE");
     });
 
     it("throws on non-403 errors", async () => {
@@ -119,15 +162,36 @@ describe("AxonFlowClient", () => {
       expect(result.redacted_data).toBe("Name: John, SSN: ***-**-6789");
     });
 
-    it("returns blocked on 403", async () => {
+    it("extracts policies from policy_info on 200", async () => {
       mockFetch.mockResolvedValueOnce(
-        jsonResponse(403, { error: "Exfiltration detected" }),
+        jsonResponse(200, {
+          allowed: true,
+          policy_info: { policies_evaluated: 76, blocked: false },
+        }),
+      );
+      const client = makeClient();
+      const result = await client.mcpCheckOutput("test", "data");
+      expect(result.policies_evaluated).toBe(76);
+    });
+
+    it("returns blocked on 403 with block_reason", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(403, { block_reason: "Exfiltration detected" }),
       );
       const client = makeClient();
       const result = await client.mcpCheckOutput("openclaw.search", "10000 rows");
 
       expect(result.allowed).toBe(false);
       expect(result.block_reason).toBe("Exfiltration detected");
+    });
+
+    it("falls back to error on 403 without block_reason", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(403, { error: "Blocked by policy" }),
+      );
+      const client = makeClient();
+      const result = await client.mcpCheckOutput("test", "data");
+      expect(result.block_reason).toBe("Blocked by policy");
     });
 
     it("throws on non-403 errors", async () => {
