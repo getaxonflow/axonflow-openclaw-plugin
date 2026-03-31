@@ -6,11 +6,11 @@
  * plugin-provided, and MCP-backed.
  *
  * Install:
- *   openclaw plugins install @axonflow/openclaw-plugin
+ *   openclaw plugins install @axonflow/openclaw
  *
  * Configure in your OpenClaw config:
  *   plugins:
- *     @axonflow/openclaw-plugin:
+ *     @axonflow/openclaw:
  *       endpoint: http://localhost:8080
  *       clientId: your-client-id
  *       clientSecret: your-secret
@@ -104,7 +104,7 @@ export function registerAxonFlowGovernance(api: {
  *
  * OpenClaw expects extensions to export a default object with `id`, `name`,
  * and `register` function. This is the entry point when installed via
- * `openclaw plugins install @axonflow/openclaw-plugin`.
+ * `openclaw plugins install @axonflow/openclaw`.
  */
 export default {
   id: "axonflow-governance",

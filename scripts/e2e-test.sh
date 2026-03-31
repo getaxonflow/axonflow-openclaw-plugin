@@ -2,7 +2,7 @@
 # ============================================================
 # OpenClaw + AxonFlow E2E Integration Test
 #
-# Validates that the @axonflow/openclaw-plugin works end-to-end
+# Validates that the @axonflow/openclaw works end-to-end
 # with a real OpenClaw instance and a real AxonFlow deployment.
 #
 # Prerequisites:

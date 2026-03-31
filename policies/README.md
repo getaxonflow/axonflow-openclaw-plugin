@@ -93,7 +93,7 @@ VALUES
 
 ```yaml
 plugins:
-  @axonflow/openclaw-plugin:
+  @axonflow/openclaw:
     endpoint: http://your-axonflow:8080
     clientId: your-client-id
     clientSecret: your-secret

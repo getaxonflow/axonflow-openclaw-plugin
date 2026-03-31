@@ -1,4 +1,4 @@
-# @axonflow/openclaw-plugin
+# @axonflow/openclaw
 
 **Policy enforcement, approval gates, and audit trails for [OpenClaw](https://github.com/openclaw/openclaw).**
 
@@ -39,7 +39,7 @@ If OpenClaw adds async support for `tool_result_persist`, AxonFlow can add trans
 ## Install
 
 ```bash
-openclaw plugins install @axonflow/openclaw-plugin
+openclaw plugins install @axonflow/openclaw
 ```
 
 ## Configure
@@ -48,7 +48,7 @@ In your OpenClaw config:
 
 ```yaml
 plugins:
-  @axonflow/openclaw-plugin:
+  @axonflow/openclaw:
     endpoint: http://localhost:8080
     clientId: your-client-id
     clientSecret: your-secret
