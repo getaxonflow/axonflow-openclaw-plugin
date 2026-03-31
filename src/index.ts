@@ -48,7 +48,7 @@ export { deriveConnectorType } from "./governance.js";
  * Plugin registration function.
  *
  * Called by OpenClaw when the plugin is loaded. Reads configuration,
- * creates the AxonFlow client, and registers six governance/audit hooks.
+ * creates the AxonFlow client, and registers five governance/audit hooks.
  *
  * Compatible with OpenClaw's `definePluginEntry` or direct registration:
  *

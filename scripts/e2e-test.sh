@@ -23,7 +23,7 @@
 #
 # What it tests:
 #   1. Plugin builds and installs in OpenClaw
-#   2. Plugin loads and registers 6 hooks
+#   2. Plugin loads and registers 5 hooks
 #   3. Tool calls trigger before_tool_call → mcp_check_input
 #   4. AxonFlow evaluates policies (76+ system policies)
 #   5. Audit entries are attempted via after_tool_call
