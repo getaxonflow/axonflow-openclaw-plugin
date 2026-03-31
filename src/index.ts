@@ -56,7 +56,6 @@ export { extractTextContent } from "./output-guard.js";
  *   // Or direct:
  *   api.registerHook("before_tool_call", handler);
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export function registerAxonFlowGovernance(api: {
   pluginConfig?: Record<string, unknown>;
   logger: { info: (msg: string) => void; error: (msg: string) => void };
