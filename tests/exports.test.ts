@@ -1,0 +1,54 @@
+/**
+ * Verify all public exports are accessible from the package entry point.
+ */
+import {
+  AxonFlowClient,
+  registerAxonFlowGovernance,
+  resolveConfig,
+  shouldGovernTool,
+  deriveConnectorType,
+  extractTextContent,
+} from "../src/index.js";
+
+describe("package exports", () => {
+  it("exports AxonFlowClient", () => {
+    expect(AxonFlowClient).toBeDefined();
+    expect(typeof AxonFlowClient).toBe("function");
+  });
+
+  it("exports registerAxonFlowGovernance", () => {
+    expect(registerAxonFlowGovernance).toBeDefined();
+    expect(typeof registerAxonFlowGovernance).toBe("function");
+  });
+
+  it("exports resolveConfig", () => {
+    expect(resolveConfig).toBeDefined();
+    const config = resolveConfig({
+      endpoint: "http://x",
+      clientId: "id",
+      clientSecret: "s",
+    });
+    expect(config.endpoint).toBe("http://x");
+  });
+
+  it("exports shouldGovernTool", () => {
+    expect(shouldGovernTool).toBeDefined();
+    expect(
+      shouldGovernTool("tool", {
+        endpoint: "",
+        clientId: "",
+        clientSecret: "",
+      }),
+    ).toBe(true);
+  });
+
+  it("exports deriveConnectorType", () => {
+    expect(deriveConnectorType).toBeDefined();
+    expect(deriveConnectorType("test")).toBe("openclaw.test");
+  });
+
+  it("exports extractTextContent", () => {
+    expect(extractTextContent).toBeDefined();
+    expect(extractTextContent({ content: "hello" })).toBe("hello");
+  });
+});

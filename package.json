@@ -1,0 +1,59 @@
+{
+  "name": "@axonflow/openclaw-plugin",
+  "version": "0.1.0",
+  "description": "AxonFlow governance plugin for OpenClaw — policy enforcement, PII detection, and audit trails for tool execution",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "policies",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src/ tests/",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "axonflow",
+    "openclaw",
+    "governance",
+    "ai-safety",
+    "policy-enforcement",
+    "pii-detection",
+    "audit-logging",
+    "tool-governance"
+  ],
+  "author": "AxonFlow Team <team@getaxonflow.com>",
+  "license": "BSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getaxonflow/axonflow-openclaw-plugin.git"
+  },
+  "homepage": "https://docs.getaxonflow.com/docs/integration/openclaw/",
+  "bugs": {
+    "url": "https://github.com/getaxonflow/axonflow-openclaw-plugin/issues"
+  },
+  "peerDependencies": {
+    "openclaw": ">=1.0.0",
+    "@axonflow/sdk": ">=4.3.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "eslint": "^9.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.0"
+  }
+}
