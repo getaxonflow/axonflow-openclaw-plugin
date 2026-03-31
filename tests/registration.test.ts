@@ -22,13 +22,19 @@ describe("registerAxonFlowGovernance", () => {
 
     registerAxonFlowGovernance(api);
 
-    expect(api.registerHook).toHaveBeenCalledTimes(3);
+    expect(api.registerHook).toHaveBeenCalledTimes(6);
     expect(hooks[0]?.event).toBe("before_tool_call");
     expect(hooks[0]?.priority).toBe(10);
     expect(hooks[1]?.event).toBe("tool_result_persist");
     expect(hooks[1]?.priority).toBe(10);
     expect(hooks[2]?.event).toBe("after_tool_call");
     expect(hooks[2]?.priority).toBe(90);
+    expect(hooks[3]?.event).toBe("message_sending");
+    expect(hooks[3]?.priority).toBe(10);
+    expect(hooks[4]?.event).toBe("llm_input");
+    expect(hooks[4]?.priority).toBe(90);
+    expect(hooks[5]?.event).toBe("llm_output");
+    expect(hooks[5]?.priority).toBe(90);
   });
 
   it("logs configuration on startup", () => {

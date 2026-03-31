@@ -31,6 +31,8 @@ import { resolveConfig } from "./config.js";
 import { createBeforeToolCallHandler } from "./governance.js";
 import { createOutputGuardHandler } from "./output-guard.js";
 import { createAfterToolCallHandler } from "./audit.js";
+import { createMessageSendingHandler } from "./message-guard.js";
+import { createLlmInputHandler, createLlmOutputHandler } from "./llm-audit.js";
 
 // Re-export for external consumers
 export { AxonFlowClient } from "./axonflow-client.js";
@@ -43,7 +45,7 @@ export { extractTextContent } from "./output-guard.js";
  * Plugin registration function.
  *
  * Called by OpenClaw when the plugin is loaded. Reads configuration,
- * creates the AxonFlow client, and registers the three governance hooks.
+ * creates the AxonFlow client, and registers six governance/audit hooks.
  *
  * Compatible with OpenClaw's `definePluginEntry` or direct registration:
  *
@@ -84,4 +86,16 @@ export function registerAxonFlowGovernance(api: {
   // Hook 3: Audit logging (after tool execution)
   const afterToolCall = createAfterToolCallHandler(client, config);
   api.registerHook("after_tool_call", afterToolCall, { priority: 90 });
+
+  // Hook 4: Outbound message governance (before message reaches user)
+  const messageSending = createMessageSendingHandler(client, config);
+  api.registerHook("message_sending", messageSending, { priority: 10 });
+
+  // Hook 5-6: LLM call audit (observe-only, cannot block/modify)
+  const llmCallState = new Map<string, { provider: string; model: string; prompt: string; startMs: number }>();
+  const llmInput = createLlmInputHandler(client, config, llmCallState);
+  api.registerHook("llm_input", llmInput, { priority: 90 });
+
+  const llmOutput = createLlmOutputHandler(client, config, llmCallState);
+  api.registerHook("llm_output", llmOutput, { priority: 90 });
 }

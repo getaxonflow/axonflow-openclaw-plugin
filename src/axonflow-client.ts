@@ -193,6 +193,36 @@ export class AxonFlowClient {
     }
   }
 
+  async auditLLMCall(
+    provider: string,
+    model: string,
+    query: string,
+    responseSummary: string,
+    tokenUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
+    latencyMs: number,
+  ): Promise<void> {
+    const url = `${this.endpoint}/api/audit/llm-call`;
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: this.authHeader,
+        },
+        body: JSON.stringify({
+          provider,
+          model,
+          query: query.slice(0, 500),
+          response_summary: responseSummary.slice(0, 200),
+          token_usage: tokenUsage,
+          latency_ms: latencyMs,
+        }),
+      });
+    } catch {
+      // Audit failures are non-fatal
+    }
+  }
+
   async healthCheck(): Promise<boolean> {
     try {
       const response = await fetch(`${this.endpoint}/health`);
