@@ -19,7 +19,7 @@
     },
     "highRiskTools": {
       "label": "High-Risk Tools",
-      "placeholder": "["web_fetch", "message"]",
+      "placeholder": "web_fetch, message",
       "help": "Comma-separated tool names requiring human approval even when policy allows"
     },
     "governedTools": {
@@ -56,25 +56,41 @@
       },
       "highRiskTools": {
         "type": "array",
-        "items": { "type": "string" }
+        "items": {
+          "type": "string"
+        }
       },
       "governedTools": {
         "type": "array",
-        "items": { "type": "string" }
+        "items": {
+          "type": "string"
+        }
       },
       "excludedTools": {
         "type": "array",
-        "items": { "type": "string" }
+        "items": {
+          "type": "string"
+        }
       },
       "defaultOperation": {
         "type": "string",
-        "enum": ["execute", "query"]
+        "enum": [
+          "execute",
+          "query"
+        ]
       },
       "onError": {
         "type": "string",
-        "enum": ["block", "allow"]
+        "enum": [
+          "block",
+          "allow"
+        ]
       }
     },
-    "required": ["endpoint", "clientId", "clientSecret"]
+    "required": [
+      "endpoint",
+      "clientId",
+      "clientSecret"
+    ]
   }
 }

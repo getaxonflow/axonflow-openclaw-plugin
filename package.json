@@ -16,7 +16,8 @@
     "policies",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "openclaw.plugin.json"
   ],
   "scripts": {
     "build": "tsc",
@@ -65,5 +66,10 @@
     "@axonflow/sdk": {
       "optional": true
     }
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
   }
 }

@@ -62,8 +62,8 @@ export { extractTextContent } from "./output-guard.js";
 export function registerAxonFlowGovernance(api: {
   pluginConfig?: Record<string, unknown>;
   logger: { info: (msg: string) => void; error: (msg: string) => void };
-  registerHook: (
-    events: string | string[],
+  on: (
+    hookName: string,
     handler: (...args: any[]) => any,
     opts?: { priority?: number },
   ) => void;
@@ -78,25 +78,39 @@ export function registerAxonFlowGovernance(api: {
 
   // Hook 1: Input governance (before tool execution)
   const beforeToolCall = createBeforeToolCallHandler(client, config);
-  api.registerHook("before_tool_call", beforeToolCall, { priority: 10 });
+  api.on("before_tool_call", beforeToolCall, { priority: 10 });
 
   // Hook 2: Output governance (before result persistence)
   const outputGuard = createOutputGuardHandler(client, config);
-  api.registerHook("tool_result_persist", outputGuard, { priority: 10 });
+  api.on("tool_result_persist", outputGuard, { priority: 10 });
 
   // Hook 3: Audit logging (after tool execution)
   const afterToolCall = createAfterToolCallHandler(client, config);
-  api.registerHook("after_tool_call", afterToolCall, { priority: 90 });
+  api.on("after_tool_call", afterToolCall, { priority: 90 });
 
   // Hook 4: Outbound message governance (before message reaches user)
   const messageSending = createMessageSendingHandler(client, config);
-  api.registerHook("message_sending", messageSending, { priority: 10 });
+  api.on("message_sending", messageSending, { priority: 10 });
 
   // Hook 5-6: LLM call audit (observe-only, cannot block/modify)
   const llmCallState = new Map<string, { provider: string; model: string; prompt: string; startMs: number }>();
   const llmInput = createLlmInputHandler(client, config, llmCallState);
-  api.registerHook("llm_input", llmInput, { priority: 90 });
+  api.on("llm_input", llmInput, { priority: 90 });
 
   const llmOutput = createLlmOutputHandler(client, config, llmCallState);
-  api.registerHook("llm_output", llmOutput, { priority: 90 });
+  api.on("llm_output", llmOutput, { priority: 90 });
 }
+
+/**
+ * Default export for OpenClaw plugin loader.
+ *
+ * OpenClaw expects extensions to export a default object with `id`, `name`,
+ * and `register` function. This is the entry point when installed via
+ * `openclaw plugins install @axonflow/openclaw-plugin`.
+ */
+export default {
+  id: "axonflow-governance",
+  name: "AxonFlow Governance",
+  description: "Policy enforcement, PII detection, and audit trails for OpenClaw tool execution",
+  register: registerAxonFlowGovernance,
+};
