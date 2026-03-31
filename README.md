@@ -1,6 +1,10 @@
 # @axonflow/openclaw-plugin
 
-AxonFlow governance plugin for [OpenClaw](https://github.com/openclaw/openclaw). Adds centralized policy enforcement, PII detection, and audit trails to OpenClaw tool execution.
+**Governance, security, and compliance plugin for [OpenClaw](https://github.com/openclaw/openclaw).** Protects against the top OpenClaw security risks: reverse shells via exec tool, data exfiltration via web_fetch, PII leakage in tool outputs, credential exposure, prompt injection, and outbound message exfiltration.
+
+Built in response to real-world incidents including [CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253) (CVSS 8.8), [CVE-2026-33573](https://nvd.nist.gov/vuln/detail/CVE-2026-33573) (workspace boundary bypass), the [ClawHavoc supply chain attack](https://www.antiy.net/p/clawhavoc-analysis-of-large-scale-poisoning-campaign-targeting-the-openclaw-skill-market-for-ai-agents/) (1,184 malicious skills), and [Microsoft's security advisory](https://www.microsoft.com/en-us/security/blog/2026/02/19/running-openclaw-safely-identity-isolation-runtime-risk/) recommending VM isolation for all OpenClaw deployments.
+
+AxonFlow adds the governance layer that OpenClaw's local safety controls don't cover: centralized policy enforcement across all tools, PII/secrets detection and redaction, audit trails with decision context, and enterprise compliance evidence.
 
 ## What It Does
 
