@@ -55,11 +55,22 @@ export function createBeforeToolCallHandler(
     const connectorType = deriveConnectorType(event.toolName);
     const statement = JSON.stringify(event.params);
 
-    const check = await client.mcpCheckInput(
-      connectorType,
-      statement,
-      config.defaultOperation ?? "execute",
-    );
+    let check;
+    try {
+      check = await client.mcpCheckInput(
+        connectorType,
+        statement,
+        config.defaultOperation ?? "execute",
+      );
+    } catch (err) {
+      if (config.onError === "allow") {
+        return undefined; // Fail-open: allow tool execution
+      }
+      return {
+        block: true,
+        blockReason: `AxonFlow unreachable: ${err instanceof Error ? err.message : "unknown error"}`,
+      };
+    }
 
     if (!check.allowed) {
       return {

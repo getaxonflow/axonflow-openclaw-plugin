@@ -37,6 +37,16 @@ export interface AxonFlowPluginConfig {
    * Defaults to "execute". Set to "query" for read-only tool setups.
    */
   defaultOperation?: string;
+
+  /**
+   * Behavior when AxonFlow is unreachable (network error, timeout).
+   * - "block" (default): treat errors as policy blocks (fail-closed)
+   * - "allow": allow tool execution to proceed (fail-open)
+   *
+   * Fail-open prevents AxonFlow outages from breaking all tool execution.
+   * Fail-closed is safer but can cascade AxonFlow failures to the agent.
+   */
+  onError?: "block" | "allow";
 }
 
 /** Validate plugin config and return defaults. */
@@ -81,6 +91,8 @@ export function resolveConfig(
       typeof raw["defaultOperation"] === "string"
         ? raw["defaultOperation"]
         : "execute",
+    onError:
+      raw["onError"] === "allow" ? "allow" : "block",
   };
 }
 

@@ -220,7 +220,7 @@ describe("AxonFlowClient", () => {
       expect(body.tool_name).toBe("web_fetch");
       expect(body.tool_type).toBe("openclaw");
       expect(body.input).toEqual({ url: "https://x.com" });
-      expect(body.output).toEqual({ result: "result" });
+      expect(body.output).toEqual({ result: '"result"' });
       expect(body.success).toBe(true);
       expect(body.error_message).toBeUndefined();
       expect(body.duration_ms).toBe(100);

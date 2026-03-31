@@ -18,12 +18,13 @@
  *         - web_fetch
  *         - message
  *
- * What this plugin does:
+ * What this plugin does (6 hooks):
  * 1. before_tool_call: evaluates tool arguments against AxonFlow policies
- *    (blocks dangerous commands, detects PII, enforces rate limits)
- * 2. tool_result_persist: scans tool results for PII/secrets and redacts
- *    before they reach the session transcript
- * 3. after_tool_call: logs every tool execution to AxonFlow's audit trail
+ * 2. tool_result_persist: scans tool results for PII/secrets, redacts
+ * 3. after_tool_call: logs tool execution to AxonFlow's audit trail
+ * 4. message_sending: scans outbound messages, cancels or redacts PII
+ * 5. llm_input: records prompt, model, provider to audit trail
+ * 6. llm_output: records response, token usage, latency to audit trail
  */
 
 import { AxonFlowClient } from "./axonflow-client.js";

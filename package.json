@@ -60,5 +60,10 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependenciesMeta": {
+    "@axonflow/sdk": {
+      "optional": true
+    }
   }
 }

@@ -85,7 +85,20 @@ export function createOutputGuardHandler(
     }
 
     const connectorType = deriveConnectorType(toolName);
-    const check = await client.mcpCheckOutput(connectorType, content);
+    let check;
+    try {
+      check = await client.mcpCheckOutput(connectorType, content);
+    } catch {
+      if (config.onError === "allow") {
+        return undefined; // Fail-open: allow result to persist
+      }
+      return {
+        message: {
+          ...event.message,
+          content: "[AxonFlow] Output check failed: AxonFlow unreachable",
+        },
+      };
+    }
 
     if (!check.allowed) {
       // Block: replace the message content with the block reason

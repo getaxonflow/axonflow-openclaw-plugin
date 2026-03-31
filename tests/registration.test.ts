@@ -5,7 +5,7 @@ const mockFetch = jest.fn();
 global.fetch = mockFetch as unknown as typeof fetch;
 
 describe("registerAxonFlowGovernance", () => {
-  it("registers all three hooks", () => {
+  it("registers all six hooks", () => {
     const hooks: Array<{ event: string; handler: unknown; priority?: number }> = [];
     const api = {
       pluginConfig: {

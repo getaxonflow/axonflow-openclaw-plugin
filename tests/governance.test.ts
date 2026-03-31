@@ -232,6 +232,28 @@ describe("createBeforeToolCallHandler", () => {
       "query",
     );
   });
+
+  it("blocks on network error when onError=block (default)", async () => {
+    const client = mockClient({});
+    (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const handler = createBeforeToolCallHandler(client, baseConfig());
+
+    const result = await handler({ toolName: "web_fetch", params: {} });
+
+    expect(result?.block).toBe(true);
+    expect(result?.blockReason).toContain("ECONNREFUSED");
+  });
+
+  it("allows on network error when onError=allow", async () => {
+    const client = mockClient({});
+    (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(new Error("timeout"));
+    const config = baseConfig({ onError: "allow" as const });
+    const handler = createBeforeToolCallHandler(client, config);
+
+    const result = await handler({ toolName: "web_fetch", params: {} });
+
+    expect(result).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
