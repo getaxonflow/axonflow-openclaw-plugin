@@ -217,7 +217,7 @@ export class AxonFlowClient {
           tool_name: `${provider}.${model}`,
           tool_type: "llm_call",
           input: { query: query.slice(0, 500) },
-          output: { response_summary: responseSummary.slice(0, 200) },
+          output: { response_summary: responseSummary.slice(0, 200), token_usage: tokenUsage },
           success: true,
           duration_ms: latencyMs,
         }),
