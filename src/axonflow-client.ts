@@ -157,9 +157,10 @@ export class AxonFlowClient {
         body: JSON.stringify({
           tool_name: toolName,
           tool_type: "openclaw",
-          tool_input: params,
-          result: result != null ? String(result).slice(0, 500) : undefined,
-          error,
+          input: params,
+          output: result != null ? { result: String(result).slice(0, 500) } : undefined,
+          success: error == null,
+          error_message: error,
           duration_ms: durationMs,
         }),
       });
