@@ -5,12 +5,16 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  DO_NOT_TRACK: '1'
+
 jobs:
   publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -21,16 +25,87 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update version in package.json
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          npm version ${VERSION} --no-git-tag-version --allow-same-version
+          echo "Updated version to ${VERSION}"
+          grep '"version"' package.json
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
-
       - name: Test
         run: npm test
+
+      - name: Build
+        run: npm run build
 
       - name: Publish
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  create-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## @axonflow/openclaw ${{ github.ref_name }}
+
+            ### Installation
+
+            ```bash
+            npm install @axonflow/openclaw
+            ```
+
+            Or via OpenClaw plugin manager:
+
+            ```bash
+            openclaw plugins install @axonflow/openclaw
+            ```
+
+            ### Changes
+
+            See [CHANGELOG.md](https://github.com/getaxonflow/axonflow-openclaw-plugin/blob/main/CHANGELOG.md) for full release details.
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-publish:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Wait for npm propagation
+        run: sleep 30
+
+      - name: Verify package on npm
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i: Checking npm for @axonflow/openclaw@${VERSION}..."
+            if npm view @axonflow/openclaw@${VERSION} version 2>/dev/null | grep -q "${VERSION}"; then
+              echo "SUCCESS: @axonflow/openclaw@${VERSION} is available on npm"
+              exit 0
+            fi
+            echo "Not yet available, waiting 30 seconds..."
+            sleep 30
+          done
+          echo "FAILURE: @axonflow/openclaw@${VERSION} not found on npm after 5 attempts"
+          exit 1

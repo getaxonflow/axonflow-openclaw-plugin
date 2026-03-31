@@ -1,5 +1,5 @@
 {
-  "name": "@axonflow/openclaw-plugin",
+  "name": "@axonflow/openclaw",
   "version": "0.1.0",
   "description": "Policy enforcement, approval gates, and audit trails for OpenClaw — govern tool inputs before execution, scan outbound messages for PII/secrets, and record agent activity for review and compliance",
   "type": "module",
@@ -20,6 +20,8 @@
     "openclaw.plugin.json"
   ],
   "scripts": {
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
     "build": "tsc",
     "lint": "eslint src/ tests/",
     "test": "jest",
