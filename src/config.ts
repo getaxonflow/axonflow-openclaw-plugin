@@ -60,7 +60,7 @@ export function resolveConfig(
   }
 
   const clientSecret = raw["clientSecret"];
-  if (typeof clientSecret !== "string") {
+  if (typeof clientSecret !== "string" || !clientSecret) {
     throw new Error("AxonFlow plugin: 'clientSecret' is required");
   }
 

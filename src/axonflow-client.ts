@@ -26,6 +26,31 @@ export interface AuditToolCallResponse {
   audit_id?: string;
 }
 
+/**
+ * Extract policies_evaluated count from API response.
+ * The platform returns this as a top-level number on 403 responses,
+ * or inside policy_info.policies_evaluated (which can be a number or
+ * array of policy names) on 200 responses.
+ */
+function extractPoliciesEvaluated(data: Record<string, unknown>): number {
+  // Top-level number (common in 403 responses)
+  if (typeof data["policies_evaluated"] === "number") {
+    return data["policies_evaluated"];
+  }
+  // Inside policy_info (common in 200 responses)
+  const policyInfo = data["policy_info"];
+  if (typeof policyInfo === "object" && policyInfo !== null) {
+    const pi = policyInfo as Record<string, unknown>;
+    if (typeof pi["policies_evaluated"] === "number") {
+      return pi["policies_evaluated"];
+    }
+    if (Array.isArray(pi["policies_evaluated"])) {
+      return pi["policies_evaluated"].length;
+    }
+  }
+  return 0;
+}
+
 export class AxonFlowClient {
   private readonly endpoint: string;
   private readonly authHeader: string;
@@ -64,11 +89,12 @@ export class AxonFlowClient {
       return {
         allowed: false,
         block_reason:
-          typeof data["error"] === "string" ? data["error"] : "Blocked by policy",
-        policies_evaluated:
-          typeof data["policies_evaluated"] === "number"
-            ? data["policies_evaluated"]
-            : 0,
+          typeof data["block_reason"] === "string"
+            ? data["block_reason"]
+            : typeof data["error"] === "string"
+              ? data["error"]
+              : "Blocked by policy",
+        policies_evaluated: extractPoliciesEvaluated(data),
       };
     }
 
@@ -84,10 +110,7 @@ export class AxonFlowClient {
         typeof data["block_reason"] === "string"
           ? data["block_reason"]
           : undefined,
-      policies_evaluated:
-        typeof data["policies_evaluated"] === "number"
-          ? data["policies_evaluated"]
-          : 0,
+      policies_evaluated: extractPoliciesEvaluated(data),
     };
   }
 
@@ -114,8 +137,12 @@ export class AxonFlowClient {
       return {
         allowed: false,
         block_reason:
-          typeof data["error"] === "string" ? data["error"] : "Blocked by policy",
-        policies_evaluated: 0,
+          typeof data["block_reason"] === "string"
+            ? data["block_reason"]
+            : typeof data["error"] === "string"
+              ? data["error"]
+              : "Blocked by policy",
+        policies_evaluated: extractPoliciesEvaluated(data),
       };
     }
 
@@ -132,10 +159,7 @@ export class AxonFlowClient {
           ? data["block_reason"]
           : undefined,
       redacted_data: data["redacted_data"] ?? undefined,
-      policies_evaluated:
-        typeof data["policies_evaluated"] === "number"
-          ? data["policies_evaluated"]
-          : 0,
+      policies_evaluated: extractPoliciesEvaluated(data),
     };
   }
 

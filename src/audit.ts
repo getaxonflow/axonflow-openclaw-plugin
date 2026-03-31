@@ -31,12 +31,16 @@ export function createAfterToolCallHandler(
       return;
     }
 
-    await client.auditToolCall(
-      event.toolName,
-      event.params,
-      event.result,
-      event.error,
-      event.durationMs,
-    );
+    try {
+      await client.auditToolCall(
+        event.toolName,
+        event.params,
+        event.result,
+        event.error,
+        event.durationMs,
+      );
+    } catch {
+      // Fire-and-forget: audit failures must not interfere with tool pipeline
+    }
   };
 }

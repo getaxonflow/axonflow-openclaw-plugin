@@ -1,7 +1,7 @@
 {
   "name": "@axonflow/openclaw-plugin",
   "version": "0.1.0",
-  "description": "AxonFlow governance plugin for OpenClaw — policy enforcement, PII detection, and audit trails for tool execution",
+  "description": "AxonFlow governance plugin for OpenClaw \u2014 policy enforcement, PII detection, and audit trails for tool execution",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -56,5 +56,8 @@
     "ts-jest": "^29.1.0",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.58.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
