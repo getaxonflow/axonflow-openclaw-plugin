@@ -1,5 +1,4 @@
 import { createBeforeToolCallHandler, deriveConnectorType } from "../src/governance.js";
-import { createOutputGuardHandler, extractTextContent } from "../src/output-guard.js";
 import { createAfterToolCallHandler } from "../src/audit.js";
 import { resolveConfig, shouldGovernTool } from "../src/config.js";
 import { AxonFlowClient } from "../src/axonflow-client.js";
@@ -13,21 +12,12 @@ function mockClient(overrides: {
   checkInputAllowed?: boolean;
   checkInputBlockReason?: string;
   checkInputPoliciesEvaluated?: number;
-  checkOutputAllowed?: boolean;
-  checkOutputBlockReason?: string;
-  checkOutputRedactedData?: unknown;
 }) {
   return {
     mcpCheckInput: jest.fn().mockResolvedValue({
       allowed: overrides.checkInputAllowed ?? true,
       block_reason: overrides.checkInputBlockReason,
       policies_evaluated: overrides.checkInputPoliciesEvaluated ?? 76,
-    }),
-    mcpCheckOutput: jest.fn().mockResolvedValue({
-      allowed: overrides.checkOutputAllowed ?? true,
-      block_reason: overrides.checkOutputBlockReason,
-      redacted_data: overrides.checkOutputRedactedData,
-      policies_evaluated: 76,
     }),
     auditToolCall: jest.fn().mockResolvedValue(undefined),
     healthCheck: jest.fn().mockResolvedValue(true),
@@ -253,141 +243,6 @@ describe("createBeforeToolCallHandler", () => {
     const result = await handler({ toolName: "web_fetch", params: {} });
 
     expect(result).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// tool_result_persist (Output Governance)
-// ---------------------------------------------------------------------------
-
-describe("extractTextContent", () => {
-  it("extracts string content", () => {
-    expect(extractTextContent({ content: "hello world" })).toBe("hello world");
-  });
-
-  it("extracts from content array with text objects", () => {
-    const msg = {
-      content: [
-        { type: "text", text: "Part 1" },
-        { type: "text", text: "Part 2" },
-      ],
-    };
-    expect(extractTextContent(msg)).toBe("Part 1 Part 2");
-  });
-
-  it("extracts from string array", () => {
-    expect(extractTextContent({ content: ["a", "b"] })).toBe("a b");
-  });
-
-  it("handles null/undefined content", () => {
-    expect(extractTextContent({})).toBe("");
-    expect(extractTextContent({ content: null })).toBe("");
-  });
-
-  it("JSON-stringifies non-string non-array content", () => {
-    expect(extractTextContent({ content: { key: "val" } })).toBe('{"key":"val"}');
-  });
-});
-
-describe("createOutputGuardHandler", () => {
-  it("allows clean output", async () => {
-    const client = mockClient({ checkOutputAllowed: true });
-    const handler = createOutputGuardHandler(client, baseConfig());
-
-    const result = await handler({
-      toolName: "search",
-      message: { content: "Clean search results" },
-    });
-
-    expect(result).toBeUndefined();
-  });
-
-  it("redacts PII in output", async () => {
-    const client = mockClient({
-      checkOutputAllowed: true,
-      checkOutputRedactedData: "Name: John, SSN: ***-**-6789",
-    });
-    const handler = createOutputGuardHandler(client, baseConfig());
-
-    const result = await handler({
-      toolName: "search",
-      message: { content: "Name: John, SSN: 123-45-6789" },
-    });
-
-    expect(result).toBeDefined();
-    expect(result?.message?.["content"]).toBe("Name: John, SSN: ***-**-6789");
-  });
-
-  it("blocks output when policy denies", async () => {
-    const client = mockClient({
-      checkOutputAllowed: false,
-      checkOutputBlockReason: "Exfiltration detected",
-    });
-    const handler = createOutputGuardHandler(client, baseConfig());
-
-    const result = await handler({
-      toolName: "search",
-      message: { content: "10000 rows of customer data" },
-    });
-
-    expect(result?.message?.["content"]).toContain("blocked");
-    expect(result?.message?.["content"]).toContain("Exfiltration detected");
-  });
-
-  it("skips synthetic messages", async () => {
-    const client = mockClient({});
-    const handler = createOutputGuardHandler(client, baseConfig());
-
-    const result = await handler({
-      toolName: "search",
-      message: { content: "synthetic" },
-      isSynthetic: true,
-    });
-
-    expect(result).toBeUndefined();
-    expect(client.mcpCheckOutput).not.toHaveBeenCalled();
-  });
-
-  it("skips empty content", async () => {
-    const client = mockClient({});
-    const handler = createOutputGuardHandler(client, baseConfig());
-
-    const result = await handler({
-      toolName: "search",
-      message: {},
-    });
-
-    expect(result).toBeUndefined();
-    expect(client.mcpCheckOutput).not.toHaveBeenCalled();
-  });
-
-  it("skips excluded tools", async () => {
-    const client = mockClient({});
-    const config = baseConfig({ excludedTools: ["safe"] });
-    const handler = createOutputGuardHandler(client, config);
-
-    const result = await handler({
-      toolName: "safe",
-      message: { content: "data" },
-    });
-
-    expect(result).toBeUndefined();
-    expect(client.mcpCheckOutput).not.toHaveBeenCalled();
-  });
-
-  it("uses correct connector type in output check", async () => {
-    const client = mockClient({ checkOutputAllowed: true });
-    const handler = createOutputGuardHandler(client, baseConfig());
-
-    await handler({
-      toolName: "web_fetch",
-      message: { content: "response data" },
-    });
-
-    expect(client.mcpCheckOutput).toHaveBeenCalledWith(
-      "openclaw.web_fetch",
-      "response data",
-    );
   });
 });
 

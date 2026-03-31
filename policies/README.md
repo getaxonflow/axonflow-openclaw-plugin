@@ -14,18 +14,18 @@ AxonFlow adds centralized governance at every data boundary: tool inputs, tool o
 |------|------|-----------|
 | 1 | Arbitrary command execution (reverse shells, crypto miners, rm -rf) | `before_tool_call` — exec command blocking |
 | 2 | Data exfiltration via web_fetch/browser to external URLs | `before_tool_call` — PII/credential detection in URLs |
-| 3 | PII/credential leakage in tool outputs | `tool_result_persist` — PII redaction |
-| 4 | Indirect prompt injection via ingested content | `tool_result_persist` — injection pattern detection |
+| 3 | PII/credential leakage in outbound messages | `message_sending` — PII redaction before delivery. Tool result transcript scanning pending async hook support. |
+| 4 | Indirect prompt injection via ingested content | `before_tool_call` — input validation. Transcript-level injection detection pending async hook support. |
 | 5 | Outbound message exfiltration (secrets to unauthorized channels) | `message_sending` — PII/secret scanning |
 | 6 | Malicious skill supply chain (ClawHavoc-style) | `after_tool_call` — audit trail for forensics |
 | 7 | Memory/context poisoning (SOUL.md/MEMORY.md modification) | `before_tool_call` — block writes to agent config files |
-| 8 | Credential exposure in plaintext config/logs | `tool_result_persist` — secret pattern detection |
+| 8 | Credential exposure in outbound messages | `message_sending` — secret pattern detection before delivery. Transcript-level detection pending async hook support. |
 | 9 | Cross-tenant context leakage | Tenant-scoped policy enforcement |
 | 10 | Privilege escalation via workspace boundary bypass (CVE-2026-33573) | `before_tool_call` — path traversal detection |
 
 ## What's Protected Automatically
 
-These protections require NO additional setup. AxonFlow's 76+ built-in system policies apply automatically when the plugin calls `mcp_check_input` and `mcp_check_output`:
+These protections require NO additional setup. AxonFlow's 76+ built-in system policies apply automatically when the plugin calls `mcp_check_input` (tool inputs) and `mcp_check_output` (outbound messages):
 
 | Protection | System Policies |
 |-----------|----------------|
