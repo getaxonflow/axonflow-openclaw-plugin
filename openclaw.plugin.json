@@ -1,0 +1,76 @@
+{
+  "id": "axonflow-governance",
+  "uiHints": {
+    "endpoint": {
+      "label": "AxonFlow Endpoint",
+      "placeholder": "http://localhost:8080",
+      "help": "URL of your AxonFlow agent gateway"
+    },
+    "clientId": {
+      "label": "Client ID",
+      "placeholder": "your-client-id",
+      "help": "AxonFlow authentication client ID"
+    },
+    "clientSecret": {
+      "label": "Client Secret",
+      "sensitive": true,
+      "placeholder": "your-secret",
+      "help": "AxonFlow authentication client secret"
+    },
+    "highRiskTools": {
+      "label": "High-Risk Tools",
+      "placeholder": "web_fetch, message",
+      "help": "Comma-separated tool names requiring human approval even when policy allows"
+    },
+    "governedTools": {
+      "label": "Governed Tools",
+      "placeholder": "(empty = all tools)",
+      "help": "Only govern these tools. Empty means all tools are governed.",
+      "advanced": true
+    },
+    "excludedTools": {
+      "label": "Excluded Tools",
+      "placeholder": "(empty = none excluded)",
+      "help": "Exclude these tools from governance. Takes precedence over governedTools.",
+      "advanced": true
+    },
+    "defaultOperation": {
+      "label": "Default Operation",
+      "placeholder": "execute",
+      "help": "Operation type for mcp_check_input: 'execute' (default) or 'query' for read-only tools",
+      "advanced": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoint": {
+        "type": "string"
+      },
+      "clientId": {
+        "type": "string"
+      },
+      "clientSecret": {
+        "type": "string"
+      },
+      "highRiskTools": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "governedTools": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "excludedTools": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "defaultOperation": {
+        "type": "string",
+        "enum": ["execute", "query"]
+      }
+    },
+    "required": ["endpoint", "clientId", "clientSecret"]
+  }
+}
