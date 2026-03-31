@@ -103,7 +103,7 @@ Tool result persisted to session transcript
     ▼
 ┌─────────────────────────────────────────────┐
 │ message_sending (governance)                │
-│ → mcp_check_output(openclaw.message, text)  │
+│ → mcp_check_output(openclaw.message_sending) │
 │ → CANCEL / REDACT / ALLOW                   │
 └─────────────────────────────────────────────┘
     │

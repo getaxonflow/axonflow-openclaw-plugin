@@ -75,4 +75,21 @@ describe("createMessageSendingHandler", () => {
     const result = await handler({ to: "user", content: "original" });
     expect(result?.content).toBe('{"text":"Redacted content"}');
   });
+
+  it("cancels message on network error when onError=block (default)", async () => {
+    const client = mockClient();
+    (client.mcpCheckOutput as jest.Mock).mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const handler = createMessageSendingHandler(client, baseConfig);
+    const result = await handler({ to: "user", content: "Hello" });
+    expect(result).toEqual({ cancel: true });
+  });
+
+  it("allows message on network error when onError=allow", async () => {
+    const client = mockClient();
+    (client.mcpCheckOutput as jest.Mock).mockRejectedValueOnce(new Error("timeout"));
+    const config = { ...baseConfig, onError: "allow" as const };
+    const handler = createMessageSendingHandler(client, config);
+    const result = await handler({ to: "user", content: "Hello" });
+    expect(result).toBeUndefined();
+  });
 });

@@ -173,6 +173,38 @@ STATUS=$(echo "$RESPONSE" | tail -1)
 
 [ "$STATUS" = "403" ]
 assert_check "SQLi blocked by policy (HTTP $STATUS)" "$([ "$STATUS" = "403" ] && echo true || echo false)"
+
+# Test audit/tool-call endpoint (critical: must work through agent proxy)
+AUDIT_RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" \
+    -H "Content-Type: application/json" \
+    -H "X-Tenant-ID: $AXONFLOW_CLIENT_ID" \
+    -d '{"tool_name": "e2e_test_tool", "tool_type": "openclaw", "input": {"test": true}, "output": {"result": "ok"}, "success": true, "duration_ms": 100}' \
+    "$AXONFLOW_ENDPOINT/api/v1/audit/tool-call")
+AUDIT_STATUS=$(echo "$AUDIT_RESPONSE" | tail -1)
+AUDIT_BODY=$(echo "$AUDIT_RESPONSE" | sed '$d')
+
+assert_check "audit/tool-call accessible via agent proxy (HTTP $AUDIT_STATUS)" "$([ "$AUDIT_STATUS" = "200" ] || [ "$AUDIT_STATUS" = "201" ] && echo true || echo false)"
+
+if [ "$AUDIT_STATUS" != "200" ] && [ "$AUDIT_STATUS" != "201" ]; then
+    echo -e "  ${YELLOW}DEBUG${NC}: audit/tool-call response: $AUDIT_STATUS $AUDIT_BODY"
+fi
+
+# Test audit/tool-call with LLM call type (used by llm_output hook)
+LLM_AUDIT_RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" \
+    -H "Content-Type: application/json" \
+    -H "X-Tenant-ID: $AXONFLOW_CLIENT_ID" \
+    -d '{"tool_name": "anthropic.claude-sonnet-4-20250514", "tool_type": "llm_call", "input": {"query": "test prompt"}, "output": {"response_summary": "test response", "token_usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}, "success": true, "duration_ms": 500}' \
+    "$AXONFLOW_ENDPOINT/api/v1/audit/tool-call")
+LLM_AUDIT_STATUS=$(echo "$LLM_AUDIT_RESPONSE" | tail -1)
+
+assert_check "audit/tool-call accepts llm_call type (HTTP $LLM_AUDIT_STATUS)" "$([ "$LLM_AUDIT_STATUS" = "200" ] || [ "$LLM_AUDIT_STATUS" = "201" ] && echo true || echo false)"
+
+if [ "$LLM_AUDIT_STATUS" != "200" ] && [ "$LLM_AUDIT_STATUS" != "201" ]; then
+    LLM_AUDIT_BODY=$(echo "$LLM_AUDIT_RESPONSE" | sed '$d')
+    echo -e "  ${YELLOW}DEBUG${NC}: llm audit response: $LLM_AUDIT_STATUS $LLM_AUDIT_BODY"
+fi
 echo ""
 
 # ============================================================
