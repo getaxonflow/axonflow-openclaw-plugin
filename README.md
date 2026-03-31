@@ -93,4 +93,4 @@ See [policies/README.md](./policies/README.md) for recommended policy setup for 
 
 ## License
 
-BSL-1.1 (Business Source License)
+MIT

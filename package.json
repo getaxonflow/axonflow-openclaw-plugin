@@ -15,7 +15,8 @@
     "dist",
     "policies",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
@@ -35,7 +36,7 @@
     "tool-governance"
   ],
   "author": "AxonFlow Team <team@getaxonflow.com>",
-  "license": "BSL-1.1",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/getaxonflow/axonflow-openclaw-plugin.git"
