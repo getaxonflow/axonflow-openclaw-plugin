@@ -40,6 +40,19 @@ What is not protected yet:
 
 If OpenClaw adds async support for `tool_result_persist`, AxonFlow can add transcript/result scanning immediately. Upstream issue: [openclaw/openclaw#58558](https://github.com/openclaw/openclaw/issues/58558).
 
+## Prerequisites
+
+This plugin connects to [AxonFlow](https://github.com/getaxonflow/axonflow), a self-hosted governance platform, for policy evaluation and audit logging. AxonFlow must be running before you use the plugin. Your data stays on your infrastructure.
+
+```bash
+# Start AxonFlow (Docker — runs entirely on your machine)
+git clone https://github.com/getaxonflow/axonflow.git
+cd axonflow
+docker compose up -d
+```
+
+See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for full setup options.
+
 ## Install
 
 ```bash
@@ -134,11 +147,6 @@ Opt out:
 - `AXONFLOW_TELEMETRY=off`
 
 Telemetry is automatically suppressed for localhost/loopback endpoints.
-
-## Prerequisites
-
-- [AxonFlow](https://github.com/getaxonflow/axonflow) running (Docker or production)
-- OpenClaw 1.0+
 
 ## Starter Policies
 
