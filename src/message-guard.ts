@@ -8,6 +8,12 @@
 
 import type { AxonFlowClient } from "./axonflow-client.js";
 import type { AxonFlowPluginConfig } from "./config.js";
+import {
+  recordMessageScanned,
+  recordMessageCancelled,
+  recordMessageRedacted,
+  recordGovernanceError,
+} from "./metrics.js";
 
 /**
  * Create the message_sending hook handler.
@@ -29,6 +35,8 @@ export function createMessageSendingHandler(
       return undefined;
     }
 
+    recordMessageScanned();
+
     let check;
     try {
       check = await client.mcpCheckOutput(
@@ -36,20 +44,23 @@ export function createMessageSendingHandler(
         event.content,
       );
     } catch {
+      recordGovernanceError();
       if (config.onError === "allow") {
         return undefined; // Fail-open: allow message through ungoverned
       }
-      // Fail-closed: cancel the message rather than send ungoverned
+      recordMessageCancelled();
       return { cancel: true };
     }
 
     if (!check.allowed) {
+      recordMessageCancelled();
       return {
         cancel: true,
       };
     }
 
     if (check.redacted_data != null) {
+      recordMessageRedacted();
       return {
         content:
           typeof check.redacted_data === "string"

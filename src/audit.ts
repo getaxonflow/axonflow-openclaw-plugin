@@ -8,6 +8,7 @@
 import type { AxonFlowClient } from "./axonflow-client.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import { shouldGovernTool } from "./config.js";
+import { recordAuditEventSent } from "./metrics.js";
 
 /**
  * Create the after_tool_call hook handler.
@@ -39,6 +40,7 @@ export function createAfterToolCallHandler(
         event.error,
         event.durationMs,
       );
+      recordAuditEventSent();
     } catch {
       // Fire-and-forget: audit failures must not interfere with tool pipeline
     }
