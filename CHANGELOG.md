@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- Replaced polynomial regex in endpoint URL normalization with iterative loop (ReDoS mitigation).
+- Added explicit `permissions: contents: read` to CI workflow (least privilege).
+- Removed hardcoded Base64 auth string from test file (secret scanning false positive).
+
 ## [0.2.0] - 2026-04-01 (initial public release)
 
 ### Added
