@@ -1,5 +1,8 @@
+import { readFileSync } from "fs";
 import { sendTelemetryPing } from "../src/telemetry.js";
 import { VERSION } from "../src/index.js";
+
+const packageJson = JSON.parse(readFileSync("./package.json", "utf-8")) as { version: string };
 
 const originalEnv = { ...process.env };
 const originalFetch = global.fetch;
@@ -35,9 +38,7 @@ afterAll(() => {
 
 describe("VERSION constant", () => {
   it("matches package.json version", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pkgVersion = require("../package.json").version;
-    expect(VERSION).toBe(pkgVersion);
+    expect(VERSION).toBe(packageJson.version);
   });
 });
 

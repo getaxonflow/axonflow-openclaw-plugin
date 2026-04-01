@@ -133,7 +133,7 @@ Opt out:
 - `DO_NOT_TRACK=1` (standard)
 - `AXONFLOW_TELEMETRY=off`
 
-Telemetry is automatically suppressed for `localhost` endpoints.
+Telemetry is automatically suppressed for localhost/loopback endpoints.
 
 ## Prerequisites
 
