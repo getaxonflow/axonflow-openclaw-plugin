@@ -42,7 +42,7 @@ If OpenClaw adds async support for `tool_result_persist`, AxonFlow can add trans
 
 ## Prerequisites
 
-This plugin connects to [AxonFlow](https://github.com/getaxonflow/axonflow), a self-hosted governance platform, for policy evaluation and audit logging. You need AxonFlow running before installing the plugin. Your data stays on your infrastructure.
+This plugin connects to [AxonFlow](https://github.com/getaxonflow/axonflow), a self-hosted governance platform, for policy evaluation and audit logging. AxonFlow must be running before you use the plugin. Your data stays on your infrastructure.
 
 ```bash
 # Start AxonFlow (Docker — runs entirely on your machine)
