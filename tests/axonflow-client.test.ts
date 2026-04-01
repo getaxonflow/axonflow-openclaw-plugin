@@ -118,8 +118,8 @@ describe("AxonFlowClient", () => {
 
       const call = mockFetch.mock.calls[0];
       const headers = (call?.[1] as RequestInit).headers as Record<string, string>;
-      // base64("test-client:test-secret") = "dGVzdC1jbGllbnQ6dGVzdC1zZWNyZXQ="
-      expect(headers["Authorization"]).toBe("Basic dGVzdC1jbGllbnQ6dGVzdC1zZWNyZXQ=");
+      const expectedAuth = `Basic ${Buffer.from("test-client:test-secret").toString("base64")}`;
+      expect(headers["Authorization"]).toBe(expectedAuth);
       expect(headers["X-Tenant-ID"]).toBe("test-client");
     });
 
