@@ -8,6 +8,13 @@
 import type { AxonFlowClient } from "./axonflow-client.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import { shouldGovernTool } from "./config.js";
+import {
+  recordToolCallEvaluated,
+  recordToolCallBlocked,
+  recordToolCallApprovalRequired,
+  recordToolCallAllowed,
+  recordGovernanceError,
+} from "./metrics.js";
 
 /** Result type matching OpenClaw's PluginHookBeforeToolCallResult. */
 export interface BeforeToolCallResult {
@@ -52,6 +59,7 @@ export function createBeforeToolCallHandler(
       return undefined;
     }
 
+    recordToolCallEvaluated();
     const connectorType = deriveConnectorType(event.toolName);
     const statement = JSON.stringify(event.params);
 
@@ -63,9 +71,12 @@ export function createBeforeToolCallHandler(
         config.defaultOperation ?? "execute",
       );
     } catch (err) {
+      recordGovernanceError();
       if (config.onError === "allow") {
+        recordToolCallAllowed();
         return undefined; // Fail-open: allow tool execution
       }
+      recordToolCallBlocked();
       return {
         block: true,
         blockReason: `AxonFlow unreachable: ${err instanceof Error ? err.message : "unknown error"}`,
@@ -73,6 +84,7 @@ export function createBeforeToolCallHandler(
     }
 
     if (!check.allowed) {
+      recordToolCallBlocked();
       return {
         block: true,
         blockReason: check.block_reason ?? "Blocked by AxonFlow policy",
@@ -84,6 +96,7 @@ export function createBeforeToolCallHandler(
       config.highRiskTools &&
       config.highRiskTools.includes(event.toolName)
     ) {
+      recordToolCallApprovalRequired();
       return {
         requireApproval: {
           title: `AxonFlow: ${event.toolName} requires approval`,
@@ -95,6 +108,7 @@ export function createBeforeToolCallHandler(
       };
     }
 
+    recordToolCallAllowed();
     return undefined;
   };
 }

@@ -7,6 +7,8 @@ import {
   resolveConfig,
   shouldGovernTool,
   deriveConnectorType,
+  getMetrics,
+  VERSION,
 } from "../src/index.js";
 
 describe("package exports", () => {
@@ -44,5 +46,17 @@ describe("package exports", () => {
   it("exports deriveConnectorType", () => {
     expect(deriveConnectorType).toBeDefined();
     expect(deriveConnectorType("test")).toBe("openclaw.test");
+  });
+
+  it("exports getMetrics", () => {
+    expect(getMetrics).toBeDefined();
+    const m = getMetrics();
+    expect(m.toolCallsEvaluated).toBeDefined();
+  });
+
+  it("exports VERSION", () => {
+    expect(VERSION).toBeDefined();
+    expect(typeof VERSION).toBe("string");
+    expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });

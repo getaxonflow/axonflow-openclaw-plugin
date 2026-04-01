@@ -37,33 +37,29 @@ import { createBeforeToolCallHandler } from "./governance.js";
 import { createAfterToolCallHandler } from "./audit.js";
 import { createMessageSendingHandler } from "./message-guard.js";
 import { createLlmInputHandler, createLlmOutputHandler } from "./llm-audit.js";
+import { sendTelemetryPing } from "./telemetry.js";
+import { resetMetrics } from "./metrics.js";
+
+/** Plugin version — update before each release. */
+export const VERSION = "0.2.0";
 
 // Re-export for external consumers
 export { AxonFlowClient } from "./axonflow-client.js";
 export type { AxonFlowPluginConfig } from "./config.js";
 export { resolveConfig, shouldGovernTool } from "./config.js";
 export { deriveConnectorType } from "./governance.js";
+export { getMetrics, type GovernanceMetrics } from "./metrics.js";
 
 /**
  * Plugin registration function.
  *
  * Called by OpenClaw when the plugin is loaded. Reads configuration,
- * creates the AxonFlow client, and registers five governance/audit hooks.
- *
- * Compatible with OpenClaw's `definePluginEntry` or direct registration:
- *
- *   // With definePluginEntry:
- *   export default definePluginEntry({
- *     id: "axonflow-governance",
- *     register: registerAxonFlowGovernance,
- *   });
- *
- *   // Or direct:
- *   api.registerHook("before_tool_call", handler);
+ * creates the AxonFlow client, verifies connectivity, registers five
+ * governance/audit hooks, and sends a telemetry ping.
  */
 export function registerAxonFlowGovernance(api: {
   pluginConfig?: Record<string, unknown>;
-  logger: { info: (msg: string) => void; error: (msg: string) => void };
+  logger: { info: (msg: string) => void; error: (msg: string) => void; warn?: (msg: string) => void };
   on: (
     hookName: string,
     handler: (...args: any[]) => any,
@@ -73,10 +69,27 @@ export function registerAxonFlowGovernance(api: {
   const config = resolveConfig(api.pluginConfig);
   const client = new AxonFlowClient(config);
 
+  // Reset metrics on each registration (handles hot-reload)
+  resetMetrics();
+
   api.logger.info(
     `AxonFlow governance active: endpoint=${config.endpoint}, ` +
       `highRiskTools=[${(config.highRiskTools ?? []).join(",")}]`,
   );
+
+  // Startup health check (fire-and-forget, non-blocking)
+  void client.healthCheck().then((healthy) => {
+    if (!healthy) {
+      const msg = `AxonFlow health check failed: ${config.endpoint} is unreachable. Governance hooks will ${config.onError === "allow" ? "fail-open (allow through)" : "fail-closed (block)"}`;
+      if (api.logger.warn) {
+        api.logger.warn(msg);
+      } else {
+        api.logger.error(msg);
+      }
+    }
+  }).catch(() => {
+    // Silent — health check should never prevent plugin registration
+  });
 
   // Hook 1: Input governance (before tool execution)
   const beforeToolCall = createBeforeToolCallHandler(client, config);
@@ -97,6 +110,15 @@ export function registerAxonFlowGovernance(api: {
 
   const llmOutput = createLlmOutputHandler(client, config, llmCallState);
   api.on("llm_output", llmOutput, { priority: 90 });
+
+  // Telemetry (fire-and-forget, respects DO_NOT_TRACK=1)
+  sendTelemetryPing({
+    endpoint: config.endpoint,
+    pluginVersion: VERSION,
+    hookCount: 5,
+    highRiskToolCount: (config.highRiskTools ?? []).length,
+    onError: config.onError ?? "block",
+  });
 }
 
 /**
