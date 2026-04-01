@@ -42,6 +42,10 @@ function isOptedOut(): boolean {
   return false;
 }
 
+/**
+ * Check whether the endpoint is a localhost/loopback address.
+ * Suppresses telemetry for local development only.
+ */
 function isLocalhostEndpoint(endpoint: string): boolean {
   try {
     const url = new URL(endpoint);
@@ -125,6 +129,12 @@ export function sendTelemetryPing(options: {
   // Suppress telemetry for localhost endpoints by default
   if (isLocalhostEndpoint(options.endpoint)) {
     return;
+  }
+
+  if (typeof console !== "undefined") {
+    console.log(
+      "[AxonFlow] Anonymous telemetry enabled. Opt out: AXONFLOW_TELEMETRY=off | https://docs.getaxonflow.com/docs/telemetry",
+    );
   }
 
   const checkpointUrl = resolveCheckpointUrl();

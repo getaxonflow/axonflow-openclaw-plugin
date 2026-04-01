@@ -21,10 +21,12 @@ beforeEach(() => {
   delete process.env.AXONFLOW_CHECKPOINT_URL;
   global.fetch = mockFetch as unknown as typeof fetch;
   mockFetch.mockClear();
+  jest.spyOn(console, "log").mockImplementation(() => {});
 });
 
 afterEach(() => {
   process.env = originalEnv;
+  jest.restoreAllMocks();
 });
 
 afterAll(() => {
@@ -42,18 +44,16 @@ describe("VERSION constant", () => {
 describe("sendTelemetryPing", () => {
   const baseOptions = {
     endpoint: "https://axonflow.example.com",
-    pluginVersion: "0.2.0",
+    pluginVersion: VERSION,
     hookCount: 5,
     highRiskToolCount: 2,
     onError: "block",
   };
 
-  it("sends telemetry ping to checkpoint endpoint", async () => {
+  it("sends telemetry ping with correct payload", async () => {
     sendTelemetryPing(baseOptions);
-    // Wait for fire-and-forget async
     await new Promise((r) => setTimeout(r, 100));
 
-    // Should call /health first, then checkpoint
     expect(mockFetch).toHaveBeenCalled();
     const checkpointCall = mockFetch.mock.calls.find(
       (call: unknown[]) => !(call[0] as string).endsWith("/health"),
@@ -62,7 +62,7 @@ describe("sendTelemetryPing", () => {
 
     const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
     expect(body.sdk).toBe("openclaw-plugin");
-    expect(body.sdk_version).toBe("0.2.0");
+    expect(body.sdk_version).toBe(VERSION);
     expect(body.features).toContain("hooks:5");
     expect(body.features).toContain("high_risk_tools:2");
     expect(body.features).toContain("on_error:block");
@@ -71,6 +71,15 @@ describe("sendTelemetryPing", () => {
     expect(body.arch).toBeDefined();
     expect(body.runtime_version).toBeDefined();
   });
+
+  it("logs opt-out notice to console", () => {
+    sendTelemetryPing(baseOptions);
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining("Anonymous telemetry enabled"),
+    );
+  });
+
+  // ---- Opt-out tests ----
 
   it("does not send when DO_NOT_TRACK=1", () => {
     process.env.DO_NOT_TRACK = "1";
@@ -84,15 +93,19 @@ describe("sendTelemetryPing", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("does not send for localhost endpoints", () => {
+  // ---- Localhost suppression ----
+
+  it("does not send for localhost", () => {
     sendTelemetryPing({ ...baseOptions, endpoint: "http://localhost:8080" });
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("does not send for 127.0.0.1 endpoints", () => {
+  it("does not send for 127.0.0.1", () => {
     sendTelemetryPing({ ...baseOptions, endpoint: "http://127.0.0.1:8080" });
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  // ---- Custom checkpoint URL ----
 
   it("uses custom checkpoint URL from env", async () => {
     process.env.AXONFLOW_CHECKPOINT_URL = "https://custom.checkpoint.example.com/v1/ping";
@@ -105,6 +118,8 @@ describe("sendTelemetryPing", () => {
     expect(checkpointCall).toBeDefined();
   });
 
+  // ---- Platform version detection ----
+
   it("detects platform version from health endpoint", async () => {
     sendTelemetryPing(baseOptions);
     await new Promise((r) => setTimeout(r, 100));
@@ -116,7 +131,20 @@ describe("sendTelemetryPing", () => {
     expect(body.platform_version).toBe("5.5.0");
   });
 
-  it("sets deployment_mode based on onError", async () => {
+  // ---- Deployment mode ----
+
+  it("sets deployment_mode=production when onError=block", async () => {
+    sendTelemetryPing(baseOptions);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const checkpointCall = mockFetch.mock.calls.find(
+      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+    );
+    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+    expect(body.deployment_mode).toBe("production");
+  });
+
+  it("sets deployment_mode=development when onError=allow", async () => {
     sendTelemetryPing({ ...baseOptions, onError: "allow" });
     await new Promise((r) => setTimeout(r, 100));
 
@@ -127,8 +155,10 @@ describe("sendTelemetryPing", () => {
     expect(body.deployment_mode).toBe("development");
   });
 
+  // ---- Error resilience ----
+
   it("silently handles fetch failure", () => {
-    mockFetch.mockRejectedValueOnce(new Error("network error"));
+    mockFetch.mockRejectedValue(new Error("network error"));
     expect(() => sendTelemetryPing(baseOptions)).not.toThrow();
   });
 });

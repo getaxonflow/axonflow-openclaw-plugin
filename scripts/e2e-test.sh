@@ -127,7 +127,7 @@ cp /tmp/openclaw-e2e-config.json ~/.openclaw/openclaw.json
 
 # Install plugin
 rm -rf ~/.openclaw/extensions/axonflow-governance 2>/dev/null
-INSTALL_OUTPUT=$(openclaw plugins install ./axonflow-openclaw-plugin-*.tgz 2>&1)
+INSTALL_OUTPUT=$(openclaw plugins install ./axonflow-openclaw-*.tgz 2>&1)
 echo "$INSTALL_OUTPUT" | grep -q "Installed plugin: axonflow-governance"
 assert_check "Plugin installs in OpenClaw" "true"
 

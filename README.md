@@ -12,7 +12,7 @@ This plugin is useful when you want to:
 
 Much of the OpenClaw ecosystem today focuses on routing, memory, integrations, and observability. This plugin focuses on governance: policy enforcement, approval gates, and reviewable audit trails.
 
-## What v0.1.0 Covers
+## What It Does
 
 | Hook | Purpose |
 |------|---------|
@@ -21,6 +21,10 @@ Much of the OpenClaw ecosystem today focuses on routing, memory, integrations, a
 | `message_sending` | Scan outbound messages for PII/secrets before delivery |
 | `llm_input` | Record prompt, model, and provider for audit |
 | `llm_output` | Record response summary, token usage, and latency for audit |
+
+The plugin also:
+- **Verifies AxonFlow connectivity** on startup and logs a warning if unreachable
+- **Tracks governance metrics** in-process (tool calls blocked/allowed, messages redacted, etc.) accessible via `getMetrics()`
 
 ## Current Limitation
 
@@ -120,6 +124,16 @@ Tool result persisted to session transcript
     ▼
 Message delivered to user channel
 ```
+
+## Telemetry
+
+This plugin sends an anonymous telemetry ping on initialization to help us understand usage patterns. The ping includes: plugin version, platform info (OS, architecture, Node.js version), AxonFlow platform version, and hook configuration (count, onError mode). No PII, no tool arguments, no policy data.
+
+Opt out:
+- `DO_NOT_TRACK=1` (standard)
+- `AXONFLOW_TELEMETRY=off`
+
+Telemetry is automatically suppressed for `localhost` endpoints.
 
 ## Prerequisites
 

@@ -79,7 +79,9 @@ export function registerAxonFlowGovernance(api: {
 
   // Startup health check (fire-and-forget, non-blocking)
   void client.healthCheck().then((healthy) => {
-    if (!healthy) {
+    if (healthy) {
+      api.logger.info(`AxonFlow connected: ${config.endpoint}`);
+    } else {
       const msg = `AxonFlow health check failed: ${config.endpoint} is unreachable. Governance hooks will ${config.onError === "allow" ? "fail-open (allow through)" : "fail-closed (block)"}`;
       if (api.logger.warn) {
         api.logger.warn(msg);

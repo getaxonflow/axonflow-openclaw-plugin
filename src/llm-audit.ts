@@ -9,6 +9,7 @@
 
 import type { AxonFlowClient } from "./axonflow-client.js";
 import type { AxonFlowPluginConfig } from "./config.js";
+import { recordAuditEventSent } from "./metrics.js";
 
 /** Shared state for correlating llm_input with llm_output. */
 interface LLMCallState {
@@ -103,6 +104,7 @@ export function createLlmOutputHandler(
         },
         latencyMs,
       );
+      recordAuditEventSent();
     } catch {
       // Audit failures are non-fatal
     }
