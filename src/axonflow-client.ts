@@ -49,7 +49,10 @@ export class AxonFlowClient {
   private readonly tenantId: string;
 
   constructor(config: AxonFlowPluginConfig) {
-    this.endpoint = config.endpoint.replace(/\/+$/, "");
+    // Strip trailing slashes without regex (avoids ReDoS on polynomial patterns)
+    let ep = config.endpoint;
+    while (ep.endsWith("/")) ep = ep.slice(0, -1);
+    this.endpoint = ep;
     const credentials = Buffer.from(
       `${config.clientId}:${config.clientSecret}`,
     ).toString("base64");
