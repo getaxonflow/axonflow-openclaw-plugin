@@ -4,6 +4,7 @@
 
 ### Security
 
+- Bumped `@anthropic-ai/sdk` transitive dependency from 0.80.0 to 0.82.0 (fixes CVE-2026-34451: memory tool path validation sandbox escape).
 - Replaced polynomial regex in endpoint URL normalization with iterative loop (ReDoS mitigation).
 - Added explicit `permissions: contents: read` to CI workflow (least privilege).
 - Removed hardcoded Base64 auth string from test file (secret scanning false positive).
