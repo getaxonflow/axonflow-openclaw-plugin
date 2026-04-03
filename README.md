@@ -4,7 +4,7 @@
 
 ## Why
 
-OpenClaw has 500K+ deployed instances, [13+ CVEs disclosed in 2026](https://github.com/jgamblin/OpenClawCVEs/) (multiple CVSS 9.8+), and [1,184 malicious skills](https://cyberpress.org/clawhavoc-poisons-openclaws-clawhub-with-1184-malicious-skills/) poisoned in ClawHub via the ClawHavoc supply chain attack. OpenClaw provides agent runtime and tool execution but no centralized policy enforcement, no PII scanning, and no compliance-grade audit trails.
+OpenClaw is widely deployed with [13+ CVEs disclosed in 2026](https://github.com/jgamblin/OpenClawCVEs/) (multiple CVSS 9.8+), [135,000+ publicly exposed instances](https://www.bitsight.com/blog/openclaw-ai-security-risks-exposed-instances), and [1,184 malicious skills](https://cyberpress.org/clawhavoc-poisons-openclaws-clawhub-with-1184-malicious-skills/) poisoned in ClawHub via the ClawHavoc supply chain attack. OpenClaw provides agent runtime and tool execution but no centralized policy enforcement, no PII scanning, and no compliance-grade audit trails.
 
 This plugin adds the governance layer. AxonFlow governs, OpenClaw orchestrates. No LLM provider keys needed — OpenClaw handles all LLM calls, AxonFlow only enforces policies and records audit trails. Your data stays on your infrastructure.
 
@@ -13,7 +13,7 @@ This plugin is useful when you want to:
 - detect and redact PII and secrets in outbound messages before delivery
 - require human approval for high-risk tools (exec, web_fetch, message)
 - keep a compliance-grade audit trail of every tool call and LLM interaction
-- enforce cost controls and rate limits across agents
+- gain visibility into token usage and LLM activity across agents via audit trails
 
 ## What It Does
 

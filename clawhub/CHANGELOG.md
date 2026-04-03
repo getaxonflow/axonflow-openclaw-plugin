@@ -2,6 +2,11 @@
 
 ## @axonflow/governance-policies
 
+### 1.0.1 (2026-04-03)
+
+- Moved inline SQL and bash code examples behind documentation links to resolve false positive security scan
+- OpenClaw LLM scan: Benign (was Suspicious on v1.0.0 due to inline attack pattern strings in policy templates)
+
 ### 1.0.0 (2026-04-03)
 
 - Initial release under @axonflow org handle
