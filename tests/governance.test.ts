@@ -45,10 +45,19 @@ describe("resolveConfig", () => {
   it("validates required fields", () => {
     expect(() => resolveConfig(undefined)).toThrow("requires configuration");
     expect(() => resolveConfig({})).toThrow("'endpoint' is required");
-    expect(() => resolveConfig({ endpoint: "http://x" })).toThrow("'clientId' is required");
+    // Both absent: defaults to community (no throw)
+    expect(resolveConfig({ endpoint: "http://x" })).toMatchObject({
+      clientId: "community",
+      clientSecret: "",
+    });
+    // Only clientId: throws (partial config)
     expect(() =>
       resolveConfig({ endpoint: "http://x", clientId: "id" }),
-    ).toThrow("'clientSecret' is required");
+    ).toThrow("'clientSecret' is required when 'clientId' is set");
+    // Only clientSecret: throws (partial config)
+    expect(() =>
+      resolveConfig({ endpoint: "http://x", clientSecret: "secret" }),
+    ).toThrow("'clientId' is required when 'clientSecret' is set");
   });
 
   it("returns valid config with defaults", () => {

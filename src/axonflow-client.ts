@@ -46,8 +46,6 @@ function extractPoliciesEvaluated(data: Record<string, unknown>): number {
 export class AxonFlowClient {
   private readonly endpoint: string;
   private readonly authHeader: string;
-  private readonly tenantId: string;
-
   constructor(config: AxonFlowPluginConfig) {
     // Strip trailing slashes without regex (avoids ReDoS on polynomial patterns)
     let ep = config.endpoint;
@@ -57,8 +55,6 @@ export class AxonFlowClient {
       `${config.clientId}:${config.clientSecret}`,
     ).toString("base64");
     this.authHeader = `Basic ${credentials}`;
-    // tenantId kept for internal reference (e.g., audit logging context)
-    this.tenantId = config.clientId;
   }
 
   private baseHeaders(): Record<string, string> {
