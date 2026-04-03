@@ -230,6 +230,44 @@ export class AxonFlowClient {
     }
   }
 
+  /**
+   * Search individual audit event records.
+   *
+   * Returns tool call details, policy evaluations, and timestamps
+   * for compliance evidence and debugging.
+   */
+  async searchAuditEvents(options?: {
+    startTime?: string;
+    endTime?: string;
+    requestType?: string;
+    limit?: number;
+  }): Promise<{ entries: unknown[]; total: number }> {
+    const url = `${this.endpoint}/api/v1/audit/search`;
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+    const body = {
+      start_time: options?.startTime ?? oneHourAgo.toISOString(),
+      end_time: options?.endTime ?? now.toISOString(),
+      limit: Math.min(options?.limit ?? 20, 100),
+      ...(options?.requestType && { request_type: options.requestType }),
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: this.baseHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        return { entries: [], total: 0 };
+      }
+      return (await response.json()) as { entries: unknown[]; total: number };
+    } catch {
+      return { entries: [], total: 0 };
+    }
+  }
+
   async healthCheck(): Promise<boolean> {
     try {
       const response = await fetch(`${this.endpoint}/health`);
