@@ -4,7 +4,7 @@ Default policy configurations for protecting OpenClaw deployments with AxonFlow.
 
 ## Why These Policies Matter
 
-As of March 2026, OpenClaw has 135,000+ instances exposed on the public internet, 4 CVEs disclosed (including CVE-2026-25253 at CVSS 8.8), and the ClawHavoc supply chain attack poisoned 1,184 skills in ClawHub. Microsoft recommends: "It is not appropriate to run on a standard personal or enterprise workstation."
+As of March 2026, OpenClaw has 500K+ deployed instances (135,000+ publicly exposed), 13+ CVEs disclosed (including CVE-2026-32922 and CVE-2026-32973 at CVSS 9.8), and the ClawHavoc supply chain attack poisoned 1,184 skills in ClawHub. Microsoft recommends: "It is not appropriate to run on a standard personal or enterprise workstation."
 
 AxonFlow adds centralized governance at key data boundaries: tool inputs (before execution), outbound messages (before delivery), and LLM calls (audit). Tool result transcript scanning is pending async hook support in OpenClaw.
 
