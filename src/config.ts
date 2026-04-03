@@ -64,11 +64,25 @@ export function resolveConfig(
     throw new Error("AxonFlow plugin: 'endpoint' is required (e.g., 'http://localhost:8080')");
   }
 
-  // clientId defaults to "community" for zero-config community mode (matches SDK smart default)
-  const clientId = typeof raw["clientId"] === "string" && raw["clientId"] ? raw["clientId"] : "community";
+  const rawClientId = typeof raw["clientId"] === "string" ? raw["clientId"] : "";
+  const rawClientSecret = typeof raw["clientSecret"] === "string" ? raw["clientSecret"] : "";
 
-  // clientSecret defaults to "community" for zero-config community mode
-  const clientSecret = typeof raw["clientSecret"] === "string" && raw["clientSecret"] ? raw["clientSecret"] : "community";
+  // Both absent: default to "community" for zero-config community mode
+  // Both present: use as-is
+  // Only one present: config error (likely a mistake)
+  let clientId: string;
+  let clientSecret: string;
+  if (!rawClientId && !rawClientSecret) {
+    clientId = "community";
+    clientSecret = "";
+  } else if (rawClientId && !rawClientSecret) {
+    throw new Error("AxonFlow plugin: 'clientSecret' is required when 'clientId' is set. Omit both for community mode.");
+  } else if (!rawClientId && rawClientSecret) {
+    throw new Error("AxonFlow plugin: 'clientId' is required when 'clientSecret' is set. Omit both for community mode.");
+  } else {
+    clientId = rawClientId;
+    clientSecret = rawClientSecret;
+  }
 
   return {
     endpoint,
