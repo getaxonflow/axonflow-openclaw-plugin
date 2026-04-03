@@ -2,15 +2,18 @@
 
 **Policy enforcement, approval gates, and audit trails for [OpenClaw](https://github.com/openclaw/openclaw).**
 
-OpenClaw handles agent runtime, tool execution, MCP connectivity, and channel delivery. AxonFlow adds a governance layer for production use: inspect tool inputs before execution, scan outbound messages before delivery, and record tool + LLM activity for review, security, and compliance.
+## Why
+
+OpenClaw is widely deployed with [13+ CVEs disclosed in 2026](https://github.com/jgamblin/OpenClawCVEs/) (multiple CVSS 9.8+), [135,000+ publicly exposed instances](https://www.bitsight.com/blog/openclaw-ai-security-risks-exposed-instances), and [1,184 malicious skills](https://cyberpress.org/clawhavoc-poisons-openclaws-clawhub-with-1184-malicious-skills/) poisoned in ClawHub via the ClawHavoc supply chain attack. OpenClaw provides agent runtime and tool execution but no centralized policy enforcement, no PII scanning, and no compliance-grade audit trails.
+
+This plugin adds the governance layer. AxonFlow governs, OpenClaw orchestrates. No LLM provider keys needed — OpenClaw handles all LLM calls, AxonFlow only enforces policies and records audit trails. Your data stays on your infrastructure.
 
 This plugin is useful when you want to:
-- block dangerous tool calls before they run
-- require approval for selected high-risk tools
-- prevent PII or secrets from being sent to users
-- keep an audit trail of agent activity with policy context
-
-Much of the OpenClaw ecosystem today focuses on routing, memory, integrations, and observability. This plugin focuses on governance: policy enforcement, approval gates, and reviewable audit trails.
+- block dangerous tool calls (reverse shells, SSRF, destructive commands) before they run
+- detect and redact PII and secrets in outbound messages before delivery
+- require human approval for high-risk tools (exec, web_fetch, message)
+- keep a compliance-grade audit trail of every tool call and LLM interaction
+- gain visibility into token usage and LLM activity across agents via audit trails
 
 ## What It Does
 
