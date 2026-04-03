@@ -64,15 +64,11 @@ export function resolveConfig(
     throw new Error("AxonFlow plugin: 'endpoint' is required (e.g., 'http://localhost:8080')");
   }
 
-  const clientId = raw["clientId"];
-  if (typeof clientId !== "string" || !clientId) {
-    throw new Error("AxonFlow plugin: 'clientId' is required");
-  }
+  // clientId defaults to "community" for zero-config community mode (matches SDK smart default)
+  const clientId = typeof raw["clientId"] === "string" && raw["clientId"] ? raw["clientId"] : "community";
 
-  const clientSecret = raw["clientSecret"];
-  if (typeof clientSecret !== "string" || !clientSecret) {
-    throw new Error("AxonFlow plugin: 'clientSecret' is required");
-  }
+  // clientSecret defaults to "community" for zero-config community mode
+  const clientSecret = typeof raw["clientSecret"] === "string" && raw["clientSecret"] ? raw["clientSecret"] : "community";
 
   return {
     endpoint,

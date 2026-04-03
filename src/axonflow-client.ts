@@ -57,17 +57,16 @@ export class AxonFlowClient {
       `${config.clientId}:${config.clientSecret}`,
     ).toString("base64");
     this.authHeader = `Basic ${credentials}`;
-    // clientId serves as tenantId for single-tenant setups.
-    // The Agent proxy normally injects X-Tenant-ID after auth, but
-    // direct Orchestrator calls (audit/tool-call) require it explicitly.
+    // tenantId kept for internal reference (e.g., audit logging context)
     this.tenantId = config.clientId;
   }
 
   private baseHeaders(): Record<string, string> {
+    // Tenant is derived from Basic auth credentials on the server side (RFC 6749).
+    // X-Tenant-ID header is no longer sent — server knows tenant from auth.
     return {
       "Content-Type": "application/json",
       Authorization: this.authHeader,
-      "X-Tenant-ID": this.tenantId,
     };
   }
 
@@ -166,7 +165,7 @@ export class AxonFlowClient {
 
   /**
    * Log a tool execution to the audit trail.
-   * Uses POST /api/v1/audit/tool-call (requires X-Tenant-ID header).
+   * Uses POST /api/v1/audit/tool-call (tenant derived from Basic auth).
    */
   async auditToolCall(
     toolName: string,
