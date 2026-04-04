@@ -1,6 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-04-04
+
+### Added
+
+- `searchAuditEvents()` method on `AxonFlowClient` for individual audit event inspection. Enables debugging why something was blocked, generating compliance reports, and answering "what did the agent do in the last hour?"
+- Hardened E2E test suite: 24 tests covering dangerous command blocking (reverse shell, rm -rf, SSRF, path traversal, credential access), PII detection with redaction assertions, and audit search.
 
 ### Security
 
