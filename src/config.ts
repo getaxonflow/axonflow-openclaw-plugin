@@ -66,12 +66,19 @@ export function resolveConfig(
 
   // Defaults match SDK behavior: community mode works out of the box.
   // Override with your evaluation/enterprise license credentials.
-  const clientId = typeof raw["clientId"] === "string" && raw["clientId"]
-    ? raw["clientId"]
-    : "community";
-  const clientSecret = typeof raw["clientSecret"] === "string"
-    ? raw["clientSecret"]
-    : "";
+  const rawClientId = typeof raw["clientId"] === "string" ? raw["clientId"] : "";
+  const rawClientSecret = typeof raw["clientSecret"] === "string" ? raw["clientSecret"] : "";
+
+  // Reject clientSecret without clientId — licensed mode must specify the tenant
+  if (!rawClientId && rawClientSecret) {
+    throw new Error(
+      "AxonFlow plugin: 'clientId' is required when 'clientSecret' is set. " +
+      "Set clientId to your tenant identity (e.g., your deployment's AXONFLOW_CLIENT_ID)."
+    );
+  }
+
+  const clientId = rawClientId || "community";
+  const clientSecret = rawClientSecret;
 
   return {
     endpoint,

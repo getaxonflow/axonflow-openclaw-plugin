@@ -55,11 +55,10 @@ describe("resolveConfig", () => {
       clientId: "my-tenant",
       clientSecret: "",
     });
-    // Only clientSecret: uses community clientId with provided secret
-    expect(resolveConfig({ endpoint: "http://x", clientSecret: "my-license" })).toMatchObject({
-      clientId: "community",
-      clientSecret: "my-license",
-    });
+    // Only clientSecret: throws — licensed mode must specify tenant
+    expect(() =>
+      resolveConfig({ endpoint: "http://x", clientSecret: "my-license" }),
+    ).toThrow("'clientId' is required when 'clientSecret' is set");
   });
 
   it("returns valid config with defaults", () => {
