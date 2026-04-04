@@ -284,20 +284,22 @@ describe("AxonFlowClient", () => {
       expect(result.total).toBe(1);
     });
 
-    it("returns empty on HTTP error", async () => {
+    it("returns error on HTTP failure", async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
       const client = makeClient();
       const result = await client.searchAuditEvents();
       expect(result.entries).toEqual([]);
       expect(result.total).toBe(0);
+      expect(result.error).toBe("HTTP 401");
     });
 
-    it("returns empty on network error", async () => {
+    it("returns error on network failure", async () => {
       mockFetch.mockRejectedValueOnce(new Error("Network error"));
       const client = makeClient();
       const result = await client.searchAuditEvents();
       expect(result.entries).toEqual([]);
       expect(result.total).toBe(0);
+      expect(result.error).toBe("Network error");
     });
 
     it("uses default time range when not specified", async () => {

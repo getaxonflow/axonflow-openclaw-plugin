@@ -241,7 +241,7 @@ export class AxonFlowClient {
     endTime?: string;
     requestType?: string;
     limit?: number;
-  }): Promise<{ entries: unknown[]; total: number }> {
+  }): Promise<{ entries: unknown[]; total: number; error?: string }> {
     const url = `${this.endpoint}/api/v1/audit/search`;
     const now = new Date();
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
@@ -260,11 +260,11 @@ export class AxonFlowClient {
         body: JSON.stringify(body),
       });
       if (!response.ok) {
-        return { entries: [], total: 0 };
+        return { entries: [], total: 0, error: `HTTP ${response.status}` };
       }
       return (await response.json()) as { entries: unknown[]; total: number };
-    } catch {
-      return { entries: [], total: 0 };
+    } catch (e) {
+      return { entries: [], total: 0, error: e instanceof Error ? e.message : "Unknown error" };
     }
   }
 
