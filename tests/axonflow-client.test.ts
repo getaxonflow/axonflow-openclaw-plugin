@@ -120,7 +120,7 @@ describe("AxonFlowClient", () => {
       const headers = (call?.[1] as RequestInit).headers as Record<string, string>;
       const expectedAuth = `Basic ${Buffer.from("test-client:test-secret").toString("base64")}`;
       expect(headers["Authorization"]).toBe(expectedAuth);
-      expect(headers["X-Tenant-ID"]).toBe("test-client");
+      expect(headers["X-Tenant-ID"]).toBeUndefined();
     });
 
     it("passes operation parameter", async () => {
@@ -253,7 +253,7 @@ describe("AxonFlowClient", () => {
 
       const call = mockFetch.mock.calls[0];
       const headers = (call?.[1] as RequestInit).headers as Record<string, string>;
-      expect(headers["X-Tenant-ID"]).toBe("test-client");
+      expect(headers["X-Tenant-ID"]).toBeUndefined();
 
       const body = JSON.parse((call?.[1] as RequestInit).body as string);
       expect(body.tool_name).toBe("anthropic.claude-sonnet-4-6");

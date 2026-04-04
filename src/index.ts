@@ -41,7 +41,7 @@ import { sendTelemetryPing } from "./telemetry.js";
 import { resetMetrics } from "./metrics.js";
 
 /** Plugin version — update before each release. */
-export const VERSION = "0.2.0";
+export const VERSION = "1.0.0";
 
 // Re-export for external consumers
 export { AxonFlowClient } from "./axonflow-client.js";

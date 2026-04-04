@@ -64,14 +64,24 @@ export function resolveConfig(
     throw new Error("AxonFlow plugin: 'endpoint' is required (e.g., 'http://localhost:8080')");
   }
 
-  const clientId = raw["clientId"];
-  if (typeof clientId !== "string" || !clientId) {
-    throw new Error("AxonFlow plugin: 'clientId' is required");
-  }
+  const rawClientId = typeof raw["clientId"] === "string" ? raw["clientId"] : "";
+  const rawClientSecret = typeof raw["clientSecret"] === "string" ? raw["clientSecret"] : "";
 
-  const clientSecret = raw["clientSecret"];
-  if (typeof clientSecret !== "string" || !clientSecret) {
-    throw new Error("AxonFlow plugin: 'clientSecret' is required");
+  // Both absent: default to "community" for zero-config community mode
+  // Both present: use as-is
+  // Only one present: config error (likely a mistake)
+  let clientId: string;
+  let clientSecret: string;
+  if (!rawClientId && !rawClientSecret) {
+    clientId = "community";
+    clientSecret = "";
+  } else if (rawClientId && !rawClientSecret) {
+    throw new Error("AxonFlow plugin: 'clientSecret' is required when 'clientId' is set. Omit both for community mode.");
+  } else if (!rawClientId && rawClientSecret) {
+    throw new Error("AxonFlow plugin: 'clientId' is required when 'clientSecret' is set. Omit both for community mode.");
+  } else {
+    clientId = rawClientId;
+    clientSecret = rawClientSecret;
   }
 
   return {
