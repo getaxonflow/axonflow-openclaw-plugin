@@ -271,6 +271,78 @@ describe("AxonFlowClient", () => {
     });
   });
 
+  describe("searchAuditEvents", () => {
+    it("returns entries on success", async () => {
+      const mockEntries = [{ id: "audit_1", tool_name: "exec" }];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ entries: mockEntries, total: 1 }),
+      });
+      const client = makeClient();
+      const result = await client.searchAuditEvents({ limit: 5 });
+      expect(result.entries).toEqual(mockEntries);
+      expect(result.total).toBe(1);
+    });
+
+    it("returns empty on HTTP error", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+      const client = makeClient();
+      const result = await client.searchAuditEvents();
+      expect(result.entries).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it("returns empty on network error", async () => {
+      mockFetch.mockRejectedValueOnce(new Error("Network error"));
+      const client = makeClient();
+      const result = await client.searchAuditEvents();
+      expect(result.entries).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it("uses default time range when not specified", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ entries: [], total: 0 }),
+      });
+      const client = makeClient();
+      await client.searchAuditEvents();
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/audit/search"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("start_time"),
+        }),
+      );
+    });
+
+    it("passes request_type filter", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ entries: [], total: 0 }),
+      });
+      const client = makeClient();
+      await client.searchAuditEvents({ requestType: "tool_call_audit" });
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          body: expect.stringContaining("tool_call_audit"),
+        }),
+      );
+    });
+
+    it("caps limit at 100", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ entries: [], total: 0 }),
+      });
+      const client = makeClient();
+      await client.searchAuditEvents({ limit: 500 });
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.limit).toBe(100);
+    });
+  });
+
   describe("healthCheck", () => {
     it("returns true when healthy", async () => {
       mockFetch.mockResolvedValueOnce({ ok: true });
