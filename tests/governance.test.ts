@@ -50,13 +50,14 @@ describe("resolveConfig", () => {
       clientId: "community",
       clientSecret: "",
     });
-    // Only clientId: throws (partial config)
+    // Only clientId: uses it with empty secret (community mode with custom tenant)
+    expect(resolveConfig({ endpoint: "http://x", clientId: "my-tenant" })).toMatchObject({
+      clientId: "my-tenant",
+      clientSecret: "",
+    });
+    // Only clientSecret: throws — licensed mode must specify tenant
     expect(() =>
-      resolveConfig({ endpoint: "http://x", clientId: "id" }),
-    ).toThrow("'clientSecret' is required when 'clientId' is set");
-    // Only clientSecret: throws (partial config)
-    expect(() =>
-      resolveConfig({ endpoint: "http://x", clientSecret: "secret" }),
+      resolveConfig({ endpoint: "http://x", clientSecret: "my-license" }),
     ).toThrow("'clientId' is required when 'clientSecret' is set");
   });
 

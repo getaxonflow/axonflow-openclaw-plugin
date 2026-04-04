@@ -9,10 +9,10 @@ export interface AxonFlowPluginConfig {
   /** AxonFlow agent gateway endpoint (e.g., "http://localhost:8080"). */
   endpoint: string;
 
-  /** AxonFlow client ID for authentication. */
+  /** Tenant identity for data isolation. Defaults to "community" for community mode. */
   clientId: string;
 
-  /** AxonFlow client secret for authentication. */
+  /** License key for evaluation/enterprise features. Empty for community mode. */
   clientSecret: string;
 
   /**
@@ -64,25 +64,21 @@ export function resolveConfig(
     throw new Error("AxonFlow plugin: 'endpoint' is required (e.g., 'http://localhost:8080')");
   }
 
+  // Defaults match SDK behavior: community mode works out of the box.
+  // Override with your evaluation/enterprise license credentials.
   const rawClientId = typeof raw["clientId"] === "string" ? raw["clientId"] : "";
   const rawClientSecret = typeof raw["clientSecret"] === "string" ? raw["clientSecret"] : "";
 
-  // Both absent: default to "community" for zero-config community mode
-  // Both present: use as-is
-  // Only one present: config error (likely a mistake)
-  let clientId: string;
-  let clientSecret: string;
-  if (!rawClientId && !rawClientSecret) {
-    clientId = "community";
-    clientSecret = "";
-  } else if (rawClientId && !rawClientSecret) {
-    throw new Error("AxonFlow plugin: 'clientSecret' is required when 'clientId' is set. Omit both for community mode.");
-  } else if (!rawClientId && rawClientSecret) {
-    throw new Error("AxonFlow plugin: 'clientId' is required when 'clientSecret' is set. Omit both for community mode.");
-  } else {
-    clientId = rawClientId;
-    clientSecret = rawClientSecret;
+  // Reject clientSecret without clientId — licensed mode must specify the tenant
+  if (!rawClientId && rawClientSecret) {
+    throw new Error(
+      "AxonFlow plugin: 'clientId' is required when 'clientSecret' is set. " +
+      "Set clientId to your tenant identity (e.g., your deployment's AXONFLOW_CLIENT_ID)."
+    );
   }
+
+  const clientId = rawClientId || "community";
+  const clientSecret = rawClientSecret;
 
   return {
     endpoint,

@@ -70,8 +70,10 @@ In your OpenClaw config:
 plugins:
   @axonflow/openclaw:
     endpoint: http://localhost:8080
-    clientId: your-client-id
-    clientSecret: your-secret
+    # clientId and clientSecret default to community mode.
+    # Set these to your evaluation/enterprise credentials when you have a license.
+    # clientId: your-tenant-id
+    # clientSecret: your-license-key
     highRiskTools:
       - web_fetch
       - message
@@ -82,8 +84,14 @@ plugins:
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `endpoint` | Yes | — | AxonFlow agent gateway URL |
-| `clientId` | Yes | — | AxonFlow client ID |
-| `clientSecret` | Yes | — | AxonFlow client secret |
+| `clientId` | No | `"community"` | Tenant identity for data isolation. Override for evaluation/enterprise. |
+| `clientSecret` | No | `""` | License key for evaluation/enterprise features. Requires `clientId` to be set. |
+
+**Valid configurations:**
+- Both omitted → community mode (`clientId` defaults to `"community"`)
+- `clientId` only → community mode with custom tenant identity
+- Both set → licensed mode (evaluation/enterprise)
+- `clientSecret` only → **error** (licensed mode requires explicit tenant identity to prevent data going to the wrong tenant)
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |
 | `excludedTools` | No | `[]` | Tools to exclude from governance |
