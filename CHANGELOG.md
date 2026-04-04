@@ -1,6 +1,11 @@
 # Changelog
 
-## [0.3.0] - 2026-04-04
+## [1.0.0] - 2026-04-04
+
+### BREAKING CHANGES
+
+- **`X-Tenant-ID` header removed.** The plugin no longer sends `X-Tenant-ID`. The server derives tenant from OAuth2 Client Credentials (Basic auth). Requires platform v6.0.0+.
+- **`tenantId` config removed.** Both `clientId` and `clientSecret` default to `"community"` when not configured. The `tenantId` field is removed — tenant is derived server-side.
 
 ### Added
 
