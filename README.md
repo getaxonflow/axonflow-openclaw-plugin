@@ -82,8 +82,10 @@ plugins:
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `endpoint` | Yes | — | AxonFlow agent gateway URL |
-| `clientId` | No | `"community"` | Tenant identity for data isolation (becomes `tenant_id` in AxonFlow) |
-| `clientSecret` | No | `""` | License key for evaluation/enterprise features. Omit for community mode. |
+| `clientId` | Both or none | `"community"` | Tenant identity for data isolation. Omit both `clientId` and `clientSecret` for community mode. |
+| `clientSecret` | Both or none | `""` | License key for evaluation/enterprise features. Must be set together with `clientId`. |
+
+> **Note:** `clientId` and `clientSecret` must be provided together or both omitted. Omitting both enables community mode (defaults to `clientId: "community"`). Setting only one will cause a startup error.
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |
 | `excludedTools` | No | `[]` | Tools to exclude from governance |
