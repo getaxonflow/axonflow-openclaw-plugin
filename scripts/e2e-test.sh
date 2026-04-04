@@ -271,17 +271,19 @@ echo ""
 # ============================================================
 echo "--- Step 3c: PII detection ---"
 
-# SSN in output
+# SSN in output — should detect PII
 RESPONSE=$(curl -s -w "\n%{http_code}" \
     -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
     -d '{"connector_type": "openclaw.message_sending", "message": "Customer SSN: 123-45-6789"}' \
     "$AXONFLOW_ENDPOINT/api/v1/mcp/check-output")
 STATUS=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | sed '$d')
-assert_check "PII output scan returns 200 (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
-assert_check "PII policies evaluated" "$(echo "$BODY" | grep -q "policies_evaluated" && echo true || echo false)"
+assert_check "SSN PII scan returns 200 (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
+assert_check "SSN PII: policies evaluated" "$(echo "$BODY" | grep -q "policies_evaluated" && echo true || echo false)"
+# Verify PII was actually detected (redacted_data or policy_info with pii match)
+assert_check "SSN PII: detection evidence in response" "$(echo "$BODY" | grep -q -E "redacted|pii|REDACTED|policies_evaluated.*[1-9]" && echo true || echo false)"
 
-# Credit card in output
+# Credit card in output — should detect PII
 RESPONSE=$(curl -s -w "\n%{http_code}" \
     -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
     -d '{"connector_type": "openclaw.message_sending", "message": "Card: 4111-1111-1111-1111"}' \
@@ -289,14 +291,17 @@ RESPONSE=$(curl -s -w "\n%{http_code}" \
 STATUS=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 assert_check "Credit card PII scan returns 200 (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
+assert_check "Credit card PII: detection evidence" "$(echo "$BODY" | grep -q -E "redacted|pii|REDACTED|policies_evaluated.*[1-9]" && echo true || echo false)"
 
-# Clean output — no PII
+# Clean output — no PII, should NOT have redaction
 RESPONSE=$(curl -s -w "\n%{http_code}" \
     -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" \
     -d '{"connector_type": "openclaw.exec", "message": "Build succeeded. 42 tests passed."}' \
     "$AXONFLOW_ENDPOINT/api/v1/mcp/check-output")
 STATUS=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
 assert_check "Clean output allowed (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
+assert_check "Clean output: no redaction" "$(echo "$BODY" | grep -q "redacted_data" && echo false || echo true)"
 echo ""
 
 # ============================================================
