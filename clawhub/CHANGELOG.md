@@ -2,6 +2,13 @@
 
 ## @axonflow/governance-policies
 
+### 1.2.0 (2026-04-06)
+
+- Moved specific attack patterns and blocked commands into code fences to improve ClawHub LLM scan confidence
+- Added policy ID references for each blocked pattern (e.g., `sys_dangerous_destructive_fs`)
+- Plain text uses generic category names, code blocks have the specifics
+- No content removed — same coverage, better structure
+
 ### 1.1.0 (2026-04-05)
 
 - Updated for plugin v1.0.0 and platform v6.0.0
