@@ -70,10 +70,11 @@ In your OpenClaw config:
 plugins:
   @axonflow/openclaw:
     endpoint: http://localhost:8080
-    # clientId and clientSecret default to community mode.
-    # Set these to your evaluation/enterprise credentials when you have a license.
-    # clientId: your-tenant-id
-    # clientSecret: your-license-key
+    # In community mode, clientId defaults to "community"
+    # and clientSecret can be left unset.
+    # Set both only for evaluation/enterprise credentials.
+    # clientId: your-client-id
+    # clientSecret: your-client-secret
     highRiskTools:
       - web_fetch
       - message
@@ -86,17 +87,17 @@ plugins:
 | `endpoint` | Yes | — | AxonFlow agent gateway URL |
 | `clientId` | No | `"community"` | Tenant identity for data isolation. Override for evaluation/enterprise. |
 | `clientSecret` | No | `""` | License key for evaluation/enterprise features. Requires `clientId` to be set. |
+| `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
+| `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |
+| `excludedTools` | No | `[]` | Tools to exclude from governance |
+| `defaultOperation` | No | `"execute"` | Operation type for mcp_check_input (`"execute"` or `"query"`) |
+| `onError` | No | `"block"` | Behavior when AxonFlow is unreachable: `"block"` (fail-closed) or `"allow"` (fail-open) |
 
 **Valid configurations:**
 - Both omitted → community mode (`clientId` defaults to `"community"`)
 - `clientId` only → community mode with custom tenant identity
 - Both set → licensed mode (evaluation/enterprise)
 - `clientSecret` only → **error** (licensed mode requires explicit tenant identity to prevent data going to the wrong tenant)
-| `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
-| `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |
-| `excludedTools` | No | `[]` | Tools to exclude from governance |
-| `defaultOperation` | No | `"execute"` | Operation type for mcp_check_input (`"execute"` or `"query"`) |
-| `onError` | No | `"block"` | Behavior when AxonFlow is unreachable: `"block"` (fail-closed) or `"allow"` (fail-open) |
 
 ## How It Works
 
