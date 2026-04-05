@@ -2,6 +2,13 @@
 
 ## @axonflow/governance-policies
 
+### 1.3.0 (2026-04-06)
+
+- Added explicit self-hosted declaration with accurate telemetry disclosure
+- Localhost/loopback deployments: telemetry suppressed automatically
+- Credentials clarified: only needed for enterprise mode
+- All policy evaluation happens on the user's own AxonFlow instance
+
 ### 1.2.0 (2026-04-06)
 
 - Moved specific attack patterns and blocked commands into code fences to improve ClawHub LLM scan confidence
@@ -34,6 +41,10 @@
 ---
 
 ## Archive: saurabhjain1592/axonflow-governance-policies
+
+### 1.0.2 (2026-04-05)
+
+- Deprecated: points to @axonflow/governance-policies
 
 ### 1.0.1 (2026-04-02)
 
