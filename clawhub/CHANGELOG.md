@@ -2,6 +2,13 @@
 
 ## @axonflow/governance-policies
 
+### 1.1.0 (2026-04-05)
+
+- Updated for plugin v1.0.0 and platform v6.0.0
+- Auth model: tenantId removed, clientId/clientSecret default to "community"
+- Policy count updated to 80+ with category breakdown (dangerous commands, SQLi, PII, code-secrets, prompt-injection)
+- Added searchAuditEvents() mention for audit inspection
+
 ### 1.0.1 (2026-04-03)
 
 - Moved inline SQL and bash code examples behind documentation links to resolve false positive security scan
