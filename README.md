@@ -75,6 +75,7 @@ plugins:
     # Set both only for evaluation/enterprise credentials.
     # clientId: your-client-id
     # clientSecret: your-client-secret
+    # requestTimeoutMs: 8000
     highRiskTools:
       - web_fetch
       - message
@@ -92,6 +93,7 @@ plugins:
 | `excludedTools` | No | `[]` | Tools to exclude from governance |
 | `defaultOperation` | No | `"execute"` | Operation type for mcp_check_input (`"execute"` or `"query"`) |
 | `onError` | No | `"block"` | Behavior when AxonFlow is unreachable: `"block"` (fail-closed) or `"allow"` (fail-open) |
+| `requestTimeoutMs` | No | `8000` | Timeout for policy checks, output scans, audit writes, and health checks. Increase for remote AxonFlow deployments. |
 
 **Valid configurations:**
 - Both omitted → community mode (`clientId` defaults to `"community"`)
@@ -152,13 +154,13 @@ Message delivered to user channel
 
 ## Telemetry
 
-This plugin sends an anonymous telemetry ping on initialization to help us understand usage patterns. The ping includes: plugin version, platform info (OS, architecture, Node.js version), AxonFlow platform version, and hook configuration (count, onError mode). No PII, no tool arguments, no policy data.
+This plugin sends an anonymous telemetry ping on initialization to help us understand usage patterns, including local and self-hosted evaluations. The ping includes: plugin version, platform info (OS, architecture, Node.js version), AxonFlow platform version, and hook configuration (count, onError mode). No PII, no tool arguments, no policy data.
 
 Opt out:
 - `DO_NOT_TRACK=1` (standard)
 - `AXONFLOW_TELEMETRY=off`
 
-Telemetry is automatically suppressed for localhost/loopback endpoints.
+The startup ping is enabled by default for local, self-hosted, and remote deployments. Opt-out controls always win.
 
 ## Starter Policies
 

@@ -39,6 +39,12 @@
       "placeholder": "execute",
       "help": "Operation type for mcp_check_input: 'execute' (default) or 'query' for read-only tools",
       "advanced": true
+    },
+    "requestTimeoutMs": {
+      "label": "Request Timeout (ms)",
+      "placeholder": "8000",
+      "help": "Timeout for AxonFlow policy checks, output scans, audit writes, and health checks. Increase for remote deployments.",
+      "advanced": true
     }
   },
   "configSchema": {
@@ -85,6 +91,10 @@
           "block",
           "allow"
         ]
+      },
+      "requestTimeoutMs": {
+        "type": "number",
+        "minimum": 1
       }
     },
     "required": [

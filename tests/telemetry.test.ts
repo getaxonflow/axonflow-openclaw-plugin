@@ -94,16 +94,16 @@ describe("sendTelemetryPing", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  // ---- Localhost suppression ----
+  // ---- Localhost behavior ----
 
-  it("does not send for localhost", () => {
+  it("sends telemetry for localhost endpoints by default", async () => {
     sendTelemetryPing({ ...baseOptions, endpoint: "http://localhost:8080" });
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
+    await new Promise((r) => setTimeout(r, 100));
 
-  it("does not send for 127.0.0.1", () => {
-    sendTelemetryPing({ ...baseOptions, endpoint: "http://127.0.0.1:8080" });
-    expect(mockFetch).not.toHaveBeenCalled();
+    const checkpointCall = mockFetch.mock.calls.find(
+      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+    );
+    expect(checkpointCall).toBeDefined();
   });
 
   // ---- Custom checkpoint URL ----
