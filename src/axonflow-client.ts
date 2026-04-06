@@ -46,11 +46,13 @@ function extractPoliciesEvaluated(data: Record<string, unknown>): number {
 export class AxonFlowClient {
   private readonly endpoint: string;
   private readonly authHeader: string;
+  private readonly requestTimeoutMs: number;
   constructor(config: AxonFlowPluginConfig) {
     // Strip trailing slashes without regex (avoids ReDoS on polynomial patterns)
     let ep = config.endpoint;
     while (ep.endsWith("/")) ep = ep.slice(0, -1);
     this.endpoint = ep;
+    this.requestTimeoutMs = config.requestTimeoutMs ?? 8000;
     const credentials = Buffer.from(
       `${config.clientId}:${config.clientSecret}`,
     ).toString("base64");
@@ -66,13 +68,30 @@ export class AxonFlowClient {
     };
   }
 
+  private async fetchWithTimeout(
+    url: string,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   async mcpCheckInput(
     connectorType: string,
     statement: string,
     operation: string = "execute",
   ): Promise<MCPCheckInputResponse> {
     const url = `${this.endpoint}/api/v1/mcp/check-input`;
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: this.baseHeaders(),
       body: JSON.stringify({
@@ -118,7 +137,7 @@ export class AxonFlowClient {
     message: string,
   ): Promise<MCPCheckOutputResponse> {
     const url = `${this.endpoint}/api/v1/mcp/check-output`;
-    const response = await fetch(url, {
+    const response = await this.fetchWithTimeout(url, {
       method: "POST",
       headers: this.baseHeaders(),
       body: JSON.stringify({
@@ -172,7 +191,7 @@ export class AxonFlowClient {
   ): Promise<void> {
     const url = `${this.endpoint}/api/v1/audit/tool-call`;
     try {
-      await fetch(url, {
+      await this.fetchWithTimeout(url, {
         method: "POST",
         headers: this.baseHeaders(),
         body: JSON.stringify({
@@ -208,7 +227,7 @@ export class AxonFlowClient {
   ): Promise<void> {
     const url = `${this.endpoint}/api/v1/audit/tool-call`;
     try {
-      await fetch(url, {
+      await this.fetchWithTimeout(url, {
         method: "POST",
         headers: this.baseHeaders(),
         body: JSON.stringify({
@@ -249,7 +268,7 @@ export class AxonFlowClient {
     };
 
     try {
-      const response = await fetch(url, {
+      const response = await this.fetchWithTimeout(url, {
         method: "POST",
         headers: this.baseHeaders(),
         body: JSON.stringify(body),
@@ -265,7 +284,7 @@ export class AxonFlowClient {
 
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.endpoint}/health`);
+      const response = await this.fetchWithTimeout(`${this.endpoint}/health`);
       return response.ok;
     } catch {
       return false;

@@ -47,6 +47,13 @@ export interface AxonFlowPluginConfig {
    * Fail-closed is safer but can cascade AxonFlow failures to the agent.
    */
   onError?: "block" | "allow";
+
+  /**
+   * Timeout for AxonFlow HTTP calls in milliseconds.
+   * Applies to policy checks, output scans, audit writes, and health checks.
+   * Defaults to 8000ms.
+   */
+  requestTimeoutMs?: number;
 }
 
 /** Validate plugin config and return defaults. */
@@ -99,6 +106,12 @@ export function resolveConfig(
         : "execute",
     onError:
       raw["onError"] === "allow" ? "allow" : "block",
+    requestTimeoutMs:
+      typeof raw["requestTimeoutMs"] === "number" &&
+      Number.isFinite(raw["requestTimeoutMs"]) &&
+      raw["requestTimeoutMs"] > 0
+        ? raw["requestTimeoutMs"]
+        : 8000,
   };
 }
 

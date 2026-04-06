@@ -2,6 +2,11 @@
 
 ## @axonflow/governance-policies
 
+### 1.4.0 (2026-04-06)
+
+- Updated telemetry disclosure: anonymous startup telemetry is enabled by default even for local/self-hosted evaluations unless opted out
+- Added `requestTimeoutMs` guidance for remote AxonFlow deployments and slower networks
+
 ### 1.3.0 (2026-04-06)
 
 - Added explicit self-hosted declaration with accurate telemetry disclosure

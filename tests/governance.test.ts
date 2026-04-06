@@ -70,6 +70,7 @@ describe("resolveConfig", () => {
     expect(config.endpoint).toBe("http://localhost:8080");
     expect(config.clientId).toBe("my-id");
     expect(config.defaultOperation).toBe("execute");
+    expect(config.requestTimeoutMs).toBe(8000);
     expect(config.highRiskTools).toEqual([]);
     expect(config.governedTools).toEqual([]);
     expect(config.excludedTools).toEqual([]);
@@ -85,6 +86,14 @@ describe("resolveConfig", () => {
     });
     expect(config.highRiskTools).toEqual(["web_fetch", "message"]);
     expect(config.excludedTools).toEqual(["safe_tool"]);
+  });
+
+  it("parses requestTimeoutMs when provided", () => {
+    const config = resolveConfig({
+      endpoint: "http://x",
+      requestTimeoutMs: 15000,
+    });
+    expect(config.requestTimeoutMs).toBe(15000);
   });
 });
 
