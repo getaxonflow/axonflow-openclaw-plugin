@@ -1,9 +1,14 @@
-name: Publish to npm
+name: Publish to npm + ClawHub
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 1.1.0)'
+        required: true
 
 permissions:
   id-token: write
@@ -14,6 +19,7 @@ env:
 
 jobs:
   publish:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:
@@ -84,7 +90,9 @@ jobs:
 
   publish-clawhub:
     needs: publish
+    if: always() && (needs.publish.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -93,12 +101,20 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install dependencies and build
+        run: npm ci && npm run build
+
       - name: Install ClawHub CLI
         run: npm install -g clawhub
 
-      - name: Extract version from tag
+      - name: Extract version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Publish to ClawHub
         env:
@@ -113,7 +129,7 @@ jobs:
             --changelog "See https://github.com/getaxonflow/axonflow-openclaw-plugin/blob/v${VERSION}/CHANGELOG.md" \
             --source-repo "getaxonflow/axonflow-openclaw-plugin" \
             --source-commit "${{ github.sha }}" \
-            --source-ref "${{ github.ref_name }}"
+            --source-ref "v${VERSION}"
 
   verify-publish:
     needs: publish
