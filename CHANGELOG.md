@@ -6,6 +6,7 @@
 
 - `requestTimeoutMs` plugin config for tuning AxonFlow HTTP request timeouts on remote or high-latency deployments.
 - Plugin logo for marketplace and directory listings.
+- `SECURITY.md` with plugin-specific vulnerability reporting guidance.
 
 ### Changed
 
