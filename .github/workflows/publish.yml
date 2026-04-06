@@ -82,6 +82,39 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  publish-clawhub:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install ClawHub CLI
+        run: npm install -g clawhub
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Publish to ClawHub
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          clawhub login --token "$CLAWHUB_TOKEN"
+          clawhub package publish . \
+            --name "@axonflow/openclaw" \
+            --display-name "AxonFlow Governance" \
+            --version "$VERSION" \
+            --changelog "See https://github.com/getaxonflow/axonflow-openclaw-plugin/blob/v${VERSION}/CHANGELOG.md" \
+            --source-repo "getaxonflow/axonflow-openclaw-plugin" \
+            --source-commit "${{ github.sha }}" \
+            --source-ref "${{ github.ref_name }}"
+
   verify-publish:
     needs: publish
     runs-on: ubuntu-latest
