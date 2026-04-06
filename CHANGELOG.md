@@ -1,10 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [1.1.0] - 2026-04-06
 
 ### Added
 
 - `requestTimeoutMs` plugin config for tuning AxonFlow HTTP request timeouts on remote or high-latency deployments.
+- Plugin logo for marketplace and directory listings.
 
 ### Changed
 
