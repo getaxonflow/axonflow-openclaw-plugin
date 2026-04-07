@@ -58,9 +58,19 @@ See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for fu
 
 ## Install
 
+Available on [ClawHub](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw) and [npm](https://www.npmjs.com/package/@axonflow/openclaw).
+
 ```bash
 openclaw plugins install @axonflow/openclaw
 ```
+
+Or via the ClawHub install path:
+
+```bash
+openclaw plugins install clawhub:@axonflow/openclaw
+```
+
+Either install path works; the ClawHub form is included for users browsing plugins there.
 
 ## Configure
 
