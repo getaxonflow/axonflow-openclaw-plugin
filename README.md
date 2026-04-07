@@ -72,6 +72,8 @@ openclaw plugins install clawhub:@axonflow/openclaw
 
 Either install path works; the ClawHub form is included for users browsing plugins there.
 
+For the full integration walkthrough (architecture, hook coverage, policy examples, troubleshooting), see the [OpenClaw Integration Guide](https://docs.getaxonflow.com/docs/integration/openclaw/).
+
 ## Configure
 
 In your OpenClaw config:
