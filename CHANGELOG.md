@@ -1,6 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [1.2.0] - 2026-04-09
+
+### Changed
+
+- **Smart error classification in governance hooks (issue #1545 Direction 3).** `before_tool_call` now distinguishes network/transport errors (timeouts, DNS failures, connection refused, HTTP 5xx) from auth/config errors (HTTP 401/403, invalid credentials, invalid tokens). **Network errors always fail-open** regardless of `config.onError` — transient infrastructure issues should never block legitimate dev workflows. **Auth errors respect `config.onError`** which defaults to `block` so misconfigured credentials are caught at the first tool call. This replaces the previous all-or-nothing `onError` behavior.
+
+### Added
+
+- **`isAxonFlowAuthError(err)` exported helper** classifies thrown errors from the AxonFlow client. Applications can use it to implement their own fail-open / fail-closed logic outside the built-in hook.
+- 11 new unit tests cover the auth-vs-network classification on the governance hook path and the standalone classifier.
 
 ### Security
 
