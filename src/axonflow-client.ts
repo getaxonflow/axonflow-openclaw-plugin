@@ -7,6 +7,41 @@
 
 import type { AxonFlowPluginConfig } from "./config.js";
 
+/**
+ * Typed error thrown by the AxonFlow client on non-2xx HTTP responses
+ * (except 403, which is a policy block and handled separately).
+ *
+ * Exposes `.status` as a dedicated field so downstream consumers —
+ * specifically the `isAxonFlowAuthError` classifier in `governance.ts` —
+ * can reliably check the HTTP status instead of pattern-matching the
+ * error message string. Previously the client threw a plain `Error`
+ * with the status number embedded in the message, which forced the
+ * classifier to use fragile substring matching.
+ */
+export class AxonFlowHttpError extends Error {
+  readonly status: number;
+  readonly statusText: string;
+  readonly responseBody: Record<string, unknown>;
+
+  constructor(
+    status: number,
+    statusText: string,
+    responseBody: Record<string, unknown>,
+    context: string,
+  ) {
+    const serverError = typeof responseBody["error"] === "string"
+      ? responseBody["error"]
+      : "";
+    super(`AxonFlow ${context} failed: HTTP ${status} ${statusText}${serverError ? " — " + serverError : ""}`);
+    this.name = "AxonFlowHttpError";
+    this.status = status;
+    this.statusText = statusText;
+    this.responseBody = responseBody;
+    // Preserve prototype chain for instanceof checks across module boundaries.
+    Object.setPrototypeOf(this, AxonFlowHttpError.prototype);
+  }
+}
+
 export interface MCPCheckInputResponse {
   allowed: boolean;
   block_reason?: string;
@@ -117,8 +152,11 @@ export class AxonFlowClient {
     }
 
     if (!response.ok) {
-      throw new Error(
-        `AxonFlow check-input failed: ${response.status} ${typeof data["error"] === "string" ? data["error"] : ""}`,
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        data,
+        "check-input",
       );
     }
 
@@ -162,8 +200,11 @@ export class AxonFlowClient {
     }
 
     if (!response.ok) {
-      throw new Error(
-        `AxonFlow check-output failed: ${response.status} ${typeof data["error"] === "string" ? data["error"] : ""}`,
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        data,
+        "check-output",
       );
     }
 
