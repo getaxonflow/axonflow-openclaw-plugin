@@ -36,41 +36,69 @@ export function deriveConnectorType(toolName: string): string {
 }
 
 /**
+ * Regex used by the auth-error classifier for message-based matching.
+ *
+ * v1.2.1 change: word-boundary anchors (`\b`) instead of raw substring
+ * matches. The previous version's `.includes("auth")` accidentally matched
+ * "author", "authority", "authoritative", etc. It also had a special-case
+ * exclusion for "auth server" to work around that. With word boundaries,
+ * the false positives go away and the special-case exclusion is no longer
+ * needed.
+ *
+ * The pattern matches any of:
+ *   \b401\b             — HTTP 401 as a standalone token
+ *   \b403\b             — HTTP 403 as a standalone token
+ *   \bunauthorized\b
+ *   \bforbidden\b
+ *   \bcredentials?\b
+ *   \bauth(?:entication|orization)?\b  — "auth", "authentication", "authorization" but NOT "author" / "authoritative"
+ *   \b(?:invalid|expired)[ _-]?token\b — "invalid token" / "expired token" / "invalid_token" / "expired-token"
+ *   \btoken[ _-]?invalid\b             — "token invalid" / "token_invalid"
+ */
+const AUTH_ERROR_PATTERN = new RegExp(
+  [
+    "\\b401\\b",
+    "\\b403\\b",
+    "\\bunauthorized\\b",
+    "\\bforbidden\\b",
+    "\\bcredentials?\\b",
+    "\\bauth(?:entication|orization)?\\b",
+    "\\b(?:invalid|expired)[ _-]?token\\b",
+    "\\btoken[ _-]?invalid\\b",
+  ].join("|"),
+  "i",
+);
+
+/**
  * Classify an error thrown by the AxonFlow client as an auth/config error
  * vs a transient network / server-side error.
  *
- * Auth/config errors: HTTP 401, 403, or error messages containing "auth",
- * "unauthorized", "forbidden", "credentials", or "token invalid".
- *
- * Network/server errors: everything else (timeouts, DNS failures, 5xx,
- * connection refused, aborts).
+ * Decision order:
+ * 1. If the error exposes `.status` or `.statusCode` === 401/403 → auth.
+ *    (v1.2.1 prefers this path — the AxonFlowHttpError class exported from
+ *    `axonflow-client.ts` always exposes `.status`, so new code paths never
+ *    need to fall through to message matching.)
+ * 2. Otherwise, regex-match the error message against AUTH_ERROR_PATTERN
+ *    with word-boundary anchors. Still needed because thrown errors from
+ *    third-party fetch wrappers and legacy code may not expose `.status`.
+ * 3. Everything else is a network/transient error — fail-open.
  *
  * Used by the fail-open / fail-closed decision in the before_tool_call
- * hook handler (issue #1545 Direction 3).
+ * hook handler.
  */
 export function isAxonFlowAuthError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
 
-  // Error objects with HTTP status (if the SDK exposes one)
+  // Preferred path: typed error with HTTP status.
   const maybeStatus =
     (err as { status?: number; statusCode?: number }).status ??
     (err as { status?: number; statusCode?: number }).statusCode;
   if (maybeStatus === 401 || maybeStatus === 403) return true;
 
+  // Fallback: message-based pattern match with word boundaries.
   const message =
-    err instanceof Error
-      ? err.message.toLowerCase()
-      : String(err).toLowerCase();
-  return (
-    message.includes("401") ||
-    message.includes("403") ||
-    message.includes("unauthorized") ||
-    message.includes("forbidden") ||
-    message.includes("credentials") ||
-    (message.includes("auth") && !message.includes("auth server")) ||
-    message.includes("token invalid") ||
-    message.includes("invalid token")
-  );
+    err instanceof Error ? err.message : String(err);
+  return AUTH_ERROR_PATTERN.test(message);
 }
 
 /**

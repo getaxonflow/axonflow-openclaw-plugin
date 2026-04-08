@@ -102,11 +102,29 @@ describe("AxonFlowClient", () => {
     });
 
     it("throws on non-403 errors", async () => {
+      // v1.2.1: AxonFlowHttpError class now carries status as a dedicated
+      // field, and the error message format changed to include "HTTP <status>".
       mockFetch.mockResolvedValueOnce(jsonResponse(500, { error: "Internal error" }));
       const client = makeClient();
       await expect(
         client.mcpCheckInput("test", "statement"),
-      ).rejects.toThrow("check-input failed: 500");
+      ).rejects.toThrow(/check-input failed.*500/);
+    });
+
+    it("throws AxonFlowHttpError with .status field on non-403", async () => {
+      // v1.2.1 regression test: the thrown error must expose .status so
+      // isAxonFlowAuthError in governance.ts can use the status-based path
+      // without falling back to message matching.
+      const { AxonFlowHttpError } = await import("../src/axonflow-client.js");
+      mockFetch.mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }));
+      const client = makeClient();
+      try {
+        await client.mcpCheckInput("test", "statement");
+        throw new Error("expected throw");
+      } catch (err) {
+        expect(err).toBeInstanceOf(AxonFlowHttpError);
+        expect((err as InstanceType<typeof AxonFlowHttpError>).status).toBe(401);
+      }
     });
 
     it("sends correct auth header", async () => {
@@ -196,11 +214,12 @@ describe("AxonFlowClient", () => {
     });
 
     it("throws on non-403 errors", async () => {
+      // v1.2.1: AxonFlowHttpError with "HTTP <status>" in message.
       mockFetch.mockResolvedValueOnce(jsonResponse(500, { error: "Server error" }));
       const client = makeClient();
       await expect(
         client.mcpCheckOutput("test", "data"),
-      ).rejects.toThrow("check-output failed: 500");
+      ).rejects.toThrow(/check-output failed.*500/);
     });
   });
 
