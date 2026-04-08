@@ -242,15 +242,17 @@ describe("createBeforeToolCallHandler", () => {
     );
   });
 
-  it("blocks on network error when onError=block (default)", async () => {
+  it("ALWAYS fails open on network error even when onError=block (#1545)", async () => {
+    // Issue #1545 Direction 3: network errors always fail-open regardless
+    // of config.onError. Only auth errors respect the config.
     const client = mockClient({});
     (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(new Error("ECONNREFUSED"));
     const handler = createBeforeToolCallHandler(client, baseConfig());
 
     const result = await handler({ toolName: "web_fetch", params: {} });
 
-    expect(result?.block).toBe(true);
-    expect(result?.blockReason).toContain("ECONNREFUSED");
+    // Network errors never block — even with the default onError=block.
+    expect(result).toBeUndefined();
   });
 
   it("allows on network error when onError=allow", async () => {
@@ -262,6 +264,77 @@ describe("createBeforeToolCallHandler", () => {
     const result = await handler({ toolName: "web_fetch", params: {} });
 
     expect(result).toBeUndefined();
+  });
+
+  it("blocks on AUTH error when onError=block (default) — operator fixable (#1545)", async () => {
+    const client = mockClient({});
+    (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(
+      new Error("HTTP 401 Unauthorized: invalid credentials"),
+    );
+    const handler = createBeforeToolCallHandler(client, baseConfig());
+
+    const result = await handler({ toolName: "web_fetch", params: {} });
+
+    expect(result?.block).toBe(true);
+    expect(result?.blockReason).toContain("auth");
+  });
+
+  it("allows on AUTH error when onError=allow (operator explicit opt-in)", async () => {
+    const client = mockClient({});
+    (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(
+      new Error("HTTP 403 Forbidden"),
+    );
+    const config = baseConfig({ onError: "allow" as const });
+    const handler = createBeforeToolCallHandler(client, config);
+
+    const result = await handler({ toolName: "web_fetch", params: {} });
+
+    expect(result).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isAxonFlowAuthError classification (#1545 Direction 3)
+// ---------------------------------------------------------------------------
+import { isAxonFlowAuthError } from "../src/governance.js";
+
+describe("isAxonFlowAuthError", () => {
+  it("classifies HTTP 401 by status", () => {
+    expect(isAxonFlowAuthError({ status: 401 })).toBe(true);
+  });
+  it("classifies HTTP 403 by statusCode", () => {
+    expect(isAxonFlowAuthError({ statusCode: 403 })).toBe(true);
+  });
+  it("classifies 401 in message", () => {
+    expect(isAxonFlowAuthError(new Error("HTTP 401 Unauthorized"))).toBe(true);
+  });
+  it("classifies unauthorized in message", () => {
+    expect(isAxonFlowAuthError(new Error("unauthorized"))).toBe(true);
+  });
+  it("classifies forbidden in message", () => {
+    expect(isAxonFlowAuthError(new Error("forbidden"))).toBe(true);
+  });
+  it("classifies credentials in message", () => {
+    expect(isAxonFlowAuthError(new Error("invalid credentials"))).toBe(true);
+  });
+  it("classifies invalid token", () => {
+    expect(isAxonFlowAuthError(new Error("invalid token"))).toBe(true);
+  });
+  it("does NOT classify ECONNREFUSED", () => {
+    expect(isAxonFlowAuthError(new Error("ECONNREFUSED"))).toBe(false);
+  });
+  it("does NOT classify timeout", () => {
+    expect(isAxonFlowAuthError(new Error("request timeout"))).toBe(false);
+  });
+  it("does NOT classify DNS failure", () => {
+    expect(isAxonFlowAuthError(new Error("getaddrinfo ENOTFOUND"))).toBe(false);
+  });
+  it("does NOT classify 500 errors", () => {
+    expect(isAxonFlowAuthError(new Error("HTTP 500 Internal Server Error"))).toBe(false);
+  });
+  it("does NOT classify null/undefined", () => {
+    expect(isAxonFlowAuthError(null)).toBe(false);
+    expect(isAxonFlowAuthError(undefined)).toBe(false);
   });
 });
 

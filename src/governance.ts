@@ -36,6 +36,44 @@ export function deriveConnectorType(toolName: string): string {
 }
 
 /**
+ * Classify an error thrown by the AxonFlow client as an auth/config error
+ * vs a transient network / server-side error.
+ *
+ * Auth/config errors: HTTP 401, 403, or error messages containing "auth",
+ * "unauthorized", "forbidden", "credentials", or "token invalid".
+ *
+ * Network/server errors: everything else (timeouts, DNS failures, 5xx,
+ * connection refused, aborts).
+ *
+ * Used by the fail-open / fail-closed decision in the before_tool_call
+ * hook handler (issue #1545 Direction 3).
+ */
+export function isAxonFlowAuthError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+
+  // Error objects with HTTP status (if the SDK exposes one)
+  const maybeStatus =
+    (err as { status?: number; statusCode?: number }).status ??
+    (err as { status?: number; statusCode?: number }).statusCode;
+  if (maybeStatus === 401 || maybeStatus === 403) return true;
+
+  const message =
+    err instanceof Error
+      ? err.message.toLowerCase()
+      : String(err).toLowerCase();
+  return (
+    message.includes("401") ||
+    message.includes("403") ||
+    message.includes("unauthorized") ||
+    message.includes("forbidden") ||
+    message.includes("credentials") ||
+    (message.includes("auth") && !message.includes("auth server")) ||
+    message.includes("token invalid") ||
+    message.includes("invalid token")
+  );
+}
+
+/**
  * Create the before_tool_call hook handler.
  *
  * Decision logic:
@@ -72,14 +110,29 @@ export function createBeforeToolCallHandler(
       );
     } catch (err) {
       recordGovernanceError();
+
+      // Issue #1545 Direction 3: classify the error to decide fail-open vs
+      // fail-closed. Network errors (timeout, DNS failure, connection
+      // refused, 5xx) always fail OPEN regardless of config.onError —
+      // transient infrastructure issues should never block legitimate dev
+      // workflows. Auth errors (401/403) respect config.onError, defaulting
+      // to fail-closed because they indicate a misconfiguration the
+      // operator can and should fix.
+      const isAuthError = isAxonFlowAuthError(err);
+      if (!isAuthError) {
+        recordToolCallAllowed();
+        return undefined; // Fail-open: transient network issue
+      }
+
+      // Auth error — respect config.onError (which defaults to "block").
       if (config.onError === "allow") {
         recordToolCallAllowed();
-        return undefined; // Fail-open: allow tool execution
+        return undefined;
       }
       recordToolCallBlocked();
       return {
         block: true,
-        blockReason: `AxonFlow unreachable: ${err instanceof Error ? err.message : "unknown error"}`,
+        blockReason: `AxonFlow auth error: ${err instanceof Error ? err.message : "unknown error"}. Fix configuration to restore tool access.`,
       };
     }
 
