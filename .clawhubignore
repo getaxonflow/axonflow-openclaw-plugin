@@ -1,0 +1,77 @@
+# Files excluded from ClawHub publish.
+# Uses .gitignore syntax. The goal is to keep the published archive
+# to runtime artifacts + manifest + docs, so the OpenClaw install-time
+# static scanner does not flag dev-only patterns (test mocks of env
+# vars, fetch, readFileSync, etc.) and the archive stays small.
+#
+# What SHIPS to ClawHub after these rules apply:
+#   - dist/                   compiled runtime
+#   - openclaw.plugin.json    manifest
+#   - policies/               starter policy SQL/README
+#   - assets/                 plugin logo and other listing assets
+#   - package.json            npm metadata
+#   - README.md               listing page content
+#   - CHANGELOG.md            release history
+#   - LICENSE                 legal
+#   - SECURITY.md             vulnerability disclosure policy
+
+# OS / editor cruft
+.DS_Store
+**/.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Version control + dependency install
+.git/
+.gitignore
+.gitattributes
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# CI + repo-management config
+.github/
+.npmignore
+
+# Build configuration (not needed at runtime)
+tsconfig*.json
+jest.config.*
+eslint.config.*
+.eslintrc*
+.prettierrc*
+.editorconfig
+
+# Test files — these mock process.env, fetch, and readFileSync in
+# ways the OpenClaw install scanner flags as credential harvesting,
+# and they are not used at runtime.
+tests/
+test/
+__tests__/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+coverage/
+
+# TypeScript sources and source maps — dist/ is what actually runs
+src/
+dist/**/*.map
+dist/**/*.d.ts.map
+
+# Internal scripts (local e2e harness) — not needed for install,
+# and scripts/e2e-test.sh contains bash patterns that can confuse
+# the scanner.
+scripts/
+
+# Skill source files — published separately via ClawHub web UI.
+# These are the source-of-record for the governance-policies skill,
+# not part of the plugin package.
+clawhub/
+
+# Local packaging artifacts
+*.tgz
+
+# Meta: don't ship the ignore file itself
+.clawhubignore

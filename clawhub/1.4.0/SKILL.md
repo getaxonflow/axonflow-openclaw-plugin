@@ -23,20 +23,7 @@ Full setup instructions: [Self-Hosted Deployment Guide](https://docs.getaxonflow
 
 ## Install the Plugin
 
-```bash
-openclaw plugins install @axonflow/openclaw
-```
-
-> **Note on the package name:** the npm package is `@axonflow/openclaw`, not `@axonflow/openclaw-plugin`. The repo name differs from the package name.
->
-> **Known upstream issue with scoped packages:** if the install fails with `ENOENT ...openclaw-clawhub-package-XXXXXX/@axonflow/openclaw.zip`, this is an OpenClaw CLI bug ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) affecting all scoped npm packages. Workaround — install from npm directly:
->
-> ```bash
-> TGZ=$(npm pack @axonflow/openclaw 2>/dev/null | tail -1)
-> openclaw plugins install "./$TGZ"
-> ```
-
-Configure in your OpenClaw config with your AxonFlow endpoint, credentials, high-risk tool list, and optional `requestTimeoutMs` override. Set `onError: block` for production (fail-closed) or `allow` for development (fail-open). Increase `requestTimeoutMs` above the default 8000ms when AxonFlow is running remotely or behind a slow VPN.
+Install via OpenClaw's plugin manager and configure in your OpenClaw config with your AxonFlow endpoint, credentials, high-risk tool list, and optional `requestTimeoutMs` override. Set `onError: block` for production (fail-closed) or `allow` for development (fail-open). Increase `requestTimeoutMs` above the default 8000ms when AxonFlow is running remotely or behind a slow VPN.
 
 In community mode, `clientId` and `clientSecret` default to `"community"` — no credentials needed for the local developer flow. In enterprise mode, provide OAuth2 Client Credentials (Basic auth). The `tenantId` config field has been removed — tenant is derived server-side from credentials.
 
