@@ -27,7 +27,14 @@ Full setup instructions: [Self-Hosted Deployment Guide](https://docs.getaxonflow
 openclaw plugins install @axonflow/openclaw
 ```
 
-> **Important:** The npm package name is `@axonflow/openclaw`, not `@axonflow/openclaw-plugin`. The repo name differs from the package name.
+> **Note on the package name:** the npm package is `@axonflow/openclaw`, not `@axonflow/openclaw-plugin`. The repo name differs from the package name.
+>
+> **Known upstream issue with scoped packages:** if the install fails with `ENOENT ...openclaw-clawhub-package-XXXXXX/@axonflow/openclaw.zip`, this is an OpenClaw CLI bug ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) affecting all scoped npm packages. Workaround:
+>
+> ```bash
+> npm pack @axonflow/openclaw
+> openclaw plugins install ./axonflow-openclaw-*.tgz
+> ```
 
 Configure in your OpenClaw config with your AxonFlow endpoint, credentials, high-risk tool list, and optional `requestTimeoutMs` override. Set `onError: block` for production (fail-closed) or `allow` for development (fail-open). Increase `requestTimeoutMs` above the default 8000ms when AxonFlow is running remotely or behind a slow VPN.
 
