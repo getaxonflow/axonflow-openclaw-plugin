@@ -1,0 +1,40 @@
+# Files excluded from ClawHub publish.
+# Matches .gitignore syntax. Keeps the published archive limited to runtime
+# artifacts + manifest + docs — no dev/test files — which also keeps the
+# OpenClaw install-time static scanner from flagging test-only patterns
+# (jest mocks of process.env + fetch, readFileSync usage in fixtures, etc.).
+
+# Dev / build
+node_modules/
+.github/
+.gitignore
+.npmignore
+tsconfig.json
+tsconfig.*.json
+jest.config.*
+.eslintrc*
+.prettierrc*
+
+# Tests — these mock process.env + fetch + readFileSync in ways that look
+# like credential harvesting to the OpenClaw install scanner, and they
+# aren't used at runtime.
+tests/
+test/
+__tests__/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+coverage/
+
+# Local packaging artifacts
+*.tgz
+dist/**/*.map
+
+# Internal scripts (e2e harness and similar) — not needed at install time
+# and scripts/e2e-test.sh contains bash patterns that can confuse the scanner.
+scripts/
+
+# TypeScript sources — dist/ is what actually runs at install time
+src/
+tsconfig*.json

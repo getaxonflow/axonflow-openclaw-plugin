@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.3] - 2026-04-15
+
+### Fixed
+
+- **Install via `openclaw plugins install @axonflow/openclaw` now works on OpenClaw 2026.4.14+.** Two upstream changes landed between v1.2.2 and today:
+  1. OpenClaw 2026.4.14 shipped the scoped-package path fix ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) that previously caused `ENOENT .../@axonflow/openclaw.zip`. No action needed from the plugin side — users on 2026.4.14+ can use the primary install command.
+  2. The 2026.4.14 install scanner was upgraded from **warn** to **block** when it detects `process.env.X` + `fetch()` co-location. Our unit tests (`tests/telemetry.test.ts`) mock both for telemetry-opt-out tests, which the scanner flagged as "possible credential harvesting" and blocked the install. Filed upstream: [openclaw/openclaw#66840](https://github.com/openclaw/openclaw/issues/66840).
+
+### Changed
+
+- **New `.clawhubignore`** excludes test files, TypeScript sources, CI config, and internal scripts from the ClawHub-published archive. Only runtime artifacts (`dist/`, `openclaw.plugin.json`, `policies/`, `package.json`, `README.md`, `CHANGELOG.md`, `LICENSE`) ship to ClawHub. The npm-published tgz was already minimal via the `files` field in `package.json`; this brings the ClawHub archive in line.
+
 ## [1.2.2] - 2026-04-14
 
 ### Fixed
