@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.4] - 2026-04-14
+
+### Documentation
+
+- **README now reflects the verified-working install on OpenClaw 2026.4.14+.** v1.2.3 verified end-to-end that `openclaw plugins install @axonflow/openclaw` (and the `clawhub:@axonflow/openclaw` form) both work cleanly, but the README shipped with v1.2.3 still led with a "try this, might fail" framing and buried the primary command under a known-issue warning. Since README is the ClawHub listing page content, users saw instructions that contradicted actual behavior. v1.2.4 is a docs-only release that corrects the framing: primary command is shown unconditionally for 2026.4.14+, the older-CLI `npm pack` workaround is preserved inside a collapsed `<details>` block with affected-version context and an upgrade pointer.
+
+No code changes.
+
 ## [1.2.3] - 2026-04-14
 
 ### Fixed

@@ -60,19 +60,31 @@ See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for fu
 
 Available on [ClawHub](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw) and [npm](https://www.npmjs.com/package/@axonflow/openclaw).
 
+**Recommended:**
+
 ```bash
 openclaw plugins install @axonflow/openclaw
 ```
 
-> ⚠️ **Known issue with scoped packages on OpenClaw CLI**
->
-> If the command above fails with `ENOENT: no such file or directory, open '...openclaw-clawhub-package-XXXXXX/@axonflow/openclaw.zip'`, this is an upstream OpenClaw CLI bug ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) affecting all scoped npm packages (any name with `@scope/`). The CLI writes the downloaded zip to a path containing the scope as a subdirectory but never creates that subdirectory. Workaround — install from npm directly:
->
-> ```bash
-> # Captures the exact tgz filename so a stale tgz in CWD doesn't get picked up
-> TGZ=$(npm pack @axonflow/openclaw 2>/dev/null | tail -1)
-> openclaw plugins install "./$TGZ"
-> ```
+The `clawhub:@axonflow/openclaw` form also works if you prefer to be explicit about the source:
+
+```bash
+openclaw plugins install clawhub:@axonflow/openclaw
+```
+
+Requires OpenClaw **2026.4.14 or later**. If you are not on the latest, upgrade with `npm install -g openclaw@latest`.
+
+<details>
+<summary>On an older OpenClaw CLI? The old workaround is still needed.</summary>
+
+OpenClaw versions before 2026.4.14 had a bug ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) that made scoped packages fail with `ENOENT .../openclaw-clawhub-package-XXXXXX/@axonflow/openclaw.zip` — both forms of the install command hit it. The fix shipped in 2026.4.14. If you cannot upgrade, install from npm directly:
+
+```bash
+# Captures the exact tgz filename so a stale tgz in CWD doesn't get picked up
+TGZ=$(npm pack @axonflow/openclaw 2>/dev/null | tail -1)
+openclaw plugins install "./$TGZ"
+```
+</details>
 
 For the full integration walkthrough (architecture, hook coverage, policy examples, troubleshooting), see the [OpenClaw Integration Guide](https://docs.getaxonflow.com/docs/integration/openclaw/).
 
