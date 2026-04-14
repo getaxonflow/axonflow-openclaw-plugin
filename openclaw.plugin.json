@@ -52,19 +52,23 @@
     "additionalProperties": false,
     "properties": {
       "endpoint": {
-        "type": "string"
+        "type": "string",
+        "default": "http://localhost:8080"
       },
       "clientId": {
-        "type": "string"
+        "type": "string",
+        "default": "community"
       },
       "clientSecret": {
-        "type": "string"
+        "type": "string",
+        "default": "community"
       },
       "highRiskTools": {
         "type": "array",
         "items": {
           "type": "string"
-        }
+        },
+        "default": ["web_fetch"]
       },
       "governedTools": {
         "type": "array",
@@ -83,24 +87,22 @@
         "enum": [
           "execute",
           "query"
-        ]
+        ],
+        "default": "execute"
       },
       "onError": {
         "type": "string",
         "enum": [
           "block",
           "allow"
-        ]
+        ],
+        "default": "block"
       },
       "requestTimeoutMs": {
         "type": "number",
-        "minimum": 1
+        "minimum": 1,
+        "default": 8000
       }
-    },
-    "required": [
-      "endpoint",
-      "clientId",
-      "clientSecret"
-    ]
+    }
   }
 }

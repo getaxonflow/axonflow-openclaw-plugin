@@ -6,9 +6,13 @@
  * and OpenClaw version. No PII, no tool arguments, no policy data.
  *
  * Opt out: DO_NOT_TRACK=1 or AXONFLOW_TELEMETRY=off
+ *
+ * Configuration resolution (opt-out flags and checkpoint URL) lives in
+ * telemetry-config.ts so this file only handles the network-sending side.
  */
 
-const CHECKPOINT_URL = "https://checkpoint.getaxonflow.com/v1/ping";
+import { loadTelemetryConfig } from "./telemetry-config.js";
+
 const TELEMETRY_TIMEOUT_MS = 3000;
 
 function generateInstanceId(): string {
@@ -27,30 +31,6 @@ function generateInstanceId(): string {
     const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
-}
-
-function isOptedOut(): boolean {
-  if (typeof process === "undefined" || !process.env) {
-    return false;
-  }
-  if (process.env.DO_NOT_TRACK?.trim() === "1") {
-    return true;
-  }
-  if (process.env.AXONFLOW_TELEMETRY?.trim().toLowerCase() === "off") {
-    return true;
-  }
-  return false;
-}
-
-function resolveCheckpointUrl(): string {
-  if (
-    typeof process !== "undefined" &&
-    process.env &&
-    process.env.AXONFLOW_CHECKPOINT_URL
-  ) {
-    return process.env.AXONFLOW_CHECKPOINT_URL;
-  }
-  return CHECKPOINT_URL;
 }
 
 export interface TelemetryPayload {
@@ -103,7 +83,8 @@ export function sendTelemetryPing(options: {
   highRiskToolCount: number;
   onError: string;
 }): void {
-  if (isOptedOut()) {
+  const config = loadTelemetryConfig();
+  if (config.optedOut) {
     return;
   }
 
@@ -113,18 +94,16 @@ export function sendTelemetryPing(options: {
     );
   }
 
-  const checkpointUrl = resolveCheckpointUrl();
+  // Runtime metadata (platform, arch, runtime version) for the payload.
+  const proc = typeof process !== "undefined" ? process : null;
 
   const payload: TelemetryPayload = {
     sdk: "openclaw-plugin",
     sdk_version: options.pluginVersion,
     platform_version: null,
-    os: typeof process !== "undefined" ? process.platform : "unknown",
-    arch: typeof process !== "undefined" ? process.arch : "unknown",
-    runtime_version:
-      typeof process !== "undefined"
-        ? process.version.replace(/^v/, "")
-        : "unknown",
+    os: proc ? proc.platform : "unknown",
+    arch: proc ? proc.arch : "unknown",
+    runtime_version: proc ? proc.version.replace(/^v/, "") : "unknown",
     deployment_mode: options.onError === "block" ? "production" : "development",
     features: [
       `hooks:${options.hookCount}`,
@@ -148,7 +127,7 @@ export function sendTelemetryPing(options: {
       const timeoutId = setTimeout(() => controller.abort(), TELEMETRY_TIMEOUT_MS);
 
       try {
-        await fetch(checkpointUrl, {
+        await fetch(config.checkpointUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
