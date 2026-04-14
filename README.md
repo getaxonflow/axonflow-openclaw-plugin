@@ -65,11 +65,13 @@ openclaw plugins install @axonflow/openclaw
 ```
 
 > ⚠️ **Known issue with scoped packages on OpenClaw CLI**
-> If the command above fails with `ENOENT: no such file or directory, open '...openclaw-clawhub-package-XXXXXX/@axonflow/openclaw.zip'`, this is an upstream OpenClaw CLI bug affecting all scoped npm packages (any name with `@scope/`). The CLI tries to write the downloaded zip to a path containing the scope as a subdirectory but never creates that subdirectory. Workaround:
+>
+> If the command above fails with `ENOENT: no such file or directory, open '...openclaw-clawhub-package-XXXXXX/@axonflow/openclaw.zip'`, this is an upstream OpenClaw CLI bug ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) affecting all scoped npm packages (any name with `@scope/`). The CLI writes the downloaded zip to a path containing the scope as a subdirectory but never creates that subdirectory. Workaround — install from npm directly:
 >
 > ```bash
-> npm pack @axonflow/openclaw
-> openclaw plugins install ./axonflow-openclaw-*.tgz
+> # Captures the exact tgz filename so a stale tgz in CWD doesn't get picked up
+> TGZ=$(npm pack @axonflow/openclaw 2>/dev/null | tail -1)
+> openclaw plugins install "./$TGZ"
 > ```
 
 For the full integration walkthrough (architecture, hook coverage, policy examples, troubleshooting), see the [OpenClaw Integration Guide](https://docs.getaxonflow.com/docs/integration/openclaw/).

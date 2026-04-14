@@ -75,10 +75,23 @@ echo ""
 echo "--- Step 1: Prerequisites ---"
 
 which openclaw > /dev/null 2>&1
-assert_check "OpenClaw installed" "true"
+OPENCLAW_INSTALLED=$([ $? -eq 0 ] && echo true || echo false)
+assert_check "OpenClaw installed" "$OPENCLAW_INSTALLED"
+if [ "$OPENCLAW_INSTALLED" != "true" ]; then
+    echo "  Install OpenClaw: npm install -g openclaw@latest"
+    exit 1
+fi
 
-curl -s "$AXONFLOW_ENDPOINT/health" > /dev/null 2>&1
-assert_check "AxonFlow healthy" "true"
+# Use explicit status capture instead of `set -e` killing the script silently
+# if AxonFlow is not running.
+HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$AXONFLOW_ENDPOINT/health" || echo "000")
+HEALTH_OK=$([ "$HEALTH_STATUS" = "200" ] && echo true || echo false)
+assert_check "AxonFlow healthy (HTTP $HEALTH_STATUS at $AXONFLOW_ENDPOINT)" "$HEALTH_OK"
+if [ "$HEALTH_OK" != "true" ]; then
+    echo "  AxonFlow is not reachable. Start it with:"
+    echo "    cd /path/to/axonflow && docker compose up -d"
+    exit 1
+fi
 
 # Sanity-check auth before running policy tests — fail early with a clear message
 # rather than letting a 401 cascade silently kill the script via `set -e`.
