@@ -58,14 +58,15 @@ assert_check() {
 }
 
 AXONFLOW_ENDPOINT="${AXONFLOW_ENDPOINT:-http://localhost:8080}"
-AXONFLOW_CLIENT_ID="${AXONFLOW_CLIENT_ID:-demo-client}"
-AXONFLOW_CLIENT_SECRET="${AXONFLOW_CLIENT_SECRET:-demo-secret}"
+AXONFLOW_CLIENT_ID="${AXONFLOW_CLIENT_ID:-community}"
+AXONFLOW_CLIENT_SECRET="${AXONFLOW_CLIENT_SECRET:-community}"
 
 echo "============================================================"
 echo "OpenClaw + AxonFlow E2E Integration Test"
 echo "============================================================"
 echo ""
-echo "AxonFlow endpoint: $AXONFLOW_ENDPOINT"
+echo "AxonFlow endpoint:    $AXONFLOW_ENDPOINT"
+echo "AxonFlow clientId:    $AXONFLOW_CLIENT_ID"
 echo ""
 
 # ============================================================
@@ -78,6 +79,23 @@ assert_check "OpenClaw installed" "true"
 
 curl -s "$AXONFLOW_ENDPOINT/health" > /dev/null 2>&1
 assert_check "AxonFlow healthy" "true"
+
+# Sanity-check auth before running policy tests — fail early with a clear message
+# rather than letting a 401 cascade silently kill the script via `set -e`.
+AUTH_PROBE=$(echo -n "${AXONFLOW_CLIENT_ID}:${AXONFLOW_CLIENT_SECRET}" | base64)
+AUTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Basic $AUTH_PROBE" \
+    -H "Content-Type: application/json" \
+    -d '{"connector_type":"openclaw.exec","statement":"{\"command\":\"echo test\"}","operation":"execute"}' \
+    "$AXONFLOW_ENDPOINT/api/v1/mcp/check-input")
+if [ "$AUTH_STATUS" = "401" ] || [ "$AUTH_STATUS" = "403" ]; then
+    echo -e "  ${RED}FAIL${NC}: AxonFlow auth (HTTP $AUTH_STATUS with clientId='$AXONFLOW_CLIENT_ID')"
+    echo "  Set AXONFLOW_CLIENT_ID and AXONFLOW_CLIENT_SECRET to match your AxonFlow deployment."
+    echo "  For community mode (no license): defaults work (community/community)."
+    echo "  For enterprise mode: source axonflow-enterprise/scripts/setup-e2e-testing.sh first."
+    exit 1
+fi
+assert_check "AxonFlow auth (HTTP $AUTH_STATUS)" "$([ "$AUTH_STATUS" = "200" ] && echo true || echo false)"
 
 if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
     echo -e "  ${YELLOW}WARN${NC}: No LLM API key set (ANTHROPIC_API_KEY or OPENAI_API_KEY)"
@@ -97,8 +115,15 @@ echo "--- Step 2: Build and install plugin ---"
 npm run build > /dev/null 2>&1
 assert_check "Plugin builds" "true"
 
+# Clean up any stale tgz files so the install glob resolves to a single archive.
+# Without this, multiple old versions cause `openclaw plugins install ./axonflow-openclaw-*.tgz`
+# to receive multiple paths and fail in confusing ways.
+rm -f ./axonflow-openclaw-*.tgz
+PKG_VERSION=$(node -p "require('./package.json').version")
+PKG_TGZ="./axonflow-openclaw-${PKG_VERSION}.tgz"
+
 npm pack > /dev/null 2>&1
-assert_check "Plugin packs" "true"
+assert_check "Plugin packs (${PKG_TGZ})" "$([ -f "$PKG_TGZ" ] && echo true || echo false)"
 
 # Configure OpenClaw with our plugin
 mkdir -p ~/.openclaw
@@ -125,14 +150,18 @@ EOF
 cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.e2e-backup 2>/dev/null || true
 cp /tmp/openclaw-e2e-config.json ~/.openclaw/openclaw.json
 
-# Install plugin
+# Install plugin (use exact tgz path to avoid glob ambiguity)
 rm -rf ~/.openclaw/extensions/axonflow-governance 2>/dev/null
-INSTALL_OUTPUT=$(openclaw plugins install ./axonflow-openclaw-*.tgz 2>&1)
-echo "$INSTALL_OUTPUT" | grep -q "Installed plugin: axonflow-governance"
-assert_check "Plugin installs in OpenClaw" "true"
+INSTALL_OUTPUT=$(openclaw plugins install "$PKG_TGZ" 2>&1) || true
+INSTALL_PASS=$(echo "$INSTALL_OUTPUT" | grep -q "Installed plugin: axonflow-governance" && echo true || echo false)
+assert_check "Plugin installs in OpenClaw" "$INSTALL_PASS"
+if [ "$INSTALL_PASS" != "true" ]; then
+    echo "  Install output:"
+    echo "$INSTALL_OUTPUT" | sed 's/^/    /'
+fi
 
-echo "$INSTALL_OUTPUT" | grep -q "AxonFlow governance active"
-assert_check "Plugin registers hooks" "true"
+HOOKS_PASS=$(echo "$INSTALL_OUTPUT" | grep -q "AxonFlow governance active" && echo true || echo false)
+assert_check "Plugin registers hooks" "$HOOKS_PASS"
 echo ""
 
 # ============================================================
@@ -151,10 +180,7 @@ RESPONSE=$(curl -s -w "\n%{http_code}" \
 STATUS=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | sed '$d')
 
-[ "$STATUS" = "200" ]
 assert_check "mcp_check_input accepts openclaw.exec (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
-
-echo "$BODY" | grep -q "policies_evaluated"
 assert_check "Policy engine evaluates policies" "$(echo "$BODY" | grep -q "policies_evaluated" && echo true || echo false)"
 
 # Test check-output
@@ -165,7 +191,6 @@ RESPONSE=$(curl -s -w "\n%{http_code}" \
     "$AXONFLOW_ENDPOINT/api/v1/mcp/check-output")
 STATUS=$(echo "$RESPONSE" | tail -1)
 
-[ "$STATUS" = "200" ]
 assert_check "mcp_check_output accepts openclaw.exec (HTTP $STATUS)" "$([ "$STATUS" = "200" ] && echo true || echo false)"
 
 # Test SQLi detection
@@ -176,7 +201,6 @@ RESPONSE=$(curl -s -w "\n%{http_code}" \
     "$AXONFLOW_ENDPOINT/api/v1/mcp/check-input")
 STATUS=$(echo "$RESPONSE" | tail -1)
 
-[ "$STATUS" = "403" ]
 assert_check "SQLi blocked by policy (HTTP $STATUS)" "$([ "$STATUS" = "403" ] && echo true || echo false)"
 
 # Test audit/tool-call endpoint (critical: must work through agent proxy)
