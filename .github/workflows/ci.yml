@@ -12,6 +12,8 @@ permissions:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      DO_NOT_TRACK: "1"
     strategy:
       matrix:
         node-version: [20, 22]

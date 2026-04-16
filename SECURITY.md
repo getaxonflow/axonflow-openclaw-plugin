@@ -411,6 +411,6 @@ We would like to thank the following security researchers for responsibly disclo
 
 ---
 
-**Last Updated:** February 2026
+**Last Updated:** April 2026
 
 **Version:** 2.2
