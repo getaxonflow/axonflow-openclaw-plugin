@@ -1,18 +1,18 @@
 # Changelog
 
-## [1.3.0] - 2026-04-17 — Plugin Batch 1: Explainability + Session Overrides
+## [1.3.0] - 2026-04-18
 
 ### Added
 
 - **`client.explainDecision(decisionId)`** — programmatic access to the full
   decision explanation (matched policies, risk level, reason, override
-  availability, rolling-24h session hit count). Shape frozen per ADR-043.
+  availability, rolling-24h session hit count). Shape is frozen.
   Returns null on 404 / network failure so callers can fall back to a
   terse block message without crashing.
 - **`client.createOverride({ policyId, policyType, overrideReason, toolSignature?, ttlSeconds? })`** —
   creates a session-scoped override with a mandatory free-text justification.
-  Client-side validates the reason is non-empty per ADR-042; server enforces
-  TTL clamping (default 60m, hard cap 24h), critical-risk rejection, and the
+  Client-side validates the reason is non-empty; server enforces TTL clamping
+  (default 60m, hard cap 24h), critical-risk rejection, and the
   `allow_override=false` contract.
 - **`client.revokeOverride(overrideId)`** and **`client.listOverrides()`** —
   round out the override CRUD surface for the upcoming CLI.
@@ -26,12 +26,9 @@
 
 ### Compatibility
 
-Companion to:
-- Platform v7.1.0 (axonflow-enterprise PR #1605)
-- All 4 SDKs at v5.4.0 / v6.4.0 (parity on `decisions.explain` naming per ADR-043)
-
-Back-compatible with pre-v7.1.0 platforms — new methods silently return
-empty/null where endpoints don't exist.
+Companion to platform v7.1.0 and all 4 SDKs at v5.4.0 / v6.4.0 (parity on
+`decisions.explain` naming). Back-compatible with pre-v7.1.0 platforms —
+new methods silently return empty/null where endpoints don't exist.
 
 ## [1.2.4] - 2026-04-14
 
