@@ -46,6 +46,15 @@ export interface MCPCheckInputResponse {
   allowed: boolean;
   block_reason?: string;
   policies_evaluated: number;
+  // Plugin Batch 1 (ADR-042 + ADR-043): richer approval context surfaced
+  // when the platform is v7.1.0+. All fields are optional — older
+  // platforms return undefined and callers treat the absence as
+  // "context not available" rather than an error.
+  decision_id?: string;
+  policy_matches?: ExplainPolicy[];
+  risk_level?: string;
+  override_available?: boolean;
+  override_existing_id?: string;
 }
 
 export interface MCPCheckOutputResponse {
@@ -53,6 +62,61 @@ export interface MCPCheckOutputResponse {
   block_reason?: string;
   redacted_data?: unknown;
   policies_evaluated: number;
+  decision_id?: string;
+  policy_matches?: ExplainPolicy[];
+}
+
+// ADR-043: Explainability payload shape (frozen).
+export interface ExplainPolicy {
+  policy_id: string;
+  policy_name?: string;
+  action?: string;
+  risk_level?: string;
+  allow_override?: boolean;
+  policy_description?: string;
+}
+
+export interface ExplainRule {
+  policy_id: string;
+  rule_id?: string;
+  rule_text?: string;
+  matched_on?: string;
+}
+
+export interface DecisionExplanation {
+  decision_id: string;
+  timestamp: string;
+  policy_matches: ExplainPolicy[];
+  matched_rules?: ExplainRule[];
+  decision: string;
+  reason: string;
+  risk_level?: string;
+  override_available: boolean;
+  override_existing_id?: string;
+  historical_hit_count_session: number;
+  policy_source_link?: string;
+  tool_signature?: string;
+}
+
+// ADR-042: Session override types.
+export interface CreateOverrideOptions {
+  policyId: string;
+  policyType: "static" | "dynamic";
+  overrideReason: string; // mandatory per ADR-042
+  toolSignature?: string;
+  ttlSeconds?: number; // clamped server-side (default 60m, hard cap 24h)
+}
+
+export interface CreateOverrideResult {
+  id: string;
+  policy_id: string;
+  policy_type: string;
+  expires_at: string;
+  ttl_seconds: number;
+  requested_ttl?: number;
+  clamped?: boolean;
+  clamped_reason?: string;
+  created_at: string;
 }
 
 /**
@@ -330,5 +394,123 @@ export class AxonFlowClient {
     } catch {
       return false;
     }
+  }
+
+  // ============================================================================
+  // Plugin Batch 1: ADR-042 session overrides + ADR-043 explain
+  // ============================================================================
+
+  /**
+   * Fetch the full explanation for a previously-made policy decision.
+   *
+   * Returns matched policies, risk level, override availability, rolling-24h
+   * session hit count, and policy source link. Shape is frozen per ADR-043.
+   *
+   * Used by the CLI `explain` command and by the plugin's own block-reason
+   * enrichment path. Errors are returned as null rather than thrown — the
+   * caller formats a user-friendly message.
+   */
+  async explainDecision(decisionId: string): Promise<DecisionExplanation | null> {
+    if (!decisionId) return null;
+    const encoded = encodeURIComponent(decisionId);
+    const url = `${this.endpoint}/api/v1/decisions/${encoded}/explain`;
+
+    try {
+      const response = await this.fetchWithTimeout(url, {
+        method: "GET",
+        headers: this.baseHeaders(),
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return (await response.json()) as DecisionExplanation;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Create a session-scoped override for a policy the caller was blocked by.
+   *
+   * ADR-042 rules enforced server-side:
+   *   - TTL clamped to [1min, 24h], default 60m.
+   *   - Critical-risk policies rejected (403).
+   *   - allow_override=false policies rejected (403).
+   *   - Justification (overrideReason) is mandatory.
+   *
+   * Plugin does minimal client-side validation and lets the platform
+   * enforce invariants.
+   */
+  async createOverride(opts: CreateOverrideOptions): Promise<CreateOverrideResult> {
+    if (!opts.overrideReason || !opts.overrideReason.trim()) {
+      throw new Error("overrideReason is required (ADR-042: mandatory justification)");
+    }
+    const url = `${this.endpoint}/api/v1/overrides`;
+    const body: Record<string, unknown> = {
+      policy_id: opts.policyId,
+      policy_type: opts.policyType,
+      override_reason: opts.overrideReason,
+    };
+    if (opts.toolSignature) body.tool_signature = opts.toolSignature;
+    if (opts.ttlSeconds !== undefined) body.ttl_seconds = opts.ttlSeconds;
+
+    const response = await this.fetchWithTimeout(url, {
+      method: "POST",
+      headers: this.baseHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: text },
+        "create override",
+      );
+    }
+    return (await response.json()) as CreateOverrideResult;
+  }
+
+  /** Revoke a previously-created override. */
+  async revokeOverride(overrideId: string): Promise<void> {
+    if (!overrideId) throw new Error("overrideId is required");
+    const url = `${this.endpoint}/api/v1/overrides/${encodeURIComponent(overrideId)}`;
+    const response = await this.fetchWithTimeout(url, {
+      method: "DELETE",
+      headers: this.baseHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: text },
+        "revoke override",
+      );
+    }
+  }
+
+  /** List active overrides for the caller's tenant. */
+  async listOverrides(options?: { policyId?: string; includeRevoked?: boolean }): Promise<{
+    overrides: Array<Record<string, unknown>>;
+    count: number;
+  }> {
+    const params = new URLSearchParams();
+    if (options?.policyId) params.set("policy_id", options.policyId);
+    if (options?.includeRevoked) params.set("include_revoked", "true");
+    const qs = params.toString();
+    const url = `${this.endpoint}/api/v1/overrides${qs ? "?" + qs : ""}`;
+
+    const response = await this.fetchWithTimeout(url, {
+      method: "GET",
+      headers: this.baseHeaders(),
+    });
+    if (!response.ok) {
+      return { overrides: [], count: 0 };
+    }
+    return (await response.json()) as {
+      overrides: Array<Record<string, unknown>>;
+      count: number;
+    };
   }
 }
