@@ -120,6 +120,66 @@ export interface CreateOverrideResult {
 }
 
 /**
+ * Extract the Plugin Batch 1 (ADR-042 + ADR-043) richer governance context
+ * from a policy-check response. All fields are optional — older platforms
+ * (pre-v7.1.0) return undefined for every field, and callers treat absence
+ * as "context not available" rather than an error.
+ *
+ * Reviewer-caught regression: without this, the extended MCPCheckInputResponse
+ * / MCPCheckOutputResponse fields were declared but never populated, so
+ * governance.ts couldn't surface the richer reasoning even when the platform
+ * returned it.
+ */
+function extractRicherContext(data: Record<string, unknown>): {
+  decision_id?: string;
+  policy_matches?: ExplainPolicy[];
+  risk_level?: string;
+  override_available?: boolean;
+  override_existing_id?: string;
+} {
+  const ctx: {
+    decision_id?: string;
+    policy_matches?: ExplainPolicy[];
+    risk_level?: string;
+    override_available?: boolean;
+    override_existing_id?: string;
+  } = {};
+
+  if (typeof data["decision_id"] === "string" && data["decision_id"]) {
+    ctx.decision_id = data["decision_id"] as string;
+  }
+  if (typeof data["risk_level"] === "string" && data["risk_level"]) {
+    ctx.risk_level = data["risk_level"] as string;
+  }
+  if (typeof data["override_available"] === "boolean") {
+    ctx.override_available = data["override_available"] as boolean;
+  }
+  if (typeof data["override_existing_id"] === "string" && data["override_existing_id"]) {
+    ctx.override_existing_id = data["override_existing_id"] as string;
+  }
+
+  const rawMatches = data["policy_matches"];
+  if (Array.isArray(rawMatches)) {
+    ctx.policy_matches = rawMatches
+      .filter((m): m is Record<string, unknown> => typeof m === "object" && m !== null)
+      .map((m) => ({
+        policy_id: typeof m["policy_id"] === "string" ? (m["policy_id"] as string) : "",
+        policy_name: typeof m["policy_name"] === "string" ? (m["policy_name"] as string) : undefined,
+        action: typeof m["action"] === "string" ? (m["action"] as string) : undefined,
+        risk_level: typeof m["risk_level"] === "string" ? (m["risk_level"] as string) : undefined,
+        allow_override:
+          typeof m["allow_override"] === "boolean" ? (m["allow_override"] as boolean) : undefined,
+        policy_description:
+          typeof m["policy_description"] === "string"
+            ? (m["policy_description"] as string)
+            : undefined,
+      }));
+  }
+
+  return ctx;
+}
+
+/**
  * Extract policies_evaluated count from API response.
  * The platform returns this as a top-level number on 403 responses,
  * or inside policy_info.policies_evaluated (which can be a number or
@@ -212,6 +272,7 @@ export class AxonFlowClient {
               ? data["error"]
               : "Blocked by policy",
         policies_evaluated: extractPoliciesEvaluated(data),
+        ...extractRicherContext(data),
       };
     }
 
@@ -231,6 +292,7 @@ export class AxonFlowClient {
           ? data["block_reason"]
           : undefined,
       policies_evaluated: extractPoliciesEvaluated(data),
+      ...extractRicherContext(data),
     };
   }
 
@@ -260,6 +322,7 @@ export class AxonFlowClient {
               ? data["error"]
               : "Blocked by policy",
         policies_evaluated: extractPoliciesEvaluated(data),
+        ...extractRicherContext(data),
       };
     }
 
@@ -280,6 +343,7 @@ export class AxonFlowClient {
           : undefined,
       redacted_data: data["redacted_data"] ?? undefined,
       policies_evaluated: extractPoliciesEvaluated(data),
+      ...extractRicherContext(data),
     };
   }
 

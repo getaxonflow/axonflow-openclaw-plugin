@@ -222,6 +222,108 @@ describe("AxonFlowClient.revokeOverride", () => {
   });
 });
 
+describe("AxonFlowClient.mcpCheckInput — richer context propagation (Plugin Batch 1)", () => {
+  it("surfaces decision_id + risk_level + override fields from a 200 allow", async () => {
+    const client = makeClient();
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        allowed: true,
+        policies_evaluated: 3,
+        decision_id: "dec-abc",
+        risk_level: "medium",
+        override_available: false,
+        policy_matches: [
+          {
+            policy_id: "pol-1",
+            policy_name: "Test Policy",
+            action: "allow",
+            risk_level: "medium",
+            allow_override: true,
+            policy_description: "A policy",
+          },
+        ],
+      }),
+    );
+
+    const resp = await client.mcpCheckInput("openclaw.Bash", "ls", "execute");
+
+    expect(resp.allowed).toBe(true);
+    expect(resp.decision_id).toBe("dec-abc");
+    expect(resp.risk_level).toBe("medium");
+    expect(resp.override_available).toBe(false);
+    expect(resp.policy_matches).toHaveLength(1);
+    expect(resp.policy_matches?.[0]?.policy_id).toBe("pol-1");
+    expect(resp.policy_matches?.[0]?.allow_override).toBe(true);
+  });
+
+  it("surfaces richer context on a 403 block + existing override id", async () => {
+    const client = makeClient();
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(403, {
+        block_reason: "SQL injection",
+        policies_evaluated: 10,
+        decision_id: "dec-xyz",
+        risk_level: "high",
+        override_available: true,
+        override_existing_id: "ov-zzz",
+        policy_matches: [
+          {
+            policy_id: "pol-sqli",
+            policy_name: "SQL Injection",
+            action: "deny",
+            risk_level: "high",
+            allow_override: true,
+          },
+        ],
+      }),
+    );
+
+    const resp = await client.mcpCheckInput("openclaw.Bash", "SELECT", "execute");
+
+    expect(resp.allowed).toBe(false);
+    expect(resp.block_reason).toBe("SQL injection");
+    expect(resp.decision_id).toBe("dec-xyz");
+    expect(resp.override_available).toBe(true);
+    expect(resp.override_existing_id).toBe("ov-zzz");
+    expect(resp.risk_level).toBe("high");
+    expect(resp.policy_matches).toHaveLength(1);
+  });
+
+  it("omits richer fields on older platforms that don't return them", async () => {
+    const client = makeClient();
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        allowed: true,
+        policies_evaluated: 3,
+      }),
+    );
+
+    const resp = await client.mcpCheckInput("openclaw.Bash", "ls", "execute");
+
+    expect(resp.allowed).toBe(true);
+    expect(resp.decision_id).toBeUndefined();
+    expect(resp.risk_level).toBeUndefined();
+    expect(resp.override_available).toBeUndefined();
+    expect(resp.policy_matches).toBeUndefined();
+  });
+
+  it("ignores malformed policy_matches entries rather than crashing", async () => {
+    const client = makeClient();
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        allowed: true,
+        policies_evaluated: 1,
+        policy_matches: [null, "not-an-object", { policy_id: "p-1" }],
+      }),
+    );
+
+    const resp = await client.mcpCheckInput("openclaw.Bash", "ls", "execute");
+
+    expect(resp.policy_matches).toHaveLength(1);
+    expect(resp.policy_matches?.[0]?.policy_id).toBe("p-1");
+  });
+});
+
 describe("AxonFlowClient.listOverrides", () => {
   it("returns empty when server errors", async () => {
     const client = makeClient();
