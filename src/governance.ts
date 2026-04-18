@@ -5,7 +5,10 @@
  * Can block the call, require human approval, or allow through.
  */
 
-import type { AxonFlowClient } from "./axonflow-client.js";
+import type {
+  AxonFlowClient,
+  MCPCheckInputResponse,
+} from "./axonflow-client.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import { shouldGovernTool } from "./config.js";
 import {
@@ -33,6 +36,37 @@ export interface BeforeToolCallResult {
 /** Derive connector_type from tool name for AxonFlow policy evaluation. */
 export function deriveConnectorType(toolName: string): string {
   return `openclaw.${toolName}`;
+}
+
+/**
+ * Format the Plugin Batch 1 richer-context fields (decision_id, risk_level,
+ * override availability, top matched policy) into a suffix users see in the
+ * OpenClaw block message / approval dialog.
+ *
+ * Every field is optional (older AxonFlow platforms return undefined for all
+ * of them). When no richer context is present, returns an empty string so
+ * the caller can safely concatenate.
+ *
+ * Split out of the block/approval return sites so the same formatting is used
+ * in both — so users see the same decision identifier + unblock path
+ * regardless of whether they hit a deny or a highRiskTools approval gate.
+ */
+export function formatRicherContext(check: MCPCheckInputResponse): string {
+  const parts: string[] = [];
+  if (check.decision_id) parts.push(`decision: ${check.decision_id}`);
+  if (check.risk_level) parts.push(`risk: ${check.risk_level}`);
+  if (check.policy_matches && check.policy_matches.length > 0) {
+    const first = check.policy_matches[0];
+    if (first?.policy_name) parts.push(`policy: ${first.policy_name}`);
+  }
+  if (check.override_available === true) {
+    if (check.override_existing_id) {
+      parts.push(`active override: ${check.override_existing_id}`);
+    } else {
+      parts.push("override available via explain_decision MCP tool");
+    }
+  }
+  return parts.length > 0 ? ` [${parts.join(", ")}]` : "";
 }
 
 /**
@@ -166,9 +200,10 @@ export function createBeforeToolCallHandler(
 
     if (!check.allowed) {
       recordToolCallBlocked();
+      const baseReason = check.block_reason ?? "Blocked by AxonFlow policy";
       return {
         block: true,
-        blockReason: check.block_reason ?? "Blocked by AxonFlow policy",
+        blockReason: baseReason + formatRicherContext(check),
       };
     }
 
@@ -178,11 +213,22 @@ export function createBeforeToolCallHandler(
       config.highRiskTools.includes(event.toolName)
     ) {
       recordToolCallApprovalRequired();
+      // Map platform risk_level (low|medium|high|critical) to OpenClaw's
+      // approval severity (info|warning|critical). When the platform doesn't
+      // surface risk_level, fall back to warning to preserve v1.2.x behavior.
+      let severity: "info" | "warning" | "critical" = "warning";
+      if (check.risk_level === "critical" || check.risk_level === "high") {
+        severity = "critical";
+      } else if (check.risk_level === "low") {
+        severity = "info";
+      }
       return {
         requireApproval: {
           title: `AxonFlow: ${event.toolName} requires approval`,
-          description: `Tool call governed by AxonFlow. ${check.policies_evaluated} policies evaluated.`,
-          severity: "warning",
+          description:
+            `Tool call governed by AxonFlow. ${check.policies_evaluated} policies evaluated.` +
+            formatRicherContext(check),
+          severity,
           timeoutMs: 60_000,
           timeoutBehavior: "deny",
         },
