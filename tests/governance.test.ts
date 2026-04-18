@@ -1,4 +1,9 @@
-import { createBeforeToolCallHandler, deriveConnectorType } from "../src/governance.js";
+import {
+  createBeforeToolCallHandler,
+  deriveConnectorType,
+  formatRicherContext,
+} from "../src/governance.js";
+import type { MCPCheckInputResponse } from "../src/axonflow-client.js";
 import { createAfterToolCallHandler } from "../src/audit.js";
 import { resolveConfig, shouldGovernTool } from "../src/config.js";
 import { AxonFlowClient } from "../src/axonflow-client.js";
@@ -12,12 +17,14 @@ function mockClient(overrides: {
   checkInputAllowed?: boolean;
   checkInputBlockReason?: string;
   checkInputPoliciesEvaluated?: number;
+  checkInputRicher?: Partial<MCPCheckInputResponse>;
 }) {
   return {
     mcpCheckInput: jest.fn().mockResolvedValue({
       allowed: overrides.checkInputAllowed ?? true,
       block_reason: overrides.checkInputBlockReason,
       policies_evaluated: overrides.checkInputPoliciesEvaluated ?? 76,
+      ...(overrides.checkInputRicher ?? {}),
     }),
     auditToolCall: jest.fn().mockResolvedValue(undefined),
     healthCheck: jest.fn().mockResolvedValue(true),
@@ -198,6 +205,165 @@ describe("createBeforeToolCallHandler", () => {
     expect(result?.requireApproval?.title).toContain("web_fetch");
     expect(result?.requireApproval?.severity).toBe("warning");
     expect(result?.requireApproval?.timeoutBehavior).toBe("deny");
+  });
+
+  // -------------------------------------------------------------------------
+  // Plugin Batch 1: richer context reaches the OpenClaw governance UX
+  // (reviewer-caught: previous fix wired only the client parser; these tests
+  // lock in that governance.ts actually surfaces the fields through to the
+  // BeforeToolCallResult that OpenClaw consumes.)
+  // -------------------------------------------------------------------------
+
+  it("block reason carries decision_id + risk + policy name when platform returns them", async () => {
+    const client = mockClient({
+      checkInputAllowed: false,
+      checkInputBlockReason: "SQL injection detected",
+      checkInputRicher: {
+        decision_id: "dec_wf1_step2",
+        risk_level: "high",
+        policy_matches: [
+          {
+            policy_id: "pol-sqli",
+            policy_name: "SQL Injection Detector",
+            allow_override: true,
+          },
+        ],
+        override_available: true,
+        override_existing_id: "ov-abc",
+      },
+    });
+    const handler = createBeforeToolCallHandler(client, baseConfig());
+
+    const result = await handler({
+      toolName: "web_fetch",
+      params: { url: "https://attacker.example.com" },
+    });
+
+    expect(result?.block).toBe(true);
+    expect(result?.blockReason).toContain("SQL injection detected");
+    expect(result?.blockReason).toContain("decision: dec_wf1_step2");
+    expect(result?.blockReason).toContain("risk: high");
+    expect(result?.blockReason).toContain("policy: SQL Injection Detector");
+    expect(result?.blockReason).toContain("active override: ov-abc");
+  });
+
+  it("block reason falls back cleanly when platform omits richer fields (older platform)", async () => {
+    const client = mockClient({
+      checkInputAllowed: false,
+      checkInputBlockReason: "blocked",
+    });
+    const handler = createBeforeToolCallHandler(client, baseConfig());
+
+    const result = await handler({ toolName: "tool", params: {} });
+
+    expect(result?.blockReason).toBe("blocked");
+    // Must NOT include any bracketed suffix when there's nothing to say
+    expect(result?.blockReason).not.toContain("[");
+  });
+
+  it("approval description carries richer context for high-risk tool", async () => {
+    const client = mockClient({
+      checkInputAllowed: true,
+      checkInputPoliciesEvaluated: 12,
+      checkInputRicher: {
+        decision_id: "dec_allow_but_high_risk",
+        risk_level: "high",
+        policy_matches: [
+          {
+            policy_id: "pol-net",
+            policy_name: "Network Egress Control",
+            allow_override: true,
+          },
+        ],
+        override_available: true,
+      },
+    });
+    const config = baseConfig({ highRiskTools: ["web_fetch"] });
+    const handler = createBeforeToolCallHandler(client, config);
+
+    const result = await handler({
+      toolName: "web_fetch",
+      params: { url: "https://api.example.com" },
+    });
+
+    expect(result?.requireApproval).toBeDefined();
+    expect(result?.requireApproval?.description).toContain(
+      "decision: dec_allow_but_high_risk",
+    );
+    expect(result?.requireApproval?.description).toContain(
+      "policy: Network Egress Control",
+    );
+    expect(result?.requireApproval?.description).toContain("risk: high");
+    // high-risk maps to critical severity
+    expect(result?.requireApproval?.severity).toBe("critical");
+  });
+
+  it("approval severity maps from risk_level (critical→critical, low→info)", async () => {
+    const highRiskConfig = baseConfig({ highRiskTools: ["t"] });
+
+    const clientCritical = mockClient({
+      checkInputAllowed: true,
+      checkInputRicher: { risk_level: "critical" },
+    });
+    const rCritical = await createBeforeToolCallHandler(clientCritical, highRiskConfig)({
+      toolName: "t",
+      params: {},
+    });
+    expect(rCritical?.requireApproval?.severity).toBe("critical");
+
+    const clientLow = mockClient({
+      checkInputAllowed: true,
+      checkInputRicher: { risk_level: "low" },
+    });
+    const rLow = await createBeforeToolCallHandler(clientLow, highRiskConfig)({
+      toolName: "t",
+      params: {},
+    });
+    expect(rLow?.requireApproval?.severity).toBe("info");
+
+    const clientMedium = mockClient({
+      checkInputAllowed: true,
+      checkInputRicher: { risk_level: "medium" },
+    });
+    const rMedium = await createBeforeToolCallHandler(clientMedium, highRiskConfig)({
+      toolName: "t",
+      params: {},
+    });
+    expect(rMedium?.requireApproval?.severity).toBe("warning");
+  });
+
+  it("formatRicherContext emits empty string when nothing to say", () => {
+    expect(
+      formatRicherContext({
+        allowed: true,
+        policies_evaluated: 0,
+      }),
+    ).toBe("");
+  });
+
+  it("formatRicherContext omits override line when override_available=false", () => {
+    const s = formatRicherContext({
+      allowed: false,
+      policies_evaluated: 1,
+      decision_id: "dec-1",
+      risk_level: "critical",
+      override_available: false,
+    });
+    expect(s).toContain("decision: dec-1");
+    expect(s).toContain("risk: critical");
+    expect(s).not.toContain("override");
+  });
+
+  it("formatRicherContext points to explain_decision tool when override available but not yet created", () => {
+    const s = formatRicherContext({
+      allowed: false,
+      policies_evaluated: 1,
+      decision_id: "dec-2",
+      override_available: true,
+      // no override_existing_id
+    });
+    expect(s).toContain("override available via explain_decision MCP tool");
+    expect(s).not.toContain("active override:");
   });
 
   it("blocks high-risk tools when policy denies (block takes precedence)", async () => {
