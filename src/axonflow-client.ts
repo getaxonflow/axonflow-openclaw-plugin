@@ -206,6 +206,7 @@ export class AxonFlowClient {
   private readonly endpoint: string;
   private readonly authHeader: string;
   private readonly requestTimeoutMs: number;
+  private readonly userEmail: string | undefined;
   constructor(config: AxonFlowPluginConfig) {
     // Strip trailing slashes without regex (avoids ReDoS on polynomial patterns)
     let ep = config.endpoint;
@@ -216,15 +217,29 @@ export class AxonFlowClient {
       `${config.clientId}:${config.clientSecret}`,
     ).toString("base64");
     this.authHeader = `Basic ${credentials}`;
+    // Store per-user identity for Plugin Batch 1 endpoints — createOverride /
+    // revokeOverride / listOverrides all require it, and explain's
+    // historical_hit_count scope depends on it.
+    this.userEmail = config.userEmail && config.userEmail.trim()
+      ? config.userEmail.trim()
+      : undefined;
   }
 
   private baseHeaders(): Record<string, string> {
     // Tenant is derived from Basic auth credentials on the server side (RFC 6749).
     // X-Tenant-ID header is no longer sent — server knows tenant from auth.
-    return {
+    //
+    // Plugin Batch 1 (ADR-044): forward X-User-Email when configured so the
+    // orchestrator can scope override ownership and explain access control
+    // by real caller rather than by a synthetic client-wide identity.
+    const h: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: this.authHeader,
     };
+    if (this.userEmail) {
+      h["X-User-Email"] = this.userEmail;
+    }
+    return h;
   }
 
   private async fetchWithTimeout(

@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.3.1] - 2026-04-19
+
+Patch release. Fixes a v1.3.0 gap surfaced by install-and-use E2E
+testing: the override-lifecycle and explain methods needed
+`X-User-Email` to reach the orchestrator, but the client never
+forwarded any per-user identity. Paired with platform v7.1.1 which
+closes six related server-side gaps.
+
+### Added
+
+- **`config.userEmail`** — per-user identity forwarded via `X-User-Email`
+  on every request. Required for `createOverride` / `revokeOverride` /
+  `listOverrides` (endpoints reject unauthenticated user identity with
+  HTTP 401) and for correct per-user scoping on `explainDecision`. If
+  unset the client continues to work for block-path features (richer
+  context, check_input / check_output) but the override lifecycle
+  methods will 401.
+
+### Fixed
+
+- `baseHeaders()` now emits `X-User-Email` when `config.userEmail` is
+  set. Before this release, calling `createOverride` always returned
+  HTTP 401 "Authenticated user identity required" and `listOverrides`
+  scoped to a synthetic client-wide user.
+
 ## [1.3.0] - 2026-04-18
 
 ### Added
