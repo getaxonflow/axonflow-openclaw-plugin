@@ -2,9 +2,9 @@
 
 ## @axonflow/governance-policies
 
-### 1.6.0 (2026-04-19)
+### 1.5.2 (2026-04-19)
 
-Major content expansion covering Plugin Batch 1 features shipped in @axonflow/openclaw v1.3.0 and v1.3.1.
+Major content expansion covering Plugin Batch 1 features shipped in @axonflow/openclaw v1.3.0 and v1.3.1. _This release was originally authored as v1.6.0 (minor bump to signal the significant content additions) but released as v1.5.2 (patch bump) due to an active ClawHub publish-form bug ([openclaw/clawhub#1739](https://github.com/openclaw/clawhub/issues/1739)) that rejects manually-entered minor/major versions with a misleading "must be valid semver" error. Content is unchanged; the semantic intent remains a minor release._
 
 - **New section — "Understand a Block: Richer Context"** — documents the structured block response shape from platform v7.1.0+ (`decision_id`, `risk_level`, `policy_matches[]`, `override_available`, `override_existing_id`) so agents render specific block reasons instead of generic "policy violation" strings.
 - **New section — "Explain a Decision"** — covers `client.explainDecision(id)` with the frozen `DecisionExplanation` shape (ADR-043). Links to the Explainability docs page.
