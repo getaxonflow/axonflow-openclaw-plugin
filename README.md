@@ -192,6 +192,32 @@ The startup ping is enabled by default for local, self-hosted, and remote deploy
 
 See [policies/README.md](./policies/README.md) for recommended policy setup for OpenClaw deployments, including protections against reverse shells, credential exfiltration, SSRF, path traversal, and agent config file poisoning.
 
+## Testing
+
+Unit tests (jest, mock fetch — no live stack needed):
+
+```bash
+npm test
+```
+
+Smoke E2E (requires a live AxonFlow stack at `localhost:8080`):
+
+```bash
+npm ci && npm run build
+# Start a stack via axonflow-enterprise (see its setup-e2e-testing.sh)
+node tests/e2e/smoke-block-context.mjs
+```
+
+The smoke scenario uses `AxonFlowClient.mcpCheckInput` to fire a
+SQLi-bearing statement against a running platform and asserts the
+response carries Plugin Batch 1 richer-context fields (`decision_id`,
+`risk_level`, `policy_matches`). Exits 0 with a `SKIP:` message if no
+stack is reachable. In CI, run manually via `workflow_dispatch` with a
+reachable endpoint (GitHub-hosted runners have no local stack).
+
+Full install-and-use matrix (explain, override lifecycle, audit filter
+parity, cache invalidation) lives in `axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/`.
+
 ## Links
 
 - [AxonFlow Documentation](https://docs.getaxonflow.com)
