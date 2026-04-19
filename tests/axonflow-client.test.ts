@@ -400,4 +400,68 @@ describe("AxonFlowClient", () => {
       expect(url).toBe("http://localhost:8080/api/v1/mcp/check-input");
     });
   });
+
+  describe("X-User-Email forwarding (Plugin Batch 1)", () => {
+    it("emits X-User-Email when userEmail is set on config", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(200, { allowed: true, policies_evaluated: 0 }),
+      );
+      const client = new AxonFlowClient({
+        endpoint: "http://localhost:8080",
+        clientId: "test-client",
+        clientSecret: "test-secret",
+        userEmail: "alice@example.com",
+      });
+      await client.mcpCheckInput("postgres", "SELECT 1");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            "X-User-Email": "alice@example.com",
+          }),
+        }),
+      );
+    });
+
+    it("omits X-User-Email when userEmail is not set", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(200, { allowed: true, policies_evaluated: 0 }),
+      );
+      const client = makeClient();
+      await client.mcpCheckInput("postgres", "SELECT 1");
+
+      const headers = (mockFetch.mock.calls[0]?.[1] as RequestInit)?.headers as
+        | Record<string, string>
+        | undefined;
+      expect(headers).toBeDefined();
+      expect(headers && "X-User-Email" in headers).toBe(false);
+    });
+
+    it("forwards X-User-Email on override lifecycle endpoints", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(201, { id: "ov-1", policy_id: "p1" }),
+      );
+      const client = new AxonFlowClient({
+        endpoint: "http://localhost:8080",
+        clientId: "c",
+        clientSecret: "s",
+        userEmail: "ops@example.com",
+      });
+      await client.createOverride({
+        policyId: "sys_sqli_admin_bypass",
+        policyType: "static",
+        overrideReason: "approved debug window",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/overrides",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            "X-User-Email": "ops@example.com",
+          }),
+        }),
+      );
+    });
+  });
 });

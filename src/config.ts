@@ -16,6 +16,26 @@ export interface AxonFlowPluginConfig {
   clientSecret: string;
 
   /**
+   * Per-user identity forwarded on every request via X-User-Email.
+   *
+   * Required (and only required) when you want user-scoped AxonFlow
+   * features to work through this plugin:
+   *   - `createOverride` / `revokeOverride` / `listOverrides`
+   *     (endpoint requires an authenticated user identity per ADR-044)
+   *   - `explainDecision` historical_hit_count scoping
+   *   - per-user override enforcement on block paths
+   *
+   * If unset, block responses still include decision_id + risk_level
+   * + policy_matches, but the override lifecycle methods will reject
+   * with HTTP 401 and explain's hit-count will aggregate across users.
+   *
+   * A reasonable default for CLI/local-agent setups is `os.userInfo().username`
+   * + the agent hostname; a reasonable default for multi-tenant SaaS
+   * deployments is the end-user's authenticated email.
+   */
+  userEmail?: string;
+
+  /**
    * Tools that require human approval even when AxonFlow allows them.
    * Uses OpenClaw's native approval flow (Telegram/Discord/approve command).
    */
@@ -91,6 +111,10 @@ export function resolveConfig(
     endpoint,
     clientId,
     clientSecret,
+    userEmail:
+      typeof raw["userEmail"] === "string" && raw["userEmail"].trim()
+        ? (raw["userEmail"] as string).trim()
+        : undefined,
     highRiskTools: Array.isArray(raw["highRiskTools"])
       ? (raw["highRiskTools"] as string[])
       : [],
