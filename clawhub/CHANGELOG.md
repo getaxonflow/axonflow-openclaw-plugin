@@ -2,6 +2,29 @@
 
 ## @axonflow/governance-policies
 
+### 1.6.0 (2026-04-19)
+
+Major content expansion covering Plugin Batch 1 features shipped in @axonflow/openclaw v1.3.0 and v1.3.1.
+
+- **New section — "Understand a Block: Richer Context"** — documents the structured block response shape from platform v7.1.0+ (`decision_id`, `risk_level`, `policy_matches[]`, `override_available`, `override_existing_id`) so agents render specific block reasons instead of generic "policy violation" strings.
+- **New section — "Explain a Decision"** — covers `client.explainDecision(id)` with the frozen `DecisionExplanation` shape (ADR-043). Links to the Explainability docs page.
+- **New section — "Grant a Session Override"** — covers `client.createOverride()` / `revokeOverride()` / `listOverrides()` with platform-enforced invariants: TTL clamping (60s–24h, default 60m), critical-risk rejection, `allow_override=false` rejection, mandatory justification, 4-event audit lifecycle. Links to the Session Overrides docs page.
+- **New section — "Common Workflows"** — canonical walkthroughs for: debug a block, grant a one-off allow, audit a session.
+- **New section — "When to use this skill"** — triggers that help the LLM decide to activate this skill (setup, debugging blocks, granting overrides, compliance audits, hardening).
+- **New `userEmail` configuration guidance** — required for override + explain endpoints in v1.3.1+. Added to the Configure block.
+- **Updated `description` + `tags`** — added `explainability`, `overrides`, `decision-audit`, `hitl` for better discoverability.
+- **Removed the pre-2026.4.14 CLI workaround** from the primary install flow — the upstream bug is fixed and the primary install command now works unconditionally. Minimum OpenClaw CLI required stated as 2026.4.14; minimum plugin version stated as 1.3.1 (for `X-User-Email` forwarding).
+
+### 1.5.1 (2026-04-14)
+
+- Reframed "Install the Plugin" section so the primary `openclaw plugins install @axonflow/openclaw` command leads unconditionally, with the pre-2026.4.14 `npm pack` workaround moved to a conditional note.
+- Minimum OpenClaw CLI stated as 2026.4.14.
+
+### 1.5.0 (2026-04-09)
+
+- Documented the upstream OpenClaw CLI bug affecting scoped package installs (openclaw/openclaw#66618) and the `npm pack` workaround.
+- Note added that both `@axonflow/openclaw` and `clawhub:@axonflow/openclaw` install forms hit the same bug on affected CLI versions.
+
 ### 1.4.0 (2026-04-06)
 
 - Updated telemetry disclosure: anonymous startup telemetry is enabled by default even for local/self-hosted evaluations unless opted out
