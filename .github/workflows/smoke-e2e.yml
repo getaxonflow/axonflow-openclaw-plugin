@@ -1,0 +1,52 @@
+name: Smoke E2E
+
+# Runs the install-and-use smoke scenario against a live AxonFlow stack.
+# Not on every PR — requires a reachable stack + demo credentials, so we
+# trigger manually (workflow_dispatch) or on PRs that explicitly opt in
+# via the `run-e2e` label. Full plugin batch matrix lives in
+# axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/.
+
+on:
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: AxonFlow agent endpoint (defaults to localhost:8080)
+        required: false
+        default: http://localhost:8080
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke — block context
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-e2e'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DO_NOT_TRACK: "1"
+      AXONFLOW_ENDPOINT: ${{ github.event.inputs.endpoint || 'http://localhost:8080' }}
+      AXONFLOW_CLIENT_ID: demo-client
+      AXONFLOW_CLIENT_SECRET: demo-secret
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install + build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run smoke scenario
+        run: node tests/e2e/smoke-block-context.mjs
