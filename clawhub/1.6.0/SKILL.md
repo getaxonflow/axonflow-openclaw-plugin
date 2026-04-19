@@ -2,7 +2,7 @@
 name: governance-policies
 description: Govern OpenClaw with AxonFlow — block dangerous commands, detect PII, prevent data exfiltration, protect agent config files, explain policy decisions, grant time-bounded overrides with mandatory justification. Use when hardening an OpenClaw deployment, debugging a policy block, or setting up compliance-grade audit trails.
 homepage: https://github.com/getaxonflow/axonflow-openclaw-plugin/tree/main/policies
-tags: security, governance, pii, compliance, openclaw, audit, explainability, overrides, decision-audit, hitl
+tags: agent-security, approvals, audit, compliance, data-loss-prevention, explainability, governance, human-in-the-loop, llm-governance, mcp, openclaw, overrides, pii, policies, prompt-injection, safety, security, sqli
 ---
 
 # AxonFlow Governance Policies for OpenClaw
