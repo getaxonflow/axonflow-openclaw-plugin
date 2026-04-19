@@ -48,15 +48,15 @@ Configure the plugin with your AxonFlow endpoint, credentials, and per-user iden
 
 ```
 endpoint:          http://localhost:8080           # AxonFlow agent gateway
-clientId:          community                        # or your enterprise client id
-clientSecret:      community                        # or your enterprise client secret
+clientId:          community                        # or your enterprise client id (defaults to "community")
+clientSecret:      ""                               # leave empty in community mode; set in enterprise mode
 userEmail:         alice@example.com                # required for override + explain endpoints (v1.3.1+)
 highRiskTools:     [web_fetch, exec]                # tools requiring human approval on allow
 onError:           block                            # fail-closed in production, or "allow" for dev
 requestTimeoutMs:  8000                             # raise when AxonFlow is remote/VPN
 ```
 
-In community mode, `clientId` and `clientSecret` default to `"community"` — no credentials needed for local developer flow. In enterprise mode, provide OAuth2 Client Credentials (Basic auth).
+In community mode, `clientId` defaults to `"community"` and `clientSecret` can be left empty — no credentials needed for the local developer flow. In enterprise mode, provide OAuth2 Client Credentials (Basic auth) matching your tenant. Setting `clientSecret` without `clientId` is rejected by the config resolver — licensed mode must specify both.
 
 **`userEmail` (new in v1.3.1):** per-user identity forwarded via the `X-User-Email` header. Required for `client.createOverride()`, `client.revokeOverride()`, `client.listOverrides()` (endpoints reject unauthenticated user identity with HTTP 401) and for correct per-user scoping on `client.explainDecision()`. If unset the client still works for block-path features but override lifecycle methods return 401.
 

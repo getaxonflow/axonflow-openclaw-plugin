@@ -12,6 +12,7 @@ Major content expansion covering Plugin Batch 1 features shipped in @axonflow/op
 - **New section — "Common Workflows"** — canonical walkthroughs for: debug a block, grant a one-off allow, audit a session.
 - **New section — "When to use this skill"** — triggers that help the LLM decide to activate this skill (setup, debugging blocks, granting overrides, compliance audits, hardening).
 - **New `userEmail` configuration guidance** — required for override + explain endpoints in v1.3.1+. Added to the Configure block.
+- **Community-mode config wording corrected** — `clientSecret` can be left empty in community mode (the plugin's `resolveConfig` only defaults `clientId` to `"community"`; `clientSecret` stays the empty string unless set). Prior phrasing had implied both defaulted to `"community"`, which overstated the actual runtime behavior.
 - **Updated `description` + `tags`** — added `explainability`, `overrides`, `decision-audit`, `hitl` for better discoverability.
 - **Removed the pre-2026.4.14 CLI workaround** from the primary install flow — the upstream bug is fixed and the primary install command now works unconditionally. Minimum OpenClaw CLI required stated as 2026.4.14; minimum plugin version stated as 1.3.1 (for `X-User-Email` forwarding).
 
