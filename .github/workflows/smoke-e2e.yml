@@ -1,9 +1,11 @@
 name: Smoke E2E
 
 # Runs the install-and-use smoke scenario against a live AxonFlow stack.
-# Not on every PR — requires a reachable stack + demo credentials, so we
-# trigger manually (workflow_dispatch) or on PRs that explicitly opt in
-# via the `run-e2e` label. Full plugin batch matrix lives in
+# Requires a reachable stack + demo credentials that GitHub-hosted
+# runners cannot provide by default, so we only trigger manually via
+# workflow_dispatch. Operators supply the endpoint as an input. For PR
+# smoke gating, run against a self-hosted runner with a local stack or
+# trigger manually after merge. Full plugin batch matrix lives in
 # axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/.
 
 on:
@@ -13,8 +15,6 @@ on:
         description: AxonFlow agent endpoint (defaults to localhost:8080)
         required: false
         default: http://localhost:8080
-  pull_request:
-    types: [labeled, synchronize]
 
 permissions:
   contents: read
@@ -22,10 +22,6 @@ permissions:
 jobs:
   smoke:
     name: Smoke — block context
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:

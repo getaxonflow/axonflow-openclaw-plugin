@@ -32,9 +32,10 @@ closes six related server-side gaps.
   asserts Plugin Batch 1 richer-context fields (`decision_id`,
   `risk_level`, `policy_matches`) land on the response. Exits with
   `SKIP:` when no stack is reachable so it's safe to run anywhere.
-- **`.github/workflows/smoke-e2e.yml`** — `workflow_dispatch` + PR label
-  (`run-e2e`) triggered job running the smoke scenario. Off by default
-  so normal PRs don't need a live stack. Full install-and-use matrix
+- **`.github/workflows/smoke-e2e.yml`** — `workflow_dispatch` triggered job running the smoke scenario.
+  Requires an operator-supplied endpoint (GitHub-hosted runners have no
+  local stack), so not wired to PR events — PR smoke gating needs a
+  self-hosted runner with a live stack. Full install-and-use matrix
   lives in `axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/`.
 
 ## [1.3.0] - 2026-04-18

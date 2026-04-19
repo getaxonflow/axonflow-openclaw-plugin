@@ -4,11 +4,10 @@
 // richer-context fields (decision_id, risk_level, policy_matches,
 // override_available).
 //
-// Scope (per axonflow-enterprise/docs/test-visibility-policy.md):
-//   - smoke-only: client wiring works, one local deny response shape
-//   - full matrix (explain / override lifecycle / audit filter parity /
-//     cache invalidation) lives in
-//     axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/
+// Scope: smoke-only — client wiring + one local deny response shape.
+// The full install-and-use matrix (explain, override lifecycle, audit
+// filter parity, cache invalidation) lives alongside the platform in
+// axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/.
 //
 // Usage (from repo root, after `npm ci && npm run build`):
 //   AXONFLOW_ENDPOINT=http://localhost:8080 \
@@ -16,11 +15,24 @@
 //   AXONFLOW_CLIENT_SECRET=demo-secret \
 //     node tests/e2e/smoke-block-context.mjs
 //
-// CI trigger: workflow_dispatch or PR label `run-e2e`.
+// CI trigger: workflow_dispatch only (GitHub-hosted runners have no
+// local stack; PR gating needs a self-hosted runner).
 // Exits 0 with a "SKIP:" message when the stack isn't reachable so the
 // script is safe to run anywhere.
 
-import { AxonFlowClient } from '../../dist/index.js';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const distEntry = resolve(__dirname, '..', '..', 'dist', 'index.js');
+if (!existsSync(distEntry)) {
+  console.error(`ERROR: ${distEntry} not found.`);
+  console.error('       Build the plugin first: npm ci && npm run build');
+  process.exit(2);
+}
+
+const { AxonFlowClient } = await import('../../dist/index.js');
 
 const ENDPOINT = process.env.AXONFLOW_ENDPOINT || 'http://localhost:8080';
 const CLIENT_ID = process.env.AXONFLOW_CLIENT_ID || 'demo-client';

@@ -212,8 +212,8 @@ The smoke scenario uses `AxonFlowClient.mcpCheckInput` to fire a
 SQLi-bearing statement against a running platform and asserts the
 response carries Plugin Batch 1 richer-context fields (`decision_id`,
 `risk_level`, `policy_matches`). Exits 0 with a `SKIP:` message if no
-stack is reachable. In CI, run manually via `workflow_dispatch` or by
-applying the `run-e2e` label to a PR.
+stack is reachable. In CI, run manually via `workflow_dispatch` with a
+reachable endpoint (GitHub-hosted runners have no local stack).
 
 Full install-and-use matrix (explain, override lifecycle, audit filter
 parity, cache invalidation) lives in `axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/`.
