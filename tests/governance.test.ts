@@ -102,6 +102,40 @@ describe("resolveConfig", () => {
     });
     expect(config.requestTimeoutMs).toBe(15000);
   });
+
+  it("parses userEmail for Plugin Batch 1 per-user scoping", () => {
+    const config = resolveConfig({
+      endpoint: "http://x",
+      userEmail: "alice@example.com",
+    });
+    expect(config.userEmail).toBe("alice@example.com");
+  });
+
+  it("trims surrounding whitespace from userEmail", () => {
+    const config = resolveConfig({
+      endpoint: "http://x",
+      userEmail: "  bob@example.com  ",
+    });
+    expect(config.userEmail).toBe("bob@example.com");
+  });
+
+  it("drops empty / whitespace-only userEmail", () => {
+    expect(resolveConfig({ endpoint: "http://x", userEmail: "" }).userEmail).toBeUndefined();
+    expect(resolveConfig({ endpoint: "http://x", userEmail: "   " }).userEmail).toBeUndefined();
+  });
+
+  it("leaves userEmail undefined when not set", () => {
+    const config = resolveConfig({ endpoint: "http://x" });
+    expect(config.userEmail).toBeUndefined();
+  });
+
+  it("ignores non-string userEmail values", () => {
+    const config = resolveConfig({
+      endpoint: "http://x",
+      userEmail: 42 as unknown as string,
+    });
+    expect(config.userEmail).toBeUndefined();
+  });
 });
 
 describe("shouldGovernTool", () => {

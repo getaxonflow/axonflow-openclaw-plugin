@@ -111,6 +111,10 @@ export function resolveConfig(
     endpoint,
     clientId,
     clientSecret,
+    userEmail:
+      typeof raw["userEmail"] === "string" && raw["userEmail"].trim()
+        ? (raw["userEmail"] as string).trim()
+        : undefined,
     highRiskTools: Array.isArray(raw["highRiskTools"])
       ? (raw["highRiskTools"] as string[])
       : [],
