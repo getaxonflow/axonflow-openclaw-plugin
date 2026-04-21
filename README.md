@@ -161,16 +161,26 @@ That's it. Every governed tool call now flows through AxonFlow policy enforcemen
 |--------|----------|---------|-------------|
 | `endpoint` | Yes | — | AxonFlow agent gateway URL |
 | `clientId` | No | `"community"` | Tenant identity for data isolation. Override for evaluation/enterprise. |
-| `clientSecret` | No | `""` | License key for evaluation/enterprise features. Requires `clientId` to be set. |
+| `clientSecret` | No | `""` | Basic-auth secret paired with `clientId`. Required for evaluation/enterprise tenants; leave unset in community mode. |
 | `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |
 | `excludedTools` | No | `[]` | Tools to exclude from governance. Takes precedence over `governedTools`. |
 | `defaultOperation` | No | `"execute"` | Operation type for `check_input` (`"execute"` or `"query"`) |
-| `onError` | No | `"block"` | Behavior when AxonFlow is unreachable: `"block"` (fail-closed) or `"allow"` (fail-open) |
+| `onError` | No | `"block"` | Governs behavior on **auth/config errors only** (401/403). `"block"` denies the tool call with a message telling the operator to fix configuration; `"allow"` lets the call through ungoverned. Does not apply to network/transient errors — see Fail behavior below. |
 | `requestTimeoutMs` | No | `8000` | Timeout for policy checks, output scans, audit writes, and health checks |
 
-**Fail behavior:** `onError: block` is the recommended default for production (blocks tool calls and cancels outbound messages if AxonFlow is unreachable). Audit failures are always silently caught — governance was already enforced at `before_tool_call`.
+### Fail behavior
+
+The plugin classifies errors from the AxonFlow client into two buckets and applies different rules per hook.
+
+| Hook | Transient network error (timeout, DNS, connection refused, 5xx) | Auth/config error (401 / 403) |
+|---|---|---|
+| `before_tool_call` | **Always fail-open** — tool call proceeds regardless of `onError`. Transient infrastructure issues should not block legitimate dev workflows. |  Respects `onError`. With the default `"block"`, the tool call is denied with a message pointing at the misconfiguration. With `"allow"`, the call proceeds ungoverned. |
+| `message_sending` | Respects `onError`. With `"block"` (default), the outbound message is cancelled. With `"allow"`, it is delivered ungoverned. | Same as network error — respects `onError`. |
+| `after_tool_call`, `llm_input`, `llm_output` (audit) | Always silently caught. Governance was already enforced on the pre-execution hook. | Always silently caught. |
+
+If you need tool-execution itself to fail-closed during an AxonFlow outage (for example on a production infrastructure agent), pair the plugin with an OpenClaw-side health check or a front-door liveness gate — the plugin alone will not achieve that for `before_tool_call`.
 
 ---
 
@@ -204,7 +214,7 @@ plugins:
   @axonflow/openclaw:
     endpoint: http://localhost:8080
     highRiskTools: [exec, process, web_fetch]
-    onError: block  # never fail-open on production infra
+    onError: block  # auth-error path and message_sending fail-closed; see Fail behavior above
 ```
 
 More examples — content/social agents, data analysts, RAG pipelines — in the [integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/#use-case-configuration-examples).
@@ -280,13 +290,14 @@ Smoke E2E (requires a live AxonFlow stack at `localhost:8080`):
 
 ```bash
 npm ci && npm run build
-# Start a stack via axonflow-enterprise (see its setup-e2e-testing.sh)
+# Start a local AxonFlow stack first — `docker compose up -d` in
+# the axonflow repo, or point AXONFLOW_ENDPOINT at an existing one.
 node tests/e2e/smoke-block-context.mjs
 ```
 
 The smoke scenario uses `AxonFlowClient.mcpCheckInput` to fire a SQLi-bearing statement against a running platform and asserts the response carries richer-context fields (`decision_id`, `risk_level`, `policy_matches`). Exits 0 with a `SKIP:` message if no stack is reachable.
 
-Full install-and-use matrix (explain, override lifecycle, audit-filter parity, cache invalidation) lives in `axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/`.
+For the broader validation story — explain-decision, override lifecycle, audit-filter parity, cache invalidation — see the [OpenClaw integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/).
 
 ---
 
