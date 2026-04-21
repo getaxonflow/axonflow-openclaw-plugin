@@ -1,81 +1,121 @@
 # @axonflow/openclaw
 
-**Policy enforcement, approval gates, and audit trails for [OpenClaw](https://github.com/openclaw/openclaw).**
+**Governance for OpenClaw agents: block dangerous tool calls, require human approval on high-risk actions, redact PII from outbound messages, and keep a compliance-grade audit trail — without changing a single line of your agent code.**
 
-## Why
+[![npm](https://img.shields.io/npm/v/%40axonflow%2Fopenclaw?color=%2300A36C)](https://www.npmjs.com/package/@axonflow/openclaw)
+[![ClawHub](https://img.shields.io/badge/ClawHub-listed-00A36C)](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-OpenClaw is widely deployed with [13+ CVEs disclosed in 2026](https://github.com/jgamblin/OpenClawCVEs/) (multiple CVSS 9.8+), [135,000+ publicly exposed instances](https://www.bitsight.com/blog/openclaw-ai-security-risks-exposed-instances), and [1,184 malicious skills](https://cyberpress.org/clawhavoc-poisons-openclaws-clawhub-with-1184-malicious-skills/) poisoned in ClawHub via the ClawHavoc supply chain attack. OpenClaw provides agent runtime and tool execution but no centralized policy enforcement, no PII scanning, and no compliance-grade audit trails.
+> **→ Full integration walkthrough:** **[docs.getaxonflow.com/docs/integration/openclaw](https://docs.getaxonflow.com/docs/integration/openclaw/)** — architecture, hook coverage, policy examples, and troubleshooting.
 
-This plugin adds the governance layer. AxonFlow governs, OpenClaw orchestrates. No LLM provider keys needed — OpenClaw handles all LLM calls, AxonFlow only enforces policies and records audit trails. Your data stays on your infrastructure.
+---
 
-This plugin is useful when you want to:
-- block dangerous tool calls (reverse shells, SSRF, destructive commands) before they run
-- detect and redact PII and secrets in outbound messages before delivery
-- require human approval for high-risk tools (exec, web_fetch, message)
-- keep a compliance-grade audit trail of every tool call and LLM interaction
-- gain visibility into token usage and LLM activity across agents via audit trails
+## Why this plugin exists
 
-## What It Does
+OpenClaw is a strong agent runtime. It is also a serious production security problem the moment you take it past a prototype:
 
-| Hook | Purpose |
-|------|---------|
-| `before_tool_call` | Evaluate tool inputs against AxonFlow policies before execution |
-| `after_tool_call` | Record tool execution in AxonFlow audit trail |
-| `message_sending` | Scan outbound messages for PII/secrets before delivery |
-| `llm_input` | Record prompt, model, and provider for audit |
-| `llm_output` | Record response summary, token usage, and latency for audit |
+- **[135,000+ publicly exposed instances](https://www.bitsight.com/blog/openclaw-ai-security-risks-exposed-instances)** deployed without central policy enforcement
+- **[13+ CVEs disclosed in 2026](https://github.com/jgamblin/OpenClawCVEs/)**, several at CVSS 9.8+
+- **[1,184 malicious skills](https://cyberpress.org/clawhavoc-poisons-openclaws-clawhub-with-1184-malicious-skills/)** poisoned in ClawHub via the ClawHavoc supply-chain attack
+- **No native PII/secrets scanning**, no SQL-injection defense, no compliance-grade audit trail, no org-wide tool policy, no approval workflow
 
-The plugin also:
-- **Verifies AxonFlow connectivity** on startup and logs a warning if unreachable
-- **Tracks governance metrics** in-process (tool calls blocked/allowed, messages redacted, etc.) accessible via `getMetrics()`
+OpenClaw handles agent runtime, MCP connectivity, channels, and tool execution. It was never intended to be the place you enforce governance. This plugin adds the governance layer on top, so OpenClaw keeps doing what it does well and AxonFlow takes over the "is this allowed, should this redact, who approved, where is the audit record" questions.
 
-## Current Limitation
+**AxonFlow governs. OpenClaw orchestrates. Your data stays on your infrastructure.** No LLM provider keys leave your machine — OpenClaw still makes every LLM call; AxonFlow only evaluates policies and records audit trails.
 
-Tool results written into the OpenClaw session transcript are not yet scanned by this plugin. OpenClaw's `tool_result_persist` hook is synchronous today, so it cannot call AxonFlow's HTTP policy APIs.
+---
 
-What is protected today:
-- tool inputs before execution
-- outbound messages before delivery
-- tool and LLM audit trails
+## What you get
 
-What is not protected yet:
-- tool results entering the LLM context through the session transcript
+| Capability | What it means in practice |
+|---|---|
+| **Pre-execution policy check** | Every tool call is scored against 80+ built-in policies (reverse shells, SSRF, credential access, SQLi, prompt injection, path traversal, PII in arguments) before it runs |
+| **Approval gates** | Any tool in `highRiskTools` pauses execution and posts a native OpenClaw approval request with policy severity surfaced as approval priority |
+| **Outbound message scanning** | Every message to Telegram/Discord/Slack/webhook is scanned for PII and secrets before delivery — redacted, blocked, or passed through per policy |
+| **Compliance-grade audit trail** | Every tool call and LLM interaction records the input, output summary, matched policies, decision, and duration |
+| **Decision explainability** | Blocked calls return a `decision_id` the agent can pass to `explainDecision()` to see exactly which policy family triggered and why |
+| **Session overrides** | Operators can request a time-bounded, audit-logged exception when policy allows it — without leaving the agent |
+| **Per-user identity** | `config.userEmail` threads the actual human operator through to every explain/override call, so shared chat agents still produce attributable audits |
 
-If OpenClaw adds async support for `tool_result_persist`, AxonFlow can add transcript/result scanning immediately. Upstream issue: [openclaw/openclaw#58558](https://github.com/openclaw/openclaw/issues/58558).
+---
 
-## Prerequisites
+## How it plugs in
 
-This plugin connects to [AxonFlow](https://github.com/getaxonflow/axonflow), a self-hosted governance platform, for policy evaluation and audit logging. AxonFlow must be running before you use the plugin. Your data stays on your infrastructure.
-
-```bash
-# Start AxonFlow (Docker — runs entirely on your machine)
-git clone https://github.com/getaxonflow/axonflow.git
-cd axonflow
-docker compose up -d
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        OpenClaw Agent                        │
+│                                                              │
+│  User Message → LLM Call → Tool Execution → Response → User  │
+│        │           │             │                       │   │
+│        ▼           ▼             ▼                       ▼   │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │            @axonflow/openclaw                          │  │
+│  │                                                        │  │
+│  │  GOVERNANCE (can block / modify):                      │  │
+│  │  before_tool_call   (priority 10) → check_input        │  │
+│  │  message_sending    (priority 10) → check_output       │  │
+│  │                                                        │  │
+│  │  AUDIT (observe-only, non-blocking):                   │  │
+│  │  after_tool_call    (priority 90) → audit_tool_call    │  │
+│  │  llm_input          (priority 90) → record prompt      │  │
+│  │  llm_output         (priority 90) → record response    │  │
+│  └────────────────────────┬───────────────────────────────┘  │
+└───────────────────────────┼──────────────────────────────────┘
+                            │
+                            ▼
+                    ┌───────────────────┐
+                    │     AxonFlow      │
+                    │  ┌─────┐ ┌─────┐  │
+                    │  │Policy│ │Audit│  │
+                    │  │Engine│ │Trail│  │
+                    │  └─────┘ └─────┘  │
+                    │  ┌─────┐          │
+                    │  │ PII │          │
+                    │  │Scan │          │
+                    │  └─────┘          │
+                    └───────────────────┘
 ```
 
-See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for full setup options.
+**What stays the same:** your OpenClaw agent config, ClawHub skills, MCP connectors, and channel integrations are unchanged. The plugin only adds lifecycle hooks.
+
+---
+
+## The production problems this solves
+
+These are the three questions that reliably surface the moment an OpenClaw agent hits real users or regulators.
+
+### 1. "The tool that phones home"
+
+A `web_fetch` skill is installed from ClawHub. An agent uses it to look up product docs. Then a user asks, *"Summarize my customer list"* — the agent calls `web_fetch` with customer emails in the URL. The data leaves your infrastructure. OpenClaw executed the tool correctly; nobody checked what it was sending.
+
+**What the plugin does:** `check_input` fires before `web_fetch` runs, scans the URL arguments against PII and exfiltration policies, and blocks the call with a decision ID.
+
+### 2. "The MCP response full of PII"
+
+An MCP connector queries your CRM for "recent support tickets." The MCP server returns 50 rows with names, emails, phone numbers. All of it flows into the LLM context. OpenClaw managed the connection; SecretRef protected the credentials; the *data itself* was never inspected.
+
+**What the plugin does:** `check_output` fires on `message_sending` before anything reaches the user channel, and scans every outbound message for SSN, credit card, API key, and other 80+ policy matches — redacting or blocking per policy.
+
+### 3. "The compliance question nobody can answer"
+
+Six months later, a regulator asks: *"For this interaction on March 14, which tools were called, what data did they access, which policies were in effect, and why was the response allowed?"* OpenClaw's execution logs show a tool was called and succeeded. The *decision context* does not exist.
+
+**What the plugin does:** every governed call emits a structured audit record with tool, input, output summary, matched policies, decision, and duration. Search via `searchAuditEvents()` or the Customer Portal.
+
+---
 
 ## Install
 
-Available on [ClawHub](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw) and [npm](https://www.npmjs.com/package/@axonflow/openclaw).
-
-**Recommended:**
+Requires OpenClaw **2026.4.14 or later**. Upgrade with `npm install -g openclaw@latest` if needed.
 
 ```bash
 openclaw plugins install @axonflow/openclaw
 ```
 
-The `clawhub:@axonflow/openclaw` form also works if you prefer to be explicit about the source:
-
-```bash
-openclaw plugins install clawhub:@axonflow/openclaw
-```
-
-Requires OpenClaw **2026.4.14 or later**. If you are not on the latest, upgrade with `npm install -g openclaw@latest`.
+Available on [ClawHub](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw) and [npm](https://www.npmjs.com/package/@axonflow/openclaw). The `clawhub:@axonflow/openclaw` form works if you prefer to be explicit about the source.
 
 <details>
-<summary>On an older OpenClaw CLI? The old workaround is still needed.</summary>
+<summary>On an older OpenClaw CLI? The ENOENT workaround still applies.</summary>
 
 OpenClaw versions before 2026.4.14 had a bug ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) that made scoped packages fail with `ENOENT .../openclaw-clawhub-package-XXXXXX/@axonflow/openclaw.zip` — both forms of the install command hit it. The fix shipped in 2026.4.14. If you cannot upgrade, install from npm directly:
 
@@ -86,111 +126,147 @@ openclaw plugins install "./$TGZ"
 ```
 </details>
 
-For the full integration walkthrough (architecture, hook coverage, policy examples, troubleshooting), see the [OpenClaw Integration Guide](https://docs.getaxonflow.com/docs/integration/openclaw/).
+### Start AxonFlow
+
+The plugin connects to AxonFlow, a self-hosted governance platform. AxonFlow must be running before the plugin loads. Everything stays on your infrastructure.
+
+```bash
+git clone https://github.com/getaxonflow/axonflow.git
+cd axonflow && docker compose up -d
+```
+
+See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for production deployment options.
+
+---
 
 ## Configure
 
-In your OpenClaw config:
+Minimal configuration — community mode needs nothing beyond `endpoint`:
 
 ```yaml
+# openclaw.config.yaml
 plugins:
   @axonflow/openclaw:
     endpoint: http://localhost:8080
-    # In community mode, clientId defaults to "community"
-    # and clientSecret can be left unset.
-    # Set both only for evaluation/enterprise credentials.
-    # clientId: your-client-id
-    # clientSecret: your-client-secret
-    # requestTimeoutMs: 8000
     highRiskTools:
       - web_fetch
       - message
 ```
 
-### Configuration Options
+That's it. Every governed tool call now flows through AxonFlow policy enforcement. `clientId` defaults to `"community"` and `clientSecret` can be left unset — add them only for evaluation or enterprise credentials.
+
+### Full configuration reference
 
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `endpoint` | Yes | — | AxonFlow agent gateway URL |
 | `clientId` | No | `"community"` | Tenant identity for data isolation. Override for evaluation/enterprise. |
 | `clientSecret` | No | `""` | License key for evaluation/enterprise features. Requires `clientId` to be set. |
+| `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |
-| `excludedTools` | No | `[]` | Tools to exclude from governance |
-| `defaultOperation` | No | `"execute"` | Operation type for mcp_check_input (`"execute"` or `"query"`) |
+| `excludedTools` | No | `[]` | Tools to exclude from governance. Takes precedence over `governedTools`. |
+| `defaultOperation` | No | `"execute"` | Operation type for `check_input` (`"execute"` or `"query"`) |
 | `onError` | No | `"block"` | Behavior when AxonFlow is unreachable: `"block"` (fail-closed) or `"allow"` (fail-open) |
-| `requestTimeoutMs` | No | `8000` | Timeout for policy checks, output scans, audit writes, and health checks. Increase for remote AxonFlow deployments. |
+| `requestTimeoutMs` | No | `8000` | Timeout for policy checks, output scans, audit writes, and health checks |
 
-**Valid configurations:**
-- Both omitted → community mode (`clientId` defaults to `"community"`)
-- `clientId` only → community mode with custom tenant identity
-- Both set → licensed mode (evaluation/enterprise)
-- `clientSecret` only → **error** (licensed mode requires explicit tenant identity to prevent data going to the wrong tenant)
+**Fail behavior:** `onError: block` is the recommended default for production (blocks tool calls and cancels outbound messages if AxonFlow is unreachable). Audit failures are always silently caught — governance was already enforced at `before_tool_call`.
 
-## How It Works
+---
 
+## Use-case recipes
+
+### DevOps / coding agent — heavy exec usage
+
+```yaml
+plugins:
+  @axonflow/openclaw:
+    endpoint: http://localhost:8080
+    highRiskTools: [exec, process]
+    excludedTools: [get_current_time, list_models]
+    onError: block
 ```
-User sends message → OpenClaw receives
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│ llm_input (audit)                           │
-│ → Record prompt, model, provider            │
-└─────────────────────────────────────────────┘
-    │
-    ▼
-LLM generates response (may include tool calls)
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│ llm_output (audit)                          │
-│ → Record response, tokens, latency          │
-└─────────────────────────────────────────────┘
-    │
-    ▼  (if tool calls in response)
-┌─────────────────────────────────────────────┐
-│ before_tool_call (governance)               │
-│ → mcp_check_input(openclaw.{tool}, args)    │
-│ → BLOCK / REQUIRE APPROVAL / ALLOW          │
-└─────────────────────────────────────────────┘
-    │
-    ▼
-Tool executes (web_fetch, message, MCP, etc.)
-    │
-    ▼
-Tool result persisted to session transcript
-(not scanned — pending async hook support)
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│ after_tool_call (audit)                     │
-│ → audit_tool_call(tool, params, result)     │
-└─────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│ message_sending (governance)                │
-│ → mcp_check_output(openclaw.message_sending) │
-│ → CANCEL / REDACT / ALLOW                   │
-└─────────────────────────────────────────────┘
-    │
-    ▼
-Message delivered to user channel
+
+### Customer support agent — Slack/Discord/Telegram
+
+```yaml
+plugins:
+  @axonflow/openclaw:
+    endpoint: http://localhost:8080
+    highRiskTools: [message, execute_sql, send_email]
+    onError: block
 ```
+
+### Self-healing infrastructure agent — highest risk
+
+```yaml
+plugins:
+  @axonflow/openclaw:
+    endpoint: http://localhost:8080
+    highRiskTools: [exec, process, web_fetch]
+    onError: block  # never fail-open on production infra
+```
+
+More examples — content/social agents, data analysts, RAG pipelines — in the [integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/#use-case-configuration-examples).
+
+---
+
+## MCP tools available to your agent
+
+Beyond the lifecycle hooks, OpenClaw agents can call **10 MCP tools** via the agent's MCP server at `/api/v1/mcp-server`. These are served by the platform (not the plugin), so new tools become available to every plugin without a code change.
+
+**Governance (6):** `check_policy`, `check_output`, `audit_tool_call`, `list_policies`, `get_policy_stats`, `search_audit_events`
+
+**Explainability & overrides (4):** `explain_decision`, `create_override`, `delete_override`, `list_overrides`
+
+When a tool call is blocked, the agent can surface the `decision_id` to the operator, call `explain_decision` to reveal the triggering policy family, and — if the decision is overridable — call `create_override` with mandatory justification for a short-lived, audit-logged exception. Operators never leave the OpenClaw session.
+
+See [Decision Explainability](https://docs.getaxonflow.com/docs/governance/explainability/) and [Session Overrides](https://docs.getaxonflow.com/docs/governance/overrides/).
+
+---
+
+## What's covered today, and what's not
+
+**Protected today:**
+- Tool inputs before execution
+- Outbound messages before delivery
+- Tool and LLM audit trails (including search & explainability)
+- Decision-level overrides with per-user attribution
+
+**Not protected yet:**
+- Tool results written into the session transcript (OpenClaw's `tool_result_persist` hook is synchronous and cannot call AxonFlow's HTTP APIs)
+
+PII in tool results is still caught by `message_sending` before it reaches the end user, but it is visible to the LLM. When OpenClaw adds async support for `tool_result_persist`, this plugin will add transcript scanning immediately. Upstream issue: [openclaw/openclaw#58558](https://github.com/openclaw/openclaw/issues/58558).
+
+---
+
+## Latency
+
+| Operation | Typical overhead |
+|-----------|-----------------|
+| Policy pre-check | 2–5 ms |
+| PII / secrets detection | 1–3 ms |
+| SQL-injection scan | 1–2 ms |
+| Audit write (async) | 0 ms (non-blocking) |
+| **Total per-tool overhead** | **3–10 ms** |
+
+Imperceptible for interactive agents.
+
+---
+
+## Starter policies
+
+The [policies directory](./policies) ships research-backed starter policies addressing the top 10 OpenClaw security risks — reverse shells, SSRF, credential exfiltration, path traversal, agent config poisoning, prompt injection, and more. Ready-to-use SQL INSERT statements and setup instructions included.
+
+---
 
 ## Telemetry
 
-This plugin sends an anonymous telemetry ping on initialization to help us understand usage patterns, including local and self-hosted evaluations. The ping includes: plugin version, platform info (OS, architecture, Node.js version), AxonFlow platform version, and hook configuration (count, onError mode). No PII, no tool arguments, no policy data.
+The plugin sends a one-time anonymous ping on initialization so AxonFlow can understand adoption and environment shape. Includes plugin version, OS/arch, Node.js version, AxonFlow platform version, hook configuration summary. **Never** includes message contents, tool arguments, or policy data.
 
-Opt out:
-- `DO_NOT_TRACK=1` (standard)
-- `AXONFLOW_TELEMETRY=off`
+Opt out with either `DO_NOT_TRACK=1` (standard) or `AXONFLOW_TELEMETRY=off`.
 
-The startup ping is enabled by default for local, self-hosted, and remote deployments. Opt-out controls always win.
-
-## Starter Policies
-
-See [policies/README.md](./policies/README.md) for recommended policy setup for OpenClaw deployments, including protections against reverse shells, credential exfiltration, SSRF, path traversal, and agent config file poisoning.
+---
 
 ## Testing
 
@@ -208,21 +284,22 @@ npm ci && npm run build
 node tests/e2e/smoke-block-context.mjs
 ```
 
-The smoke scenario uses `AxonFlowClient.mcpCheckInput` to fire a
-SQLi-bearing statement against a running platform and asserts the
-response carries Plugin Batch 1 richer-context fields (`decision_id`,
-`risk_level`, `policy_matches`). Exits 0 with a `SKIP:` message if no
-stack is reachable. In CI, run manually via `workflow_dispatch` with a
-reachable endpoint (GitHub-hosted runners have no local stack).
+The smoke scenario uses `AxonFlowClient.mcpCheckInput` to fire a SQLi-bearing statement against a running platform and asserts the response carries richer-context fields (`decision_id`, `risk_level`, `policy_matches`). Exits 0 with a `SKIP:` message if no stack is reachable.
 
-Full install-and-use matrix (explain, override lifecycle, audit filter
-parity, cache invalidation) lives in `axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/`.
+Full install-and-use matrix (explain, override lifecycle, audit-filter parity, cache invalidation) lives in `axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/`.
+
+---
 
 ## Links
 
+- **[OpenClaw Integration Guide](https://docs.getaxonflow.com/docs/integration/openclaw/)** — the full walkthrough (recommended starting point)
 - [AxonFlow Documentation](https://docs.getaxonflow.com)
-- [OpenClaw Integration Guide](https://docs.getaxonflow.com/docs/integration/openclaw/)
 - [Policy Enforcement](https://docs.getaxonflow.com/docs/mcp/policy-enforcement/)
+- [Decision Explainability](https://docs.getaxonflow.com/docs/governance/explainability/)
+- [Session Overrides](https://docs.getaxonflow.com/docs/governance/overrides/)
+- [PII Detection](https://docs.getaxonflow.com/docs/security/pii-detection/)
+- [Audit Logging](https://docs.getaxonflow.com/docs/governance/audit-logging/)
+- Sister plugins: [Claude Code](https://github.com/getaxonflow/axonflow-claude-plugin) · [Cursor](https://github.com/getaxonflow/axonflow-cursor-plugin) · [Codex](https://github.com/getaxonflow/axonflow-codex-plugin)
 
 ## License
 
