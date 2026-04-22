@@ -5,7 +5,10 @@
  * checkpoint.getaxonflow.com. Collects SDK version, platform info,
  * and OpenClaw version. No PII, no tool arguments, no policy data.
  *
- * Opt out: DO_NOT_TRACK=1 or AXONFLOW_TELEMETRY=off
+ * Opt out: AXONFLOW_TELEMETRY=off (canonical)
+ * Also honored for backward compatibility: DO_NOT_TRACK=1 (deprecated — removed
+ * after 2026-05-05 in the next major release; a one-time warning emits when
+ * it's the active opt-out so operators can migrate).
  *
  * Configuration resolution (opt-out flags and checkpoint URL) lives in
  * telemetry-config.ts so this file only handles the network-sending side.
@@ -90,7 +93,7 @@ export function sendTelemetryPing(options: {
 
   if (typeof console !== "undefined") {
     console.log(
-      "[AxonFlow] Anonymous telemetry enabled for local and self-hosted use. Opt out: DO_NOT_TRACK=1 or AXONFLOW_TELEMETRY=off | https://docs.getaxonflow.com/docs/telemetry",
+      "[AxonFlow] Anonymous telemetry enabled for local and self-hosted use. Opt out: AXONFLOW_TELEMETRY=off | https://docs.getaxonflow.com/docs/telemetry",
     );
   }
 

@@ -274,7 +274,7 @@ The [policies directory](./policies) ships research-backed starter policies addr
 
 The plugin sends a one-time anonymous ping on initialization so AxonFlow can understand adoption and environment shape. Includes plugin version, OS/arch, Node.js version, AxonFlow platform version, hook configuration summary. **Never** includes message contents, tool arguments, or policy data.
 
-Opt out with either `DO_NOT_TRACK=1` (standard) or `AXONFLOW_TELEMETRY=off`.
+Opt out with `AXONFLOW_TELEMETRY=off` (canonical). `DO_NOT_TRACK=1` is still honored for backward compatibility but is **deprecated** and scheduled for removal after 2026-05-05 in the next major release — the plugin emits a one-time warning when `DO_NOT_TRACK=1` is the active control and `AXONFLOW_TELEMETRY=off` is not also set.
 
 ---
 

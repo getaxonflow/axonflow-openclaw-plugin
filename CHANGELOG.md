@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.2] - 2026-04-22
+
+### Deprecated
+
+- `DO_NOT_TRACK=1` as an AxonFlow telemetry opt-out — scheduled for removal after 2026-05-05 in the next major release. Use `AXONFLOW_TELEMETRY=off` instead. The plugin emits a one-time `console.warn` when `DO_NOT_TRACK=1` is the active control and `AXONFLOW_TELEMETRY=off` is not also set.
+
 ## [1.3.1] - 2026-04-19
 
 Patch release. Fixes a v1.3.0 gap surfaced by install-and-use E2E
