@@ -16,11 +16,14 @@ import { createServer } from 'node:http';
 const PORT = Number(process.env.STUB_PORT || 0);
 
 const server = createServer((req, res) => {
-  let body = '';
+  // Buffer-concat (not string-concat) so multi-byte UTF-8 sequences
+  // split across chunks don't decode to U+FFFD replacements.
+  const chunks = [];
   req.on('data', (chunk) => {
-    body += chunk;
+    chunks.push(chunk);
   });
   req.on('end', () => {
+    const body = Buffer.concat(chunks).toString('utf8');
     const url = req.url || '';
 
     if (req.method === 'GET' && url === '/health') {
@@ -39,7 +42,10 @@ const server = createServer((req, res) => {
         return;
       }
       const stmt = String(parsed.statement || '');
-      const sqli = /OR\s+1=1|--|;\s*DROP\s+TABLE/i.test(stmt);
+      // Two unambiguous SQLi signals. The bare `--` line-comment
+      // marker is intentionally NOT included here — it false-fires
+      // on any benign hyphenated identifier or ISO date string.
+      const sqli = /\bOR\s+'?1'?\s*=\s*'?1'?\b|;\s*DROP\s+TABLE\b/i.test(stmt);
       if (sqli) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(
