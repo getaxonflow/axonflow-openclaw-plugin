@@ -5,8 +5,19 @@
 //
 // Endpoints implemented:
 //   GET  /health                      → 200 { status: "ok", version: "stub" }
-//   POST /api/v1/mcp/check-input      → 403 deny when statement contains a
+//   POST /api/v1/mcp/check-input      → 401 if Basic auth header is missing
+//                                       or doesn't match STUB_EXPECTED_AUTH,
+//                                       403 deny when statement contains a
 //                                       SQLi marker, 200 allow otherwise.
+//
+// Auth is enforced when STUB_EXPECTED_AUTH is set. The harness sets this
+// to the exact `Basic <base64>` header the AxonFlowClient should be
+// emitting; if the client drops or mangles the header, every check-input
+// becomes a 401 and the harness's positive/negative assertions fail.
+// Without this guard a real install regression that broke Basic auth
+// would still pass the smoke against a permissive stub.
+//
+// X-User-Email is similarly enforced when STUB_EXPECTED_USER_EMAIL is set.
 //
 // Listens on a port picked by the OS (port 0). Prints `STUB_LISTENING:<port>`
 // to stdout once ready so the harness can read the assigned port.
@@ -14,6 +25,8 @@
 import { createServer } from 'node:http';
 
 const PORT = Number(process.env.STUB_PORT || 0);
+const EXPECTED_AUTH = process.env.STUB_EXPECTED_AUTH || '';
+const EXPECTED_USER_EMAIL = process.env.STUB_EXPECTED_USER_EMAIL || '';
 
 const server = createServer((req, res) => {
   // Buffer-concat (not string-concat) so multi-byte UTF-8 sequences
@@ -33,6 +46,35 @@ const server = createServer((req, res) => {
     }
 
     if (req.method === 'POST' && url === '/api/v1/mcp/check-input') {
+      // Enforce the Basic auth + X-User-Email wiring that real clients
+      // depend on. A regression that drops or garbles either header
+      // would otherwise sail past the smoke.
+      if (EXPECTED_AUTH) {
+        const got = req.headers['authorization'];
+        if (got !== EXPECTED_AUTH) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: 'unauthorized',
+              detail: 'stub: Authorization header missing or did not match STUB_EXPECTED_AUTH',
+            }),
+          );
+          return;
+        }
+      }
+      if (EXPECTED_USER_EMAIL) {
+        const got = req.headers['x-user-email'];
+        if (got !== EXPECTED_USER_EMAIL) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: 'unauthorized',
+              detail: 'stub: X-User-Email missing or did not match STUB_EXPECTED_USER_EMAIL',
+            }),
+          );
+          return;
+        }
+      }
       let parsed;
       try {
         parsed = JSON.parse(body);

@@ -174,11 +174,28 @@ if (typeof mod.AxonFlowClient !== 'function') {
 // 6. Spawn the local stub agent.
 // ---------------------------------------------------------------
 console.log('\n--- Step 6: spawn stub agent ---');
+const SMOKE_CLIENT_ID = 'smoke';
+const SMOKE_CLIENT_SECRET = 'smoke';
+const SMOKE_USER_EMAIL = 'smoke@example.com';
+// Pre-compute the exact Basic auth header the AxonFlowClient should
+// emit. The stub returns 401 if the inbound Authorization header
+// doesn't match — i.e. if a regression drops, mangles, or omits the
+// header, the harness's mcpCheckInput call below fails on the 401
+// and the smoke goes red rather than silently passing against a
+// permissive stub.
+const expectedAuth =
+  'Basic ' +
+  Buffer.from(`${SMOKE_CLIENT_ID}:${SMOKE_CLIENT_SECRET}`).toString('base64');
 const stubScript = join(__dirname, 'stub-server.mjs');
 const stub = spawn(process.execPath, [stubScript], {
   cwd: __dirname,
   stdio: ['ignore', 'pipe', 'inherit'],
-  env: { ...process.env, STUB_PORT: '0' },
+  env: {
+    ...process.env,
+    STUB_PORT: '0',
+    STUB_EXPECTED_AUTH: expectedAuth,
+    STUB_EXPECTED_USER_EMAIL: SMOKE_USER_EMAIL,
+  },
 });
 
 const stubPort = await new Promise((resolveP, rejectP) => {
@@ -212,9 +229,9 @@ try {
   console.log('\n--- Step 7: deny case (SQLi) ---');
   const client = new mod.AxonFlowClient({
     endpoint: `http://127.0.0.1:${stubPort}`,
-    clientId: 'smoke',
-    clientSecret: 'smoke',
-    userEmail: 'smoke@example.com',
+    clientId: SMOKE_CLIENT_ID,
+    clientSecret: SMOKE_CLIENT_SECRET,
+    userEmail: SMOKE_USER_EMAIL,
   });
   const deny = await client.mcpCheckInput(
     'postgresql',
