@@ -1,0 +1,122 @@
+name: Wire-Shape Contract
+
+# Plugin-side wire-shape gate (parity with the four SDK gates per
+# ADR-047). Compares the plugin's local wire-bound TS interfaces in
+# src/axonflow-client.ts against the AxonFlow agent's OpenAPI spec at
+# the SHA pinned in tests/fixtures/wire-shape-baseline.json. Fails on
+# drift NOT covered by the baseline.
+#
+# A 'spec-pin-bump' PR label is required to bump the pinned SHA in the
+# same PR as plugin changes — preserves review integrity (a SHA bump
+# could otherwise silence drift by retargeting the contract).
+#
+# To regenerate the baseline:
+#   node scripts/wire-shape/refresh.cjs <specs_dir>
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**/*.ts'
+      - 'tests/fixtures/wire-shape-baseline.json'
+      - 'scripts/wire-shape/**'
+      - '.github/workflows/wire-shape-contract.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**/*.ts'
+      - 'tests/fixtures/wire-shape-baseline.json'
+      - 'scripts/wire-shape/**'
+      - '.github/workflows/wire-shape-contract.yml'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+jobs:
+  wire-shape:
+    name: Validate Wire Shape
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout plugin (full history for SHA-bump guard)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read pinned OpenAPI specs SHA from baseline
+        id: specs_sha
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import sys
+          path = "tests/fixtures/wire-shape-baseline.json"
+          data = json.load(open(path))
+          sha = (data.get("openapi_specs_sha", "") or "").strip()
+          if not sha:
+              print(
+                  f"::error::{path} is missing openapi_specs_sha. "
+                  "Regenerate via scripts/wire-shape/refresh.cjs.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          print(f"sha={sha}")
+          PY
+
+      - name: Guard against unauthorized OpenAPI specs SHA bump
+        if: github.event_name == 'pull_request'
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          BASE_REF: ${{ github.base_ref }}
+          PR_SHA: ${{ steps.specs_sha.outputs.sha }}
+        run: |
+          set -e
+          BASE_SHA=$(
+            git show "origin/${BASE_REF}:tests/fixtures/wire-shape-baseline.json" 2>/dev/null \
+              | python3 -c "import json, sys; print(json.load(sys.stdin).get('openapi_specs_sha','') or '')" \
+              || true
+          )
+          if [ -z "$BASE_SHA" ]; then
+            echo "::notice::Base branch has no openapi_specs_sha yet; treating this PR as first pin introduction."
+            exit 0
+          fi
+          if [ "$BASE_SHA" = "$PR_SHA" ]; then
+            echo "openapi_specs_sha unchanged (${PR_SHA})."
+            exit 0
+          fi
+          echo "SHA change detected: ${BASE_SHA} -> ${PR_SHA}"
+          HAS_LABEL=$(printf '%s' "$PR_LABELS" | python3 -c "import json, sys; print('spec-pin-bump' in json.load(sys.stdin))")
+          if [ "$HAS_LABEL" = "True" ]; then
+            echo "::notice::'spec-pin-bump' label present — SHA bump authorized."
+            exit 0
+          fi
+          echo "::error::openapi_specs_sha changed from ${BASE_SHA} to ${PR_SHA}."
+          echo "::error::The wire-shape contract's spec revision is pinned to preserve"
+          echo "::error::review integrity: a SHA change in the same PR as plugin changes"
+          echo "::error::can silence drift by retargeting the contract to a friendlier"
+          echo "::error::revision. Either split into a dedicated SHA-bump PR, or"
+          echo "::error::apply the 'spec-pin-bump' label to this PR."
+          exit 1
+
+      - name: Checkout OpenAPI specs (pinned to baseline SHA)
+        uses: actions/checkout@v4
+        with:
+          repository: getaxonflow/axonflow
+          ref: ${{ steps.specs_sha.outputs.sha }}
+          path: axonflow-community
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run wire-shape contract gate
+        env:
+          AXONFLOW_OPENAPI_SPECS_DIR: ${{ github.workspace }}/axonflow-community/docs/api
+        run: node scripts/wire-shape/validate.cjs
