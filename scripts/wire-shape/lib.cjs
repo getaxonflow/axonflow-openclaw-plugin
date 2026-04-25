@@ -33,22 +33,18 @@ const BASELINE_PATH = path.join(PLUGIN_ROOT, 'tests', 'fixtures', 'wire-shape-ba
 /**
  * Map: plugin TS interface name → OpenAPI schema name.
  * Same name on both sides for most types; CreateOverrideResult is the
- * plugin's view of the agent's PolicyOverride schema with the timestamp /
- * TTL fields surfaced post-create, so we map it explicitly.
+ * plugin's view of the agent's create-override response — mapped to
+ * CreateOverrideResponse (the dedicated create-response schema added
+ * in platform v7.4.4), distinct from the at-rest PolicyOverride
+ * entity which is what GET endpoints return.
  */
 const WIRE_BOUND = {
   MCPCheckInputResponse: 'MCPCheckInputResponse',
   MCPCheckOutputResponse: 'MCPCheckOutputResponse',
-  // ExplainPolicy / ExplainRule / DecisionExplanation come from the
-  // explain_decision MCP tool (ADR-043). The agent emits them but the
-  // OpenAPI spec doesn't carry them yet — they show up as "unmapped"
-  // until the spec catches up. The gate captures that as tracked debt.
   ExplainPolicy: 'ExplainPolicy',
   ExplainRule: 'ExplainRule',
   DecisionExplanation: 'DecisionExplanation',
-  // The override-create endpoint returns PolicyOverride from the spec;
-  // the plugin re-shapes it as CreateOverrideResult.
-  CreateOverrideResult: 'PolicyOverride',
+  CreateOverrideResult: 'CreateOverrideResponse',
 };
 
 /**
