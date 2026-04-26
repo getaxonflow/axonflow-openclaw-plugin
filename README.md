@@ -104,6 +104,42 @@ Six months later, a regulator asks: *"For this interaction on March 14, which to
 
 ---
 
+## Try AxonFlow in production
+
+We're opening limited Design Partner slots.
+
+Free 30-minute architecture and incident-readiness review, priority issue triage, roadmap input, and early feature access.
+
+[Apply here](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw) or email [design-partners@getaxonflow.com](mailto:design-partners@getaxonflow.com).
+
+No commitment required. We reply within 48 hours.
+
+### See AxonFlow in Action
+
+Three short videos covering different angles of the platform:
+
+- **[Community Quickstart Demo (Code + Terminal, 2.5 min)](https://youtu.be/BSqU1z0xxCo)** — governed calls, PII block, Gateway Mode with LangChain/CrewAI, and MAP from YAML
+- **[Runtime Control Demo (Portal + Workflow, 3 min)](https://youtu.be/6UatGpn7KwE)** — approvals, retry safety, execution state, and the audit viewer
+- **[Architecture Deep Dive (12 min)](https://youtu.be/Q2CZ1qnquhg)** — how the control plane works, policy enforcement flow, and multi-agent planning
+
+### Evaluation Tier (Free License)
+
+Need more capacity than Community without moving to Enterprise? Evaluation uses the same core features with higher limits:
+
+| Limit | Community | Evaluation (Free) | Enterprise |
+|-------|-----------|-------------------|------------|
+| Tenant policies | 20 | 50 | Unlimited |
+| Org-wide policies | 0 | 5 | Unlimited |
+| Audit retention | 3 days | 14 days | 3650 days |
+| Concurrent executions | 5 | 25 | Unlimited |
+| Pending execution approvals | 5 | 25 | Unlimited |
+
+Concurrent executions applies to MAP and WCP executions per tenant. Pending execution approvals applies to MAP confirm/step mode and WCP approval queues.
+
+[Get a free Evaluation license](https://getaxonflow.com/evaluation-license?utm_source=readme_plugin_openclaw_eval) · [Full feature matrix](https://docs.getaxonflow.com/docs/features/community-vs-enterprise?utm_source=readme_plugin_openclaw_eval)
+
+---
+
 ## Install
 
 Requires OpenClaw **2026.4.14 or later**. Upgrade with `npm install -g openclaw@latest` if needed.
