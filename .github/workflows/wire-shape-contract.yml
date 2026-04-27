@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout plugin (full history for SHA-bump guard)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -101,7 +101,7 @@ jobs:
           exit 1
 
       - name: Checkout OpenAPI specs (pinned to baseline SHA)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: getaxonflow/axonflow
           ref: ${{ steps.specs_sha.outputs.sha }}
