@@ -1,8 +1,20 @@
 # Changelog
 
-## [2.0.0] - 2026-04-29
+## [2.0.0] - 2026-04-29 — Production, quality, and security hardening — upgrade encouraged
 
-**Upgrade strongly recommended.** Over the past month we've shipped substantial production, quality, and security hardening across all AxonFlow SDKs and plugins — upgrade to the latest version for a more secure, reliable, and bug-free experience.
+**Upgrade strongly recommended.** Over the past month we've shipped substantial production, quality, and security hardening across the AxonFlow plugin and platform — upgrade to the latest version for a more secure, reliable, and bug-free experience.
+
+**Security highlights from this release cycle:**
+- **Plugin cache and credential-file permission hardening** (this release). Cache and config directories are tightened to mode `0700` on every invocation; `try-registration.json` is written with mode `0600`. Pre-existing world-readable credential files are detected and refused on first load. Documented in [`GHSA-cqmh-pcgr-q42f`](https://github.com/getaxonflow/axonflow-openclaw-plugin/security/advisories/GHSA-cqmh-pcgr-q42f).
+- **Hook-closure dead-code fix** (this release). Hooks registered against the AxonFlow client previously captured the pre-bootstrap client by value, so the post-bootstrap re-construction was invisible to every registered hook. Refactored to a `ClientRef` holder so all 5 factory paths see the live client. Closes a P0 governance bypass on the hook-driven enforcement path.
+- **Telemetry opt-out reliability** (this release). `DO_NOT_TRACK` was unreliable because host CLIs commonly inject `DO_NOT_TRACK=1` regardless of user intent; the canonical opt-out is now `AXONFLOW_TELEMETRY=off`, an AxonFlow-scoped signal hosts can't unilaterally set.
+
+The full set of platform-side security fixes shipped alongside this release — including multi-tenant isolation in MAP execution, cross-tenant audit-log isolation, and SQLi enforcement on the Community SaaS endpoint — is documented in the consolidated platform advisory [`GHSA-9h64-2846-7x7f`](https://github.com/getaxonflow/axonflow/security/advisories/GHSA-9h64-2846-7x7f). Bundled OpenClaw upstream advisories closed by the dependency bump in this release are tracked in this repo's Dependabot alerts.
+
+**Reliability and bug-fix highlights:**
+- **7-day delivered-heartbeat with stamp-on-success** (this release). Telemetry stamp advances only after the POST returns 2xx, so a transient network failure no longer silences telemetry until the next 7-day window. Concurrent invocations are de-duplicated by an in-flight gate.
+- **Mode-clarity canary log line** on every plugin init (this release). Logs `[AxonFlow] Connected to AxonFlow at <URL> (mode=...)` and a PR-blocking CI gate asserts the canary matches the actual outbound destination, guarding against silent endpoint drift.
+- **PR-blocking install-to-use smoke against the live community stack** (this release). Catches plugin-side regressions against `try.getaxonflow.com` before they reach a user's host process.
 
 ### BREAKING
 
