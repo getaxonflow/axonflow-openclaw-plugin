@@ -64,7 +64,8 @@ async function startServer(port, workDir) {
     stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("server didn't start within 10s")), 10000);
+    // 30s budget — macOS GH runners cold-start Python noticeably slower.
+    const t = setTimeout(() => reject(new Error("server didn't start within 30s")), 30000);
     proc.stdout.on("data", (chunk) => {
       if (chunk.toString().includes("server ready")) {
         clearTimeout(t);
