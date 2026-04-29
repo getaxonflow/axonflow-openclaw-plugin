@@ -139,8 +139,24 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
-    # Signal readiness via stdout so the harness can wait deterministically.
-    print("server ready", flush=True)
+    # Signal readiness two ways: a sentinel file (atomic + race-free) and
+    # stdout (for human-readable harness output). Some macOS GH runner
+    # configurations buffer Python stdout when redirected to a file even
+    # with flush=True, so the file-based signal is the authoritative
+    # readiness check.
+    ready_file = os.path.join(work_dir, "_server_ready")
+    with open(ready_file, "w") as fh:
+        fh.write("ready\n")
+        fh.flush()
+        try:
+            os.fsync(fh.fileno())
+        except OSError:
+            pass
+    try:
+        sys.stdout.write("server ready\n")
+        sys.stdout.flush()
+    except Exception:
+        pass
 
     # Persist for the lifetime of the parent (harness manages teardown).
     while True:

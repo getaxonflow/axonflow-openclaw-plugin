@@ -60,24 +60,28 @@ async function findFreePort() {
 
 async function startServer(port, workDir) {
   const serverScript = path.join(HARNESS_DIR, "server.py");
+  // PYTHONUNBUFFERED=1 forces line-buffered stdout. The file-based readiness
+  // sentinel is the authoritative signal anyway, but unbuffered stdout
+  // also helps surface server errors faster if the sentinel never lands.
   const proc = spawn("python3", [serverScript, String(port), workDir], {
     stdio: ["ignore", "pipe", "inherit"],
+    env: { ...process.env, PYTHONUNBUFFERED: "1" },
   });
-  await new Promise((resolve, reject) => {
-    // 30s budget — macOS GH runners cold-start Python noticeably slower.
-    const t = setTimeout(() => reject(new Error("server didn't start within 30s")), 30000);
-    proc.stdout.on("data", (chunk) => {
-      if (chunk.toString().includes("server ready")) {
-        clearTimeout(t);
-        resolve();
-      }
-    });
-    proc.on("exit", (code) => {
-      clearTimeout(t);
-      reject(new Error(`server exited early code=${code}`));
-    });
-  });
-  return proc;
+  // Capture stdout for diagnostics in case the sentinel never appears.
+  let serverStdout = "";
+  proc.stdout.on("data", (chunk) => { serverStdout += chunk.toString(); });
+
+  const readyFile = path.join(workDir, "_server_ready");
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(readyFile)) return proc;
+    if (proc.exitCode !== null) {
+      throw new Error(`server exited early code=${proc.exitCode}\n${serverStdout}`);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  proc.kill();
+  throw new Error(`server didn't start within 30s\n--- server stdout ---\n${serverStdout}`);
 }
 
 function readCounter(workDir) {
