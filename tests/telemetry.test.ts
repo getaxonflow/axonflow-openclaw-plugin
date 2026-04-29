@@ -82,16 +82,33 @@ describe("sendTelemetryPing", () => {
 
   // ---- Opt-out tests ----
 
-  it("does not send when DO_NOT_TRACK=1", () => {
+  it("STILL sends when only DO_NOT_TRACK=1 is set (DNT no longer honored)", async () => {
     process.env.DO_NOT_TRACK = "1";
     sendTelemetryPing(baseOptions);
-    expect(mockFetch).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(mockFetch).toHaveBeenCalled();
   });
 
   it("does not send when AXONFLOW_TELEMETRY=off", () => {
     process.env.AXONFLOW_TELEMETRY = "off";
     sendTelemetryPing(baseOptions);
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not send when AXONFLOW_TELEMETRY=off, even with DO_NOT_TRACK=1 also set", () => {
+    process.env.DO_NOT_TRACK = "1";
+    process.env.AXONFLOW_TELEMETRY = "off";
+    sendTelemetryPing(baseOptions);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("emits NO console.warn for DO_NOT_TRACK (no deprecation noise)", async () => {
+    process.env.DO_NOT_TRACK = "1";
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    sendTelemetryPing(baseOptions);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   // ---- Localhost behavior ----

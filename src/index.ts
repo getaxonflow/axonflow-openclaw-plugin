@@ -113,7 +113,7 @@ export function registerAxonFlowGovernance(api: {
   const llmOutput = createLlmOutputHandler(client, config, llmCallState);
   api.on("llm_output", llmOutput, { priority: 90 });
 
-  // Telemetry (fire-and-forget, respects DO_NOT_TRACK=1)
+  // Telemetry (fire-and-forget; opt out with AXONFLOW_TELEMETRY=off)
   sendTelemetryPing({
     endpoint: config.endpoint,
     pluginVersion: VERSION,
