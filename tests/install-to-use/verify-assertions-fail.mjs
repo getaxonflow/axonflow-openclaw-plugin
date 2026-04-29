@@ -103,13 +103,68 @@ expectThrows('deny: rejects missing policy_matches', () => {
 
 expectThrows('deny: rejects null response', () => assertSqliDeny(null), 'not an object');
 
+// Type-violation coverage: the assertions also reject responses where a
+// field is the wrong shape (number where string expected, object where
+// array expected). Without these the synthetic-failure proof would be
+// silent on the typeof / Array.isArray branches.
+expectThrows('deny: rejects non-string decision_id (number)', () => {
+  assertSqliDeny({ ...goodDeny, decision_id: 42 });
+}, 'decision_id');
+
+expectThrows('deny: rejects non-string risk_level (number)', () => {
+  assertSqliDeny({ ...goodDeny, risk_level: 5 });
+}, 'risk_level');
+
+expectThrows('deny: rejects empty-string risk_level', () => {
+  assertSqliDeny({ ...goodDeny, risk_level: '' });
+}, 'risk_level');
+
+expectThrows('deny: rejects non-array policy_matches (object)', () => {
+  assertSqliDeny({ ...goodDeny, policy_matches: { count: 1 } });
+}, 'policy_matches');
+
+expectThrows('deny: rejects non-array policy_matches (string)', () => {
+  assertSqliDeny({ ...goodDeny, policy_matches: 'sql-injection' });
+}, 'policy_matches');
+
+expectThrows('deny: rejects array response (typeof "object" but not a plain object)', () => {
+  assertSqliDeny([]);
+}, 'allowed=false');
+
+expectThrows('deny: rejects empty-string response', () => assertSqliDeny(''), 'not an object');
+
 expectThrows('allow: rejects allowed=false', () => {
   assertBenignAllow({ ...goodAllow, allowed: false });
 }, 'allowed=true');
 
-// allow: decision_id is intentionally NOT asserted here — see the comment
-// in assertions.mjs (axonflow-enterprise#1746). When that issue ships the
-// platform-side fix, restore the missing/empty decision_id checks here.
+expectThrows('allow: rejects truthy non-true (number 1)', () => {
+  assertBenignAllow({ ...goodAllow, allowed: 1 });
+}, 'allowed=true');
+
+expectThrows('allow: rejects null response', () => assertBenignAllow(null), 'not an object');
+
+// allow: decision_id is intentionally NOT asserted in production today —
+// see the comment in assertions.mjs (axonflow-enterprise#1746). When the
+// platform fix ships, set STRICT_DECISION_ID_ON_ALLOW=1 to enforce the
+// decision_id presence check on the allow path. The verifier exercises
+// both modes so the strict path doesn't bit-rot while waiting.
+process.env.STRICT_DECISION_ID_ON_ALLOW = '1';
+expectThrows(
+  'allow (strict): rejects missing decision_id when STRICT_DECISION_ID_ON_ALLOW=1',
+  () => assertBenignAllow(omit(goodAllow, 'decision_id')),
+  'decision_id',
+);
+expectThrows(
+  'allow (strict): rejects empty decision_id when STRICT_DECISION_ID_ON_ALLOW=1',
+  () => assertBenignAllow({ ...goodAllow, decision_id: '' }),
+  'decision_id',
+);
+expectThrows(
+  'allow (strict): rejects non-string decision_id when STRICT_DECISION_ID_ON_ALLOW=1',
+  () => assertBenignAllow({ ...goodAllow, decision_id: 42 }),
+  'decision_id',
+);
+delete process.env.STRICT_DECISION_ID_ON_ALLOW;
 
 if (failures > 0) {
   console.error(`\nFAIL: ${failures} synthetic-failure check(s) did not behave as required.`);

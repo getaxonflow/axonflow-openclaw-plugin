@@ -47,12 +47,18 @@ function collectAllowFailures(response, label = 'allow') {
   if (response.allowed !== true) {
     failures.push(`${label}: expected allowed=true, got ${JSON.stringify(response.allowed)}`);
   }
-  // decision_id is intentionally not asserted on the allow path: a fresh
-  // community stack returns it on deny but omits it on allow. Tracked in
-  // axonflow-enterprise#1746 — once the platform mints decision_id on
-  // every governance decision (allow + deny + redact), restore the
-  // strict check here. Until then, the deny-side assertion is the
-  // single source of truth for decision_id presence.
+  // decision_id is opt-in on the allow path. The community stack omits
+  // it on allow today (axonflow-enterprise#1746); the deny-side
+  // assertion is the single source of truth for decision_id presence
+  // until that ships. STRICT_DECISION_ID_ON_ALLOW=1 is the forcing
+  // flag — when the platform fix lands, set the env var in CI and
+  // this branch makes the assertion strict on the allow path too,
+  // surfacing any regression that drops decision_id again.
+  if (process.env.STRICT_DECISION_ID_ON_ALLOW === '1') {
+    if (typeof response.decision_id !== 'string' || response.decision_id.length === 0) {
+      failures.push(`${label}: missing or empty decision_id (STRICT_DECISION_ID_ON_ALLOW=1)`);
+    }
+  }
   return failures;
 }
 

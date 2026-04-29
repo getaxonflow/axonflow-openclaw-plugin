@@ -51,8 +51,11 @@ permissions:
   contents: read
 
 concurrency:
-  # PR-scoped cancel-in-progress. Pushes to main keep their full run so
-  # log artifacts aren't truncated by a fast follow-up commit.
+  # PR runs share a group keyed on PR number, so a fast follow-up commit
+  # cancels the prior run. Push-to-main runs are keyed on the commit SHA
+  # (unique per commit), so the cancel-in-progress branch is intentionally
+  # never reached — the conditional documents the design choice and acts
+  # as defense-in-depth if the group key ever changes shape.
   group: install-to-use-smoke-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -114,14 +117,17 @@ jobs:
             cd ../axonflow
             # Persist into the workspace itself so actions/upload-artifact
             # can pick the file up — the action rejects '..' relative
-            # pathing.
-            docker compose logs --tail=500 > "$GITHUB_WORKSPACE/docker-compose-logs.txt" 2>/dev/null || true
+            # pathing. Tail high enough that across 6+ services in the
+            # community stack we still keep useful pre-failure context;
+            # 500 lines split across services left ~80 per service which
+            # is too tight for moment-of-failure analysis.
+            docker compose logs --tail=5000 > "$GITHUB_WORKSPACE/docker-compose-logs.txt" 2>/dev/null || true
             docker compose logs --tail=200 || true
           fi
 
       - name: Upload docker logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: docker-compose-logs
           path: docker-compose-logs.txt
