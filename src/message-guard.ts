@@ -6,7 +6,7 @@
  * or redact sensitive content.
  */
 
-import type { AxonFlowClient } from "./axonflow-client.js";
+import type { ClientRef } from "./client-ref.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import {
   recordMessageScanned,
@@ -23,7 +23,7 @@ import {
  * Respects config.onError for fail-open/fail-closed behavior.
  */
 export function createMessageSendingHandler(
-  client: AxonFlowClient,
+  clientRef: ClientRef,
   config: AxonFlowPluginConfig,
 ) {
   return async (event: {
@@ -39,7 +39,7 @@ export function createMessageSendingHandler(
 
     let check;
     try {
-      check = await client.mcpCheckOutput(
+      check = await clientRef.current.mcpCheckOutput(
         "openclaw.message_sending",
         event.content,
       );

@@ -5,7 +5,7 @@
  * Fire-and-forget: audit failures do not block tool execution.
  */
 
-import type { AxonFlowClient } from "./axonflow-client.js";
+import type { ClientRef } from "./client-ref.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import { shouldGovernTool } from "./config.js";
 import { recordAuditEventSent } from "./metrics.js";
@@ -16,7 +16,7 @@ import { recordAuditEventSent } from "./metrics.js";
  * Logs tool execution details to AxonFlow for compliance audit.
  */
 export function createAfterToolCallHandler(
-  client: AxonFlowClient,
+  clientRef: ClientRef,
   config: AxonFlowPluginConfig,
 ) {
   return async (event: {
@@ -33,7 +33,7 @@ export function createAfterToolCallHandler(
     }
 
     try {
-      await client.auditToolCall(
+      await clientRef.current.auditToolCall(
         event.toolName,
         event.params,
         event.result,

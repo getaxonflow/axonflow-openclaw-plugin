@@ -200,7 +200,7 @@ describe("deriveConnectorType", () => {
 describe("createBeforeToolCallHandler", () => {
   it("allows clean tool call", async () => {
     const client = mockClient({ checkInputAllowed: true });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({
       toolName: "web_fetch",
@@ -220,7 +220,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: false,
       checkInputBlockReason: "PII detected in tool arguments",
     });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({
       toolName: "message",
@@ -235,7 +235,7 @@ describe("createBeforeToolCallHandler", () => {
 
   it("uses fallback block reason when none provided", async () => {
     const client = mockClient({ checkInputAllowed: false });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({ toolName: "tool", params: {} });
 
@@ -245,7 +245,7 @@ describe("createBeforeToolCallHandler", () => {
   it("requires approval for high-risk tools when allowed", async () => {
     const client = mockClient({ checkInputAllowed: true, checkInputPoliciesEvaluated: 76 });
     const config = baseConfig({ highRiskTools: ["web_fetch"] });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({
       toolName: "web_fetch",
@@ -283,7 +283,7 @@ describe("createBeforeToolCallHandler", () => {
         override_existing_id: "ov-abc",
       },
     });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({
       toolName: "web_fetch",
@@ -303,7 +303,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: false,
       checkInputBlockReason: "blocked",
     });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({ toolName: "tool", params: {} });
 
@@ -330,7 +330,7 @@ describe("createBeforeToolCallHandler", () => {
       },
     });
     const config = baseConfig({ highRiskTools: ["web_fetch"] });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({
       toolName: "web_fetch",
@@ -356,7 +356,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: true,
       checkInputRicher: { risk_level: "critical" },
     });
-    const rCritical = await createBeforeToolCallHandler(clientCritical, highRiskConfig)({
+    const rCritical = await createBeforeToolCallHandler({ current: clientCritical }, highRiskConfig)({
       toolName: "t",
       params: {},
     });
@@ -366,7 +366,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: true,
       checkInputRicher: { risk_level: "low" },
     });
-    const rLow = await createBeforeToolCallHandler(clientLow, highRiskConfig)({
+    const rLow = await createBeforeToolCallHandler({ current: clientLow }, highRiskConfig)({
       toolName: "t",
       params: {},
     });
@@ -376,7 +376,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: true,
       checkInputRicher: { risk_level: "medium" },
     });
-    const rMedium = await createBeforeToolCallHandler(clientMedium, highRiskConfig)({
+    const rMedium = await createBeforeToolCallHandler({ current: clientMedium }, highRiskConfig)({
       toolName: "t",
       params: {},
     });
@@ -423,7 +423,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputBlockReason: "SQLi detected",
     });
     const config = baseConfig({ highRiskTools: ["web_fetch"] });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({
       toolName: "web_fetch",
@@ -437,7 +437,7 @@ describe("createBeforeToolCallHandler", () => {
   it("skips excluded tools", async () => {
     const client = mockClient({});
     const config = baseConfig({ excludedTools: ["safe_tool"] });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({ toolName: "safe_tool", params: {} });
 
@@ -448,7 +448,7 @@ describe("createBeforeToolCallHandler", () => {
   it("uses custom operation from config", async () => {
     const client = mockClient({ checkInputAllowed: true });
     const config = baseConfig({ defaultOperation: "query" });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     await handler({ toolName: "search", params: { q: "test" } });
 
@@ -464,7 +464,7 @@ describe("createBeforeToolCallHandler", () => {
     // of config.onError. Only auth errors respect the config.
     const client = mockClient({});
     (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(new Error("ECONNREFUSED"));
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({ toolName: "web_fetch", params: {} });
 
@@ -476,7 +476,7 @@ describe("createBeforeToolCallHandler", () => {
     const client = mockClient({});
     (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(new Error("timeout"));
     const config = baseConfig({ onError: "allow" as const });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({ toolName: "web_fetch", params: {} });
 
@@ -488,7 +488,7 @@ describe("createBeforeToolCallHandler", () => {
     (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(
       new Error("HTTP 401 Unauthorized: invalid credentials"),
     );
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({ toolName: "web_fetch", params: {} });
 
@@ -502,7 +502,7 @@ describe("createBeforeToolCallHandler", () => {
       new Error("HTTP 403 Forbidden"),
     );
     const config = baseConfig({ onError: "allow" as const });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({ toolName: "web_fetch", params: {} });
 
@@ -562,7 +562,7 @@ describe("isAxonFlowAuthError", () => {
 describe("createAfterToolCallHandler", () => {
   it("logs successful tool call", async () => {
     const client = mockClient({});
-    const handler = createAfterToolCallHandler(client, baseConfig());
+    const handler = createAfterToolCallHandler({ current: client }, baseConfig());
 
     await handler({
       toolName: "web_fetch",
@@ -582,7 +582,7 @@ describe("createAfterToolCallHandler", () => {
 
   it("logs failed tool call with error", async () => {
     const client = mockClient({});
-    const handler = createAfterToolCallHandler(client, baseConfig());
+    const handler = createAfterToolCallHandler({ current: client }, baseConfig());
 
     await handler({
       toolName: "web_fetch",
@@ -603,7 +603,7 @@ describe("createAfterToolCallHandler", () => {
   it("skips excluded tools", async () => {
     const client = mockClient({});
     const config = baseConfig({ excludedTools: ["safe"] });
-    const handler = createAfterToolCallHandler(client, config);
+    const handler = createAfterToolCallHandler({ current: client }, config);
 
     await handler({ toolName: "safe", params: {} });
 

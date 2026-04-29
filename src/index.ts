@@ -35,6 +35,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { AxonFlowClient } from "./axonflow-client.js";
 import { axonflowCacheDir } from "./cache-dir.js";
+import type { ClientRef } from "./client-ref.js";
 import { resolveConfig } from "./config.js";
 import { createBeforeToolCallHandler } from "./governance.js";
 import { createAfterToolCallHandler } from "./audit.js";
@@ -89,7 +90,13 @@ export function registerAxonFlowGovernance(api: {
   // immediately; if the bootstrap is still pending when a hook fires, the
   // existing AxonFlowClient handles the (transient) 401 and retries with
   // the new credentials on the next call once they're loaded.
-  let client = new AxonFlowClient(config);
+  // Mutable holder so the bootstrap reassignment below is visible to every
+  // hook factory we register. Hook factories close over `clientRef` and read
+  // `clientRef.current.<method>(...)` so swapping in a freshly-credentialled
+  // client after the async bootstrap completes propagates immediately.
+  // Without this indirection the bootstrap would silently no-op for hooks
+  // (they'd keep using the empty-credential client they were registered with).
+  const clientRef: ClientRef = { current: new AxonFlowClient(config) };
   if (config.mode === "community-saas") {
     void bootstrapCommunitySaas({
       endpoint: config.endpoint,
@@ -113,7 +120,7 @@ export function registerAxonFlowGovernance(api: {
         clientId: result.clientId,
         clientSecret: result.clientSecret,
       };
-      client = new AxonFlowClient(enriched);
+      clientRef.current = new AxonFlowClient(enriched);
       api.logger.info(
         `[AxonFlow] Community SaaS registration ${result.source === "fresh-registration" ? "complete" : "loaded from cache"} (tenant=${result.clientId.slice(0, 16)}...)`,
       );
@@ -131,7 +138,7 @@ export function registerAxonFlowGovernance(api: {
   }
 
   // Startup health check (fire-and-forget, non-blocking)
-  void client.healthCheck().then((healthy) => {
+  void clientRef.current.healthCheck().then((healthy) => {
     if (healthy) {
       api.logger.info(`AxonFlow connected: ${config.endpoint}`);
     } else {
@@ -147,23 +154,23 @@ export function registerAxonFlowGovernance(api: {
   });
 
   // Hook 1: Input governance (before tool execution)
-  const beforeToolCall = createBeforeToolCallHandler(client, config);
+  const beforeToolCall = createBeforeToolCallHandler(clientRef, config);
   api.on("before_tool_call", beforeToolCall, { priority: 10 });
 
   // Hook 2: Audit logging (after tool execution)
-  const afterToolCall = createAfterToolCallHandler(client, config);
+  const afterToolCall = createAfterToolCallHandler(clientRef, config);
   api.on("after_tool_call", afterToolCall, { priority: 90 });
 
   // Hook 3: Outbound message governance (before message reaches user)
-  const messageSending = createMessageSendingHandler(client, config);
+  const messageSending = createMessageSendingHandler(clientRef, config);
   api.on("message_sending", messageSending, { priority: 10 });
 
   // Hook 4-5: LLM call audit (observe-only, cannot block/modify)
   const llmCallState = new Map<string, { provider: string; model: string; prompt: string; startMs: number }>();
-  const llmInput = createLlmInputHandler(client, config, llmCallState);
+  const llmInput = createLlmInputHandler(clientRef, config, llmCallState);
   api.on("llm_input", llmInput, { priority: 90 });
 
-  const llmOutput = createLlmOutputHandler(client, config, llmCallState);
+  const llmOutput = createLlmOutputHandler(clientRef, config, llmCallState);
   api.on("llm_output", llmOutput, { priority: 90 });
 
   // Telemetry — 7-day heartbeat (fire-and-forget; opt out with

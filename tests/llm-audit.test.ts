@@ -20,7 +20,7 @@ describe("LLM audit hooks", () => {
     it("stores call state by runId", () => {
       const client = mockClient();
       const state = new Map();
-      const handler = createLlmInputHandler(client, baseConfig, state);
+      const handler = createLlmInputHandler({ current: client }, baseConfig, state);
 
       handler({
         runId: "run-1",
@@ -43,7 +43,7 @@ describe("LLM audit hooks", () => {
     it("truncates long prompts to 500 chars", () => {
       const client = mockClient();
       const state = new Map();
-      const handler = createLlmInputHandler(client, baseConfig, state);
+      const handler = createLlmInputHandler({ current: client }, baseConfig, state);
 
       handler({
         runId: "run-2",
@@ -70,7 +70,7 @@ describe("LLM audit hooks", () => {
         startMs: Date.now() - 150,
       });
 
-      const handler = createLlmOutputHandler(client, baseConfig, state);
+      const handler = createLlmOutputHandler({ current: client }, baseConfig, state);
 
       await handler({
         runId: "run-1",
@@ -97,7 +97,7 @@ describe("LLM audit hooks", () => {
     it("works without input state (fallback to event fields)", async () => {
       const client = mockClient();
       const state = new Map();
-      const handler = createLlmOutputHandler(client, baseConfig, state);
+      const handler = createLlmOutputHandler({ current: client }, baseConfig, state);
 
       await handler({
         runId: "run-orphan",
@@ -121,7 +121,7 @@ describe("LLM audit hooks", () => {
       const client = mockClient();
       (client.auditLLMCall as jest.Mock).mockRejectedValueOnce(new Error("Network error"));
       const state = new Map();
-      const handler = createLlmOutputHandler(client, baseConfig, state);
+      const handler = createLlmOutputHandler({ current: client }, baseConfig, state);
 
       // Should not throw
       await handler({
@@ -136,7 +136,7 @@ describe("LLM audit hooks", () => {
     it("truncates long response summaries to 200 chars", async () => {
       const client = mockClient();
       const state = new Map();
-      const handler = createLlmOutputHandler(client, baseConfig, state);
+      const handler = createLlmOutputHandler({ current: client }, baseConfig, state);
 
       await handler({
         runId: "run-long",
