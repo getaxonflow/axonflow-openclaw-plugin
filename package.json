@@ -62,7 +62,10 @@
   },
   "peerDependencies": {
     "@axonflow/sdk": ">=4.3.0",
-    "openclaw": ">=1.0.0"
+    "openclaw": ">=2026.4.15"
+  },
+  "overrides": {
+    "openclaw": ">=2026.4.15"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
