@@ -1,6 +1,8 @@
 # Changelog
 
-## [1.4.0] - 2026-04-29
+## [2.0.0] - 2026-04-29
+
+Major release. Headline breaking change is the removal of `DO_NOT_TRACK` as an AxonFlow telemetry opt-out — `AXONFLOW_TELEMETRY=off` is now the canonical and only opt-out signal. Bundles the AxonFlow Community SaaS first-run default, mode-clarity canary, and 7-day telemetry heartbeat in the same release.
 
 ### Added
 
