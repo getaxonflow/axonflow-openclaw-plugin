@@ -160,7 +160,7 @@ export function registerAxonFlowGovernance(api: {
   // below the floor the platform expects, stays silent otherwise.
   // Failure modes (network error, older platform, malformed response)
   // are swallowed by runPluginVersionCheck — never blocks startup.
-  void runPluginVersionCheck(client, VERSION, api.logger);
+  void runPluginVersionCheck(clientRef.current, VERSION, api.logger);
 
   // Hook 1: Input governance (before tool execution)
   const beforeToolCall = createBeforeToolCallHandler(clientRef, config);
