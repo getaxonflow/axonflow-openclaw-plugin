@@ -20,13 +20,20 @@ Output (stdout):
     server ready
 """
 
+import sys
+
+# Emit an early heartbeat so the harness diagnostic catches Python
+# launching even if a later import or socket bind fails.
+print(f"server starting (python {sys.version_info.major}.{sys.version_info.minor})", flush=True)
+
 import http.server
 import json
 import os
-import sys
 import threading
 import time
 import uuid
+
+print("server modules imported", flush=True)
 
 
 def make_handler(work_dir):
