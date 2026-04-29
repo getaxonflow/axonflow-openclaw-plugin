@@ -71,9 +71,14 @@ expectThrows('deny: rejects allowed=true (would let SQLi through)', () => {
   assertSqliDeny({ ...goodDeny, allowed: true });
 }, 'allowed=false');
 
+function omit(obj, key) {
+  const copy = { ...obj };
+  delete copy[key];
+  return copy;
+}
+
 expectThrows('deny: rejects missing decision_id', () => {
-  const { decision_id: _, ...rest } = goodDeny;
-  assertSqliDeny(rest);
+  assertSqliDeny(omit(goodDeny, 'decision_id'));
 }, 'decision_id');
 
 expectThrows('deny: rejects empty decision_id', () => {
@@ -81,8 +86,7 @@ expectThrows('deny: rejects empty decision_id', () => {
 }, 'decision_id');
 
 expectThrows('deny: rejects missing risk_level', () => {
-  const { risk_level: _, ...rest } = goodDeny;
-  assertSqliDeny(rest);
+  assertSqliDeny(omit(goodDeny, 'risk_level'));
 }, 'risk_level');
 
 expectThrows('deny: rejects risk_level=low (must be elevated)', () => {
@@ -94,8 +98,7 @@ expectThrows('deny: rejects empty policy_matches array', () => {
 }, 'policy_matches');
 
 expectThrows('deny: rejects missing policy_matches', () => {
-  const { policy_matches: _, ...rest } = goodDeny;
-  assertSqliDeny(rest);
+  assertSqliDeny(omit(goodDeny, 'policy_matches'));
 }, 'policy_matches');
 
 expectThrows('deny: rejects null response', () => assertSqliDeny(null), 'not an object');
@@ -105,8 +108,7 @@ expectThrows('allow: rejects allowed=false', () => {
 }, 'allowed=true');
 
 expectThrows('allow: rejects missing decision_id', () => {
-  const { decision_id: _, ...rest } = goodAllow;
-  assertBenignAllow(rest);
+  assertBenignAllow(omit(goodAllow, 'decision_id'));
 }, 'decision_id');
 
 if (failures > 0) {
