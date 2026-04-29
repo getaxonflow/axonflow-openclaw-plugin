@@ -9,6 +9,7 @@
 - One-time setup notice on first Community-SaaS connection. Stamped at `<cache-dir>/openclaw-plugin-disclosure-shown` so it fires exactly once per install.
 - New telemetry `deployment_mode=community-saas` value distinguishing first-class Community-SaaS users from self-hosted production / development users (previously hidden inside `production`).
 - `AXONFLOW_CACHE_DIR` and `AXONFLOW_CONFIG_DIR` environment overrides for the cache/config directory resolver. Useful for sandboxed containers (read-only `$HOME`) and any deployment that wants to redirect AxonFlow state to a non-default location.
+- **Plugin/platform version compatibility check.** On startup, the plugin queries the AxonFlow agent's `/health` endpoint and reads the new `plugin_compatibility.min_plugin_version["openclaw"]` field. If the plugin's runtime version is below the floor the platform expects, a one-time `console.warn` upgrade hint is logged. Mirrors the SDK pattern that has run since v4.8.0. Failure modes (older platform without the field, network error, malformed response) are swallowed — the check never blocks plugin startup or affects the hook hot path.
 
 ### Changed
 
