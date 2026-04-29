@@ -39,6 +39,7 @@ describe("package exports", () => {
         endpoint: "",
         clientId: "",
         clientSecret: "",
+        mode: "community-saas",
       }),
     ).toBe(true);
   });

@@ -5,10 +5,8 @@
  * Can block the call, require human approval, or allow through.
  */
 
-import type {
-  AxonFlowClient,
-  MCPCheckInputResponse,
-} from "./axonflow-client.js";
+import type { MCPCheckInputResponse } from "./axonflow-client.js";
+import type { ClientRef } from "./client-ref.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import { shouldGovernTool } from "./config.js";
 import {
@@ -146,7 +144,7 @@ export function isAxonFlowAuthError(err: unknown): boolean {
  * 5. Otherwise: allow through
  */
 export function createBeforeToolCallHandler(
-  client: AxonFlowClient,
+  clientRef: ClientRef,
   config: AxonFlowPluginConfig,
 ) {
   return async (event: {
@@ -165,7 +163,7 @@ export function createBeforeToolCallHandler(
 
     let check;
     try {
-      check = await client.mcpCheckInput(
+      check = await clientRef.current.mcpCheckInput(
         connectorType,
         statement,
         config.defaultOperation ?? "execute",

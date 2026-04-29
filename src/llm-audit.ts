@@ -7,7 +7,7 @@
  * evidence, not governance.
  */
 
-import type { AxonFlowClient } from "./axonflow-client.js";
+import type { ClientRef } from "./client-ref.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import { recordAuditEventSent } from "./metrics.js";
 
@@ -26,7 +26,7 @@ interface LLMCallState {
  * Stores state by runId for correlation with the llm_output handler.
  */
 export function createLlmInputHandler(
-  _client: AxonFlowClient,
+  _clientRef: ClientRef,
   _config: AxonFlowPluginConfig,
   callState: Map<string, LLMCallState>,
 ) {
@@ -68,7 +68,7 @@ export function createLlmInputHandler(
  * summary, token usage, latency).
  */
 export function createLlmOutputHandler(
-  client: AxonFlowClient,
+  clientRef: ClientRef,
   _config: AxonFlowPluginConfig,
   callState: Map<string, LLMCallState>,
 ) {
@@ -92,7 +92,7 @@ export function createLlmOutputHandler(
     const latencyMs = inputState ? Date.now() - inputState.startMs : 0;
 
     try {
-      await client.auditLLMCall(
+      await clientRef.current.auditLLMCall(
         inputState?.provider ?? event.provider,
         inputState?.model ?? event.model,
         inputState?.prompt ?? "",

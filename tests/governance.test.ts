@@ -36,6 +36,7 @@ function baseConfig(overrides?: Partial<AxonFlowPluginConfig>): AxonFlowPluginCo
     endpoint: "http://localhost:8080",
     clientId: "test-client",
     clientSecret: "test-secret",
+    mode: "self-hosted",
     highRiskTools: [],
     governedTools: [],
     excludedTools: [],
@@ -50,19 +51,35 @@ function baseConfig(overrides?: Partial<AxonFlowPluginConfig>): AxonFlowPluginCo
 
 describe("resolveConfig", () => {
   it("validates required fields", () => {
-    expect(() => resolveConfig(undefined)).toThrow("requires configuration");
-    expect(() => resolveConfig({})).toThrow("'endpoint' is required");
-    // Both absent: defaults to community (no throw)
+    // ADR-048: undefined and {} are treated as "no explicit user config" and
+    // resolve to Community-SaaS mode (no throw). Only mis-configurations
+    // throw — see the clientSecret-without-clientId case below.
+    expect(resolveConfig(undefined)).toMatchObject({
+      endpoint: "https://try.getaxonflow.com",
+      clientId: "",
+      clientSecret: "",
+      mode: "community-saas",
+    });
+    expect(resolveConfig({})).toMatchObject({
+      endpoint: "https://try.getaxonflow.com",
+      mode: "community-saas",
+    });
+    // Endpoint set → self-hosted; clientId defaults to "community" so the
+    // resulting client doesn't ship a half-credentialled request.
     expect(resolveConfig({ endpoint: "http://x" })).toMatchObject({
       clientId: "community",
       clientSecret: "",
+      mode: "self-hosted",
     });
-    // Only clientId: uses it with empty secret (community mode with custom tenant)
+    // clientId set with no clientSecret: community-credentialled self-hosted.
     expect(resolveConfig({ endpoint: "http://x", clientId: "my-tenant" })).toMatchObject({
       clientId: "my-tenant",
       clientSecret: "",
+      mode: "self-hosted",
     });
-    // Only clientSecret: throws — licensed mode must specify tenant
+    // clientSecret without clientId is the one true error condition: licensed
+    // setups must specify the tenant identity, otherwise the deployment
+    // ships a malformed Authorization header.
     expect(() =>
       resolveConfig({ endpoint: "http://x", clientSecret: "my-license" }),
     ).toThrow("'clientId' is required when 'clientSecret' is set");
@@ -183,7 +200,7 @@ describe("deriveConnectorType", () => {
 describe("createBeforeToolCallHandler", () => {
   it("allows clean tool call", async () => {
     const client = mockClient({ checkInputAllowed: true });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({
       toolName: "web_fetch",
@@ -203,7 +220,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: false,
       checkInputBlockReason: "PII detected in tool arguments",
     });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({
       toolName: "message",
@@ -218,7 +235,7 @@ describe("createBeforeToolCallHandler", () => {
 
   it("uses fallback block reason when none provided", async () => {
     const client = mockClient({ checkInputAllowed: false });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({ toolName: "tool", params: {} });
 
@@ -228,7 +245,7 @@ describe("createBeforeToolCallHandler", () => {
   it("requires approval for high-risk tools when allowed", async () => {
     const client = mockClient({ checkInputAllowed: true, checkInputPoliciesEvaluated: 76 });
     const config = baseConfig({ highRiskTools: ["web_fetch"] });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({
       toolName: "web_fetch",
@@ -266,7 +283,7 @@ describe("createBeforeToolCallHandler", () => {
         override_existing_id: "ov-abc",
       },
     });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({
       toolName: "web_fetch",
@@ -286,7 +303,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: false,
       checkInputBlockReason: "blocked",
     });
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({ toolName: "tool", params: {} });
 
@@ -313,7 +330,7 @@ describe("createBeforeToolCallHandler", () => {
       },
     });
     const config = baseConfig({ highRiskTools: ["web_fetch"] });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({
       toolName: "web_fetch",
@@ -339,7 +356,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: true,
       checkInputRicher: { risk_level: "critical" },
     });
-    const rCritical = await createBeforeToolCallHandler(clientCritical, highRiskConfig)({
+    const rCritical = await createBeforeToolCallHandler({ current: clientCritical }, highRiskConfig)({
       toolName: "t",
       params: {},
     });
@@ -349,7 +366,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: true,
       checkInputRicher: { risk_level: "low" },
     });
-    const rLow = await createBeforeToolCallHandler(clientLow, highRiskConfig)({
+    const rLow = await createBeforeToolCallHandler({ current: clientLow }, highRiskConfig)({
       toolName: "t",
       params: {},
     });
@@ -359,7 +376,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputAllowed: true,
       checkInputRicher: { risk_level: "medium" },
     });
-    const rMedium = await createBeforeToolCallHandler(clientMedium, highRiskConfig)({
+    const rMedium = await createBeforeToolCallHandler({ current: clientMedium }, highRiskConfig)({
       toolName: "t",
       params: {},
     });
@@ -406,7 +423,7 @@ describe("createBeforeToolCallHandler", () => {
       checkInputBlockReason: "SQLi detected",
     });
     const config = baseConfig({ highRiskTools: ["web_fetch"] });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({
       toolName: "web_fetch",
@@ -420,7 +437,7 @@ describe("createBeforeToolCallHandler", () => {
   it("skips excluded tools", async () => {
     const client = mockClient({});
     const config = baseConfig({ excludedTools: ["safe_tool"] });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({ toolName: "safe_tool", params: {} });
 
@@ -431,7 +448,7 @@ describe("createBeforeToolCallHandler", () => {
   it("uses custom operation from config", async () => {
     const client = mockClient({ checkInputAllowed: true });
     const config = baseConfig({ defaultOperation: "query" });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     await handler({ toolName: "search", params: { q: "test" } });
 
@@ -447,7 +464,7 @@ describe("createBeforeToolCallHandler", () => {
     // of config.onError. Only auth errors respect the config.
     const client = mockClient({});
     (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(new Error("ECONNREFUSED"));
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({ toolName: "web_fetch", params: {} });
 
@@ -459,7 +476,7 @@ describe("createBeforeToolCallHandler", () => {
     const client = mockClient({});
     (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(new Error("timeout"));
     const config = baseConfig({ onError: "allow" as const });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({ toolName: "web_fetch", params: {} });
 
@@ -471,7 +488,7 @@ describe("createBeforeToolCallHandler", () => {
     (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(
       new Error("HTTP 401 Unauthorized: invalid credentials"),
     );
-    const handler = createBeforeToolCallHandler(client, baseConfig());
+    const handler = createBeforeToolCallHandler({ current: client }, baseConfig());
 
     const result = await handler({ toolName: "web_fetch", params: {} });
 
@@ -485,7 +502,7 @@ describe("createBeforeToolCallHandler", () => {
       new Error("HTTP 403 Forbidden"),
     );
     const config = baseConfig({ onError: "allow" as const });
-    const handler = createBeforeToolCallHandler(client, config);
+    const handler = createBeforeToolCallHandler({ current: client }, config);
 
     const result = await handler({ toolName: "web_fetch", params: {} });
 
@@ -545,7 +562,7 @@ describe("isAxonFlowAuthError", () => {
 describe("createAfterToolCallHandler", () => {
   it("logs successful tool call", async () => {
     const client = mockClient({});
-    const handler = createAfterToolCallHandler(client, baseConfig());
+    const handler = createAfterToolCallHandler({ current: client }, baseConfig());
 
     await handler({
       toolName: "web_fetch",
@@ -565,7 +582,7 @@ describe("createAfterToolCallHandler", () => {
 
   it("logs failed tool call with error", async () => {
     const client = mockClient({});
-    const handler = createAfterToolCallHandler(client, baseConfig());
+    const handler = createAfterToolCallHandler({ current: client }, baseConfig());
 
     await handler({
       toolName: "web_fetch",
@@ -586,7 +603,7 @@ describe("createAfterToolCallHandler", () => {
   it("skips excluded tools", async () => {
     const client = mockClient({});
     const config = baseConfig({ excludedTools: ["safe"] });
-    const handler = createAfterToolCallHandler(client, config);
+    const handler = createAfterToolCallHandler({ current: client }, config);
 
     await handler({ toolName: "safe", params: {} });
 

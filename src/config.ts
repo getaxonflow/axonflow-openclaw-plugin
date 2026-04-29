@@ -74,29 +74,48 @@ export interface AxonFlowPluginConfig {
    * Defaults to 8000ms.
    */
   requestTimeoutMs?: number;
+
+  /**
+   * Resolved deployment mode (set by `resolveConfig`):
+   *   - "community-saas": user provided no explicit endpoint/clientId/clientSecret;
+   *     plugin will register against try.getaxonflow.com on first run.
+   *   - "self-hosted": user provided at least one of endpoint/clientId/clientSecret;
+   *     plugin uses those values verbatim (no Community-SaaS bootstrap).
+   *
+   * Surfaced on the config so callers can emit the mode-clarity canary
+   * "[AxonFlow] Connected to AxonFlow at <URL> (mode=<X>)" and so the
+   * Gate 4 mode-clarity test can assert it.
+   */
+  mode: "community-saas" | "self-hosted";
 }
 
-/** Validate plugin config and return defaults. */
+const COMMUNITY_SAAS_DEFAULT_ENDPOINT = "https://try.getaxonflow.com";
+
+/**
+ * Validate plugin config and return defaults.
+ *
+ * Resolution order (ADR-048):
+ *   1. If the user provided ANY of endpoint, clientId, clientSecret → mode is
+ *      "self-hosted". Defaults are filled in: endpoint defaults to localhost,
+ *      clientId defaults to "community", clientSecret stays empty (community
+ *      mode). The user's explicit values are honoured untouched.
+ *   2. If the user provided NONE → mode is "community-saas". Endpoint
+ *      defaults to https://try.getaxonflow.com. clientId/clientSecret stay
+ *      EMPTY here — the caller (registerAxonFlowGovernance) is expected to
+ *      bootstrap the registration via community-saas-bootstrap.ts and
+ *      override clientId/clientSecret on the resulting client.
+ */
 export function resolveConfig(
   raw: Record<string, unknown> | undefined,
 ): AxonFlowPluginConfig {
-  if (!raw) {
-    throw new Error(
-      "AxonFlow plugin requires configuration. Set endpoint, clientId, and clientSecret in your OpenClaw plugin config.",
-    );
-  }
+  const safe = raw ?? {};
 
-  const endpoint = raw["endpoint"];
-  if (typeof endpoint !== "string" || !endpoint) {
-    throw new Error("AxonFlow plugin: 'endpoint' is required (e.g., 'http://localhost:8080')");
-  }
+  const rawEndpoint = typeof safe["endpoint"] === "string" ? (safe["endpoint"] as string).trim() : "";
+  const rawClientId = typeof safe["clientId"] === "string" ? (safe["clientId"] as string).trim() : "";
+  const rawClientSecret = typeof safe["clientSecret"] === "string" ? (safe["clientSecret"] as string).trim() : "";
 
-  // Defaults match SDK behavior: community mode works out of the box.
-  // Override with your evaluation/enterprise license credentials.
-  const rawClientId = typeof raw["clientId"] === "string" ? raw["clientId"] : "";
-  const rawClientSecret = typeof raw["clientSecret"] === "string" ? raw["clientSecret"] : "";
-
-  // Reject clientSecret without clientId — licensed mode must specify the tenant
+  // Reject clientSecret without clientId regardless of mode — licensed
+  // setups must specify the tenant identity.
   if (!rawClientId && rawClientSecret) {
     throw new Error(
       "AxonFlow plugin: 'clientId' is required when 'clientSecret' is set. " +
@@ -104,37 +123,61 @@ export function resolveConfig(
     );
   }
 
-  const clientId = rawClientId || "community";
-  const clientSecret = rawClientSecret;
+  const userProvidedAnything =
+    rawEndpoint !== "" || rawClientId !== "" || rawClientSecret !== "";
+
+  let endpoint: string;
+  let clientId: string;
+  let clientSecret: string;
+  let mode: "community-saas" | "self-hosted";
+
+  if (userProvidedAnything) {
+    mode = "self-hosted";
+    // Endpoint default for self-hosted users who set credentials but not
+    // endpoint: assume the canonical local-agent URL. Matches the bash
+    // plugins' resolution rule.
+    endpoint = rawEndpoint || "http://localhost:8080";
+    clientId = rawClientId || "community";
+    clientSecret = rawClientSecret;
+  } else {
+    mode = "community-saas";
+    endpoint = COMMUNITY_SAAS_DEFAULT_ENDPOINT;
+    // Bootstrap will fill these in. We deliberately leave them empty here
+    // so a misconfigured caller that skips the bootstrap step gets a clear
+    // 401 from the agent rather than a half-credentialled request.
+    clientId = "";
+    clientSecret = "";
+  }
 
   return {
     endpoint,
     clientId,
     clientSecret,
+    mode,
     userEmail:
-      typeof raw["userEmail"] === "string" && raw["userEmail"].trim()
-        ? (raw["userEmail"] as string).trim()
+      typeof safe["userEmail"] === "string" && (safe["userEmail"] as string).trim()
+        ? (safe["userEmail"] as string).trim()
         : undefined,
-    highRiskTools: Array.isArray(raw["highRiskTools"])
-      ? (raw["highRiskTools"] as string[])
+    highRiskTools: Array.isArray(safe["highRiskTools"])
+      ? (safe["highRiskTools"] as string[])
       : [],
-    governedTools: Array.isArray(raw["governedTools"])
-      ? (raw["governedTools"] as string[])
+    governedTools: Array.isArray(safe["governedTools"])
+      ? (safe["governedTools"] as string[])
       : [],
-    excludedTools: Array.isArray(raw["excludedTools"])
-      ? (raw["excludedTools"] as string[])
+    excludedTools: Array.isArray(safe["excludedTools"])
+      ? (safe["excludedTools"] as string[])
       : [],
     defaultOperation:
-      typeof raw["defaultOperation"] === "string"
-        ? raw["defaultOperation"]
+      typeof safe["defaultOperation"] === "string"
+        ? (safe["defaultOperation"] as string)
         : "execute",
     onError:
-      raw["onError"] === "allow" ? "allow" : "block",
+      safe["onError"] === "allow" ? "allow" : "block",
     requestTimeoutMs:
-      typeof raw["requestTimeoutMs"] === "number" &&
-      Number.isFinite(raw["requestTimeoutMs"]) &&
-      raw["requestTimeoutMs"] > 0
-        ? raw["requestTimeoutMs"]
+      typeof safe["requestTimeoutMs"] === "number" &&
+      Number.isFinite(safe["requestTimeoutMs"]) &&
+      (safe["requestTimeoutMs"] as number) > 0
+        ? (safe["requestTimeoutMs"] as number)
         : 8000,
   };
 }

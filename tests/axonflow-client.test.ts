@@ -9,6 +9,7 @@ function makeClient() {
     endpoint: "http://localhost:8080",
     clientId: "test-client",
     clientSecret: "test-secret",
+    mode: "self-hosted",
   });
 }
 
@@ -393,6 +394,7 @@ describe("AxonFlowClient", () => {
         endpoint: "http://localhost:8080///",
         clientId: "id",
         clientSecret: "secret",
+        mode: "self-hosted",
       });
       await client.mcpCheckInput("test", "stmt");
 
@@ -411,6 +413,7 @@ describe("AxonFlowClient", () => {
         clientId: "test-client",
         clientSecret: "test-secret",
         userEmail: "alice@example.com",
+        mode: "self-hosted",
       });
       await client.mcpCheckInput("postgres", "SELECT 1");
 
@@ -447,6 +450,7 @@ describe("AxonFlowClient", () => {
         clientId: "c",
         clientSecret: "s",
         userEmail: "ops@example.com",
+        mode: "self-hosted",
       });
       await client.createOverride({
         policyId: "sys_sqli_admin_bypass",
