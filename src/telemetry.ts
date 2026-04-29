@@ -160,10 +160,16 @@ async function sendInner(options: SendOptions): Promise<void> {
       ? priorInstanceId
       : generateInstanceId();
 
-  // 4. Detect platform version (best-effort).
+  // 4. Detect platform version (best-effort). The harness override targets
+  // a localhost fake when AXONFLOW_HARNESS=1; production callers see no
+  // change since AXONFLOW_HARNESS is unset.
+  const probeEndpoint =
+    process.env.AXONFLOW_HARNESS === "1" && process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT
+      ? process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT
+      : options.endpoint;
   let platformVersion: string | null = null;
   try {
-    platformVersion = await detectPlatformVersion(options.endpoint);
+    platformVersion = await detectPlatformVersion(probeEndpoint);
   } catch {
     platformVersion = null;
   }

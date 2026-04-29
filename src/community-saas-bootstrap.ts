@@ -96,8 +96,16 @@ async function bootstrapCommunitySaasInner(opts?: {
   fetchImpl?: typeof fetch;
   now?: () => Date;
 }): Promise<BootstrapResult | null> {
-  const registerUrl = opts?.registerUrl ?? REGISTER_URL_DEFAULT;
-  const endpoint = opts?.endpoint ?? ENDPOINT_DEFAULT;
+  // Test-harness overrides — only honoured when AXONFLOW_HARNESS=1 and
+  // exclusively used by tests/heartbeat-real-stack/. Production callers
+  // leave AXONFLOW_HARNESS unset and the URLs stay pinned to
+  // try.getaxonflow.com.
+  const harnessOn = process.env.AXONFLOW_HARNESS === "1";
+  const harnessRegister = harnessOn ? process.env.AXONFLOW_HARNESS_REGISTER_URL : "";
+  const harnessAgent = harnessOn ? process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT : "";
+
+  const registerUrl = opts?.registerUrl ?? (harnessRegister || REGISTER_URL_DEFAULT);
+  const endpoint = opts?.endpoint ?? (harnessAgent || ENDPOINT_DEFAULT);
   const fetchFn = opts?.fetchImpl ?? fetch;
   const now = opts?.now ?? (() => new Date());
 
