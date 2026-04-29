@@ -1,36 +1,48 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.0] - 2026-04-29 — Production, quality, and security hardening — upgrade encouraged
+
+**Upgrade strongly recommended.** Over the past month we've shipped substantial production, quality, and security hardening across the AxonFlow plugin and platform — upgrade to the latest version for a more secure, reliable, and bug-free experience.
+
+**Security highlights from this release cycle:**
+- **Plugin cache and credential-file permission hardening** (this release). Cache and config directories are tightened to mode `0700` on every invocation; `try-registration.json` is written with mode `0600`. Pre-existing world-readable credential files are detected and refused on first load. Documented in [`GHSA-cqmh-pcgr-q42f`](https://github.com/getaxonflow/axonflow-openclaw-plugin/security/advisories/GHSA-cqmh-pcgr-q42f).
+- **Hook-closure dead-code fix** (this release). Hooks registered against the AxonFlow client previously captured the pre-bootstrap client by value, so the post-bootstrap re-construction was invisible to every registered hook. Refactored to a `ClientRef` holder so all 5 factory paths see the live client. Closes a P0 governance bypass on the hook-driven enforcement path.
+- **Telemetry opt-out reliability** (this release). `DO_NOT_TRACK` was unreliable because host CLIs commonly inject `DO_NOT_TRACK=1` regardless of user intent; the canonical opt-out is now `AXONFLOW_TELEMETRY=off`, an AxonFlow-scoped signal hosts can't unilaterally set.
+
+The full set of platform-side security fixes shipped alongside this release — including multi-tenant isolation in MAP execution, cross-tenant audit-log isolation, and SQLi enforcement on the Community SaaS endpoint — is documented in the consolidated platform advisory [`GHSA-9h64-2846-7x7f`](https://github.com/getaxonflow/axonflow/security/advisories/GHSA-9h64-2846-7x7f). Bundled OpenClaw upstream advisories closed by the dependency bump in this release are tracked in this repo's Dependabot alerts.
+
+**Reliability and bug-fix highlights:**
+- **7-day delivered-heartbeat with stamp-on-success** (this release). Telemetry stamp advances only after the POST returns 2xx, so a transient network failure no longer silences telemetry until the next 7-day window. Concurrent invocations are de-duplicated by an in-flight gate.
+- **Mode-clarity canary log line** on every plugin init (this release). Logs `[AxonFlow] Connected to AxonFlow at <URL> (mode=...)` and a PR-blocking CI gate asserts the canary matches the actual outbound destination, guarding against silent endpoint drift.
+- **PR-blocking install-to-use smoke against the live community stack** (this release). Catches plugin-side regressions against `try.getaxonflow.com` before they reach a user's host process.
+
+### BREAKING
+
+- **`DO_NOT_TRACK` is no longer honored as an AxonFlow telemetry opt-out.** Use `AXONFLOW_TELEMETRY=off` instead. Host tools and CLIs commonly inject `DO_NOT_TRACK=1` regardless of user intent, which makes it unreliable as a signal.
+- **`default` values for `endpoint` / `clientId` / `clientSecret` removed from `openclaw.plugin.json`.** The plugin loader now sees `pluginConfig.endpoint` as `undefined` when the user hasn't configured it — required by the Community-SaaS-default resolver to distinguish "no choice" from "explicit localhost".
 
 ### Added
 
-- Plugin connects to AxonFlow Community SaaS by default for first-run convenience. When you don't supply `endpoint`, `clientId`, or `clientSecret` in `pluginConfig`, the plugin registers against `https://try.getaxonflow.com` on first run and persists the resulting credentials to `~/.config/axonflow/try-registration.json` (mode 0600). Set any of `endpoint` / `clientId` / `clientSecret` to opt into self-hosted.
-- Mode-clarity log line on every plugin init: `[AxonFlow] Connected to AxonFlow at <url> (mode=<community-saas|self-hosted>)`. Operator-facing canary that prevents the "thought I was on localhost, traffic went to SaaS" failure mode.
-- One-time setup notice on first Community-SaaS connection. Stamped at `<cache-dir>/openclaw-plugin-disclosure-shown` so it fires exactly once per install.
-- New telemetry `deployment_mode=community-saas` value distinguishing first-class Community-SaaS users from self-hosted production / development users (previously hidden inside `production`).
-- `AXONFLOW_CACHE_DIR` and `AXONFLOW_CONFIG_DIR` environment overrides for the cache/config directory resolver. Useful for sandboxed containers (read-only `$HOME`) and any deployment that wants to redirect AxonFlow state to a non-default location.
-- **Plugin/platform version compatibility check.** On startup, the plugin queries the AxonFlow agent's `/health` endpoint and reads the new `plugin_compatibility.min_plugin_version["openclaw"]` field. If the plugin's runtime version is below the floor the platform expects, a one-time `console.warn` upgrade hint is logged. Mirrors the SDK pattern that has run since v4.8.0. Failure modes (older platform without the field, network error, malformed response) are swallowed — the check never blocks plugin startup or affects the hook hot path.
+- **First-run Community-SaaS bootstrap** — plugin connects to AxonFlow Community SaaS at `https://try.getaxonflow.com` when no `endpoint` / `clientId` / `clientSecret` is supplied in `pluginConfig`. Registers via `/api/v1/register` on first run and persists the credential to `~/.config/axonflow/try-registration.json` (mode 0600). Set any of those keys to opt into self-hosted.
+- **Mode-clarity canary** on every plugin init: `[AxonFlow] Connected to AxonFlow at <url> (mode=community-saas|self-hosted)`.
+- **One-time setup disclosure** on first Community-SaaS connection. Stamped at `<cache-dir>/openclaw-plugin-disclosure-shown` so it fires exactly once per install.
+- **Plugin/platform version compatibility check** on startup. Reads `plugin_compatibility.min_plugin_version["openclaw"]` from the agent's `/health` endpoint and `console.warn`s if the runtime version is below the floor.
+- **`deployment_mode=community-saas`** telemetry value, distinguishing first-class Community-SaaS users from self-hosted production / development (previously bucketed inside `production`).
+- **`AXONFLOW_CACHE_DIR` / `AXONFLOW_CONFIG_DIR`** environment overrides for the cache/config directory resolver. Useful for sandboxed containers and any deployment that needs to redirect AxonFlow state.
 
 ### Changed
 
-- Telemetry switches to a 7-day heartbeat cadence (was once per plugin init). Stamp-on-delivery — a transient network failure does not silence telemetry until the next heartbeat window opens. Concurrent plugin loads are de-duplicated via a per-process in-flight gate.
-- `pluginConfig` is now optional (was required). Calling `registerAxonFlowGovernance` with no `pluginConfig`, `pluginConfig: undefined`, or `pluginConfig: {}` resolves to Community SaaS mode rather than throwing `requires configuration`.
-
-### Removed
-
-- **BREAKING:** `DO_NOT_TRACK` is no longer honored as an AxonFlow telemetry opt-out. Use `AXONFLOW_TELEMETRY=off` instead.
-
-  `DO_NOT_TRACK` was deprecated because it is commonly inherited from host tools and developer environments, which makes it an unreliable expression of user intent for AxonFlow telemetry.
-- `default` values for `endpoint`, `clientId`, and `clientSecret` removed from `openclaw.plugin.json`. The plugin loader now sees `pluginConfig.endpoint` as `undefined` when the user hasn't configured it, which is what the Community-SaaS-default resolver needs to distinguish "no choice" from "explicit localhost".
+- **Telemetry switched to a 7-day delivered-heartbeat.** At most one anonymous ping per environment every 7 days, with the stamp advanced only after the POST returns 2xx — a transient network failure doesn't silence telemetry until the next window. Concurrent invocations are de-duplicated by an in-flight gate.
+- `pluginConfig` is now optional (was required). `registerAxonFlowGovernance` with no `pluginConfig`, `undefined`, or `{}` resolves to Community SaaS mode rather than throwing `requires configuration`.
 
 ### Fixed
 
-- The `[AxonFlow] DO_NOT_TRACK=1 is deprecated...` `console.warn` is no longer emitted. Removing the warning eliminates UX noise that previously appeared whenever `DO_NOT_TRACK=1` was set in the environment.
-- Hooks now see Community-SaaS credentials produced by the asynchronous bootstrap. Before this fix, the registered hook handlers captured the AxonFlowClient by value at registration time, so reassigning the local client variable after the bootstrap completed had no effect: every governed tool call kept shipping `Authorization: Basic :` against try.getaxonflow.com and silently failed-closed (or fail-open per `onError`). Hooks now read through a mutable client holder so the bootstrap reassignment propagates immediately.
+- The `DO_NOT_TRACK=1 is deprecated...` `console.warn` is no longer emitted on every plugin init when `DO_NOT_TRACK=1` is set.
+- Hooks now correctly see Community-SaaS credentials produced by the asynchronous bootstrap. Previously the hook handlers captured the AxonFlowClient by value at registration time, so the post-bootstrap reassignment was invisible — every governed tool call kept shipping `Authorization: Basic :` against try.getaxonflow.com. Hooks now read through a mutable client holder.
 
 ### Security
 
-- Cache and config directories (`<cache-dir>/openclaw-plugin-*`, `<config-dir>/try-registration.json` parent) now have their permissions tightened to `0700` on every plugin init (was: only set on directory creation via `mkdirSync({ mode: 0o700 })`). A user who already had `~/.config/` at the conventional `0755` would otherwise hold the `0600` registration credential file inside a traversable directory.
+- Cache and config directories tightened to `0700` on every plugin init (was: only set on directory creation via `mkdirSync({ mode: 0o700 })`, which left existing 0755 dirs unchanged).
 
 
 ## [1.3.2] - 2026-04-22

@@ -8,6 +8,8 @@
 
 > **→ Full integration walkthrough:** **[docs.getaxonflow.com/docs/integration/openclaw](https://docs.getaxonflow.com/docs/integration/openclaw/)** — architecture, hook coverage, policy examples, and troubleshooting.
 
+> **Upgrade strongly recommended.** AxonFlow ships substantial monthly security and quality hardening; staying on the latest major is the security-supported release line. [Latest release](https://github.com/getaxonflow/axonflow-openclaw-plugin/releases/latest) · [Security advisories](https://github.com/getaxonflow/axonflow-openclaw-plugin/security/advisories)
+
 ---
 
 ## Why this plugin exists
