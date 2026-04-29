@@ -114,6 +114,13 @@ async function bootstrapCommunitySaasInner(opts?: {
 
   try {
     fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    // mkdir's mode only applies to directories it creates. A user with
+    // ~/.config already at 0755 would otherwise hold our 0600 credential
+    // file inside a traversable directory; chmod restores the dir-mode
+    // contract on every invocation. Skip on Windows (mode bits don't map).
+    if (process.platform !== "win32") {
+      try { fs.chmodSync(configDir, 0o700); } catch { /* best effort */ }
+    }
   } catch {
     return null;
   }
@@ -158,6 +165,9 @@ async function bootstrapCommunitySaasInner(opts?: {
     if (backoffFile && cacheDir) {
       try {
         fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+        if (process.platform !== "win32") {
+          try { fs.chmodSync(cacheDir, 0o700); } catch { /* best effort */ }
+        }
         const backoffUntil = Math.floor(now().getTime() / 1000) + BACKOFF_SECONDS;
         writeFileAtomicallyWithMode(backoffFile, String(backoffUntil), 0o600);
       } catch {

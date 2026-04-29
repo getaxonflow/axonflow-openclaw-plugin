@@ -206,6 +206,9 @@ function showCommunitySaasDisclosureOnce(api: {
   }
   try {
     fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+    if (process.platform !== "win32") {
+      try { fs.chmodSync(cacheDir, 0o700); } catch { /* best effort */ }
+    }
   } catch {
     return;
   }

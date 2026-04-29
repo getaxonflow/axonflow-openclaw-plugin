@@ -25,11 +25,11 @@
 ### Fixed
 
 - The `[AxonFlow] DO_NOT_TRACK=1 is deprecated...` `console.warn` is no longer emitted. Removing the warning eliminates UX noise that previously appeared whenever `DO_NOT_TRACK=1` was set in the environment.
+- Hooks now see Community-SaaS credentials produced by the asynchronous bootstrap. Before this fix, the registered hook handlers captured the AxonFlowClient by value at registration time, so reassigning the local client variable after the bootstrap completed had no effect: every governed tool call kept shipping `Authorization: Basic :` against try.getaxonflow.com and silently failed-closed (or fail-open per `onError`). Hooks now read through a mutable client holder so the bootstrap reassignment propagates immediately.
 
-### CI / development
+### Security
 
-- CI workflows (`ci.yml`, `publish.yml`, `install-smoke.yml`, `smoke-e2e.yml`) now use `AXONFLOW_TELEMETRY=off` to suppress telemetry during automated runs.
-- New `tests/mode-clarity.test.ts` enforces the canary-line + outbound-host invariant on every PR. Anti-spoof: assertions use parsed `URL.host`, not substring matching.
+- Cache and config directories (`<cache-dir>/openclaw-plugin-*`, `<config-dir>/try-registration.json` parent) now have their permissions tightened to `0700` on every plugin init (was: only set on directory creation via `mkdirSync({ mode: 0o700 })`). A user who already had `~/.config/` at the conventional `0755` would otherwise hold the `0600` registration credential file inside a traversable directory.
 
 
 ## [1.3.2] - 2026-04-22
