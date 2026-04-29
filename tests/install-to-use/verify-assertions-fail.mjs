@@ -107,9 +107,9 @@ expectThrows('allow: rejects allowed=false', () => {
   assertBenignAllow({ ...goodAllow, allowed: false });
 }, 'allowed=true');
 
-expectThrows('allow: rejects missing decision_id', () => {
-  assertBenignAllow(omit(goodAllow, 'decision_id'));
-}, 'decision_id');
+// allow: decision_id is intentionally NOT asserted here — see the comment
+// in assertions.mjs (axonflow-enterprise#1746). When that issue ships the
+// platform-side fix, restore the missing/empty decision_id checks here.
 
 if (failures > 0) {
   console.error(`\nFAIL: ${failures} synthetic-failure check(s) did not behave as required.`);

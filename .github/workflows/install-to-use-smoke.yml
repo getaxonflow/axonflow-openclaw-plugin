@@ -112,7 +112,10 @@ jobs:
         run: |
           if [ -d "../axonflow" ]; then
             cd ../axonflow
-            docker compose logs --tail=300 > docker-compose-logs.txt 2>/dev/null || true
+            # Persist into the workspace itself so actions/upload-artifact
+            # can pick the file up — the action rejects '..' relative
+            # pathing.
+            docker compose logs --tail=500 > "$GITHUB_WORKSPACE/docker-compose-logs.txt" 2>/dev/null || true
             docker compose logs --tail=200 || true
           fi
 
@@ -121,7 +124,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: docker-compose-logs
-          path: ../axonflow/docker-compose-logs.txt
+          path: docker-compose-logs.txt
           if-no-files-found: ignore
 
       - name: Tear down community stack
