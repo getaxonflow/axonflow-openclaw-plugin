@@ -1,0 +1,133 @@
+name: Install-to-Use Smoke
+
+# PR-blocking install-to-use smoke for the OpenClaw plugin.
+#
+# Catches the class of regressions where the plugin tarball installs
+# cleanly and passes its stub-server smoke (install-smoke.yml) but
+# disagrees with what a real AxonFlow agent returns over the wire —
+# e.g. a renamed response field, a route gone missing, a Plugin Batch 1
+# attribute that the platform stopped emitting, or a default policy
+# stack that no longer denies SQLi.
+#
+# The companion install-smoke.yml workflow keeps its stub-server gate
+# for fast wire-shape coverage; this workflow is the live-stack
+# counterpart that backs it up against actual platform behaviour.
+#
+# Layout:
+#   1. verify-assertions-fail.mjs proves the harness's deny/allow
+#      assertions reject bad responses. If the gate is silently a
+#      no-op, this step fails before any docker work happens.
+#   2. Clones the community stack mirror (getaxonflow/axonflow),
+#      brings it up via docker compose, waits for /health.
+#   3. Runs tests/install-to-use/run.mjs which packs the plugin from
+#      the PR branch, installs the tarball into a clean consumer
+#      directory, and exercises mcpCheckInput against the live stack.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'policies/**'
+      - 'openclaw.plugin.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'tests/install-to-use/**'
+      - '.github/workflows/install-to-use-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'policies/**'
+      - 'openclaw.plugin.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'tests/install-to-use/**'
+      - '.github/workflows/install-to-use-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  # PR-scoped cancel-in-progress. Pushes to main keep their full run so
+  # log artifacts aren't truncated by a fast follow-up commit.
+  group: install-to-use-smoke-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  install-to-use-smoke:
+    name: Pack, Install, Run vs live community stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DO_NOT_TRACK: '1'
+      AXONFLOW_ENDPOINT: http://localhost:8080
+      AXONFLOW_CLIENT_ID: demo-client
+      AXONFLOW_CLIENT_SECRET: demo-secret
+
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install plugin build deps
+        run: npm ci
+
+      # Synthetic-failure proof: this step must pass for the gate to
+      # have meaningful coverage. If a regression silently neutered an
+      # assertion, this script catches it before docker even starts.
+      - name: Verify deny/allow assertions reject bad responses
+        run: node tests/install-to-use/verify-assertions-fail.mjs
+
+      - name: Clone community stack
+        run: git clone --depth 1 https://github.com/getaxonflow/axonflow.git ../axonflow
+
+      - name: Start community stack
+        run: |
+          cd ../axonflow
+          docker compose up -d --wait --wait-timeout 180
+
+          echo "Waiting for agent /health on :8080..."
+          timeout 120 bash -c 'until curl -sf http://localhost:8080/health; do sleep 2; done'
+          echo
+          echo "Agent healthy."
+
+          echo "Waiting for orchestrator /health on :8081..."
+          timeout 60 bash -c 'until curl -sf http://localhost:8081/health; do sleep 2; done'
+          echo
+          echo "Orchestrator healthy."
+
+      - name: Run install-to-use smoke
+        run: node tests/install-to-use/run.mjs
+
+      - name: Capture docker logs on failure
+        if: failure()
+        run: |
+          if [ -d "../axonflow" ]; then
+            cd ../axonflow
+            docker compose logs --tail=300 > docker-compose-logs.txt 2>/dev/null || true
+            docker compose logs --tail=200 || true
+          fi
+
+      - name: Upload docker logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-compose-logs
+          path: ../axonflow/docker-compose-logs.txt
+          if-no-files-found: ignore
+
+      - name: Tear down community stack
+        if: always()
+        run: |
+          if [ -d "../axonflow" ]; then
+            cd ../axonflow
+            docker compose down --volumes --remove-orphans || true
+          fi
