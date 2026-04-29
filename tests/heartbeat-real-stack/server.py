@@ -140,7 +140,21 @@ def main():
     os.makedirs(work_dir, exist_ok=True)
 
     handler = make_handler(work_dir)
-    server = http.server.HTTPServer(("127.0.0.1", port), handler)
+
+    # Subclass HTTPServer to skip socket.getfqdn() in server_bind. On
+    # macOS-arm64 GitHub runners getfqdn() blocks for 30+ seconds on a
+    # mDNS resolver that never replies for 127.0.0.1. We don't need the
+    # FQDN for any logging — handler.log_message is overridden to a
+    # no-op — so just reuse the host bytes verbatim.
+    import socketserver
+
+    class FastHTTPServer(http.server.HTTPServer):
+        def server_bind(self):
+            socketserver.TCPServer.server_bind(self)
+            host, self.server_port = self.server_address[:2]
+            self.server_name = host  # was socket.getfqdn(host)
+
+    server = FastHTTPServer(("127.0.0.1", port), handler)
     server.allow_reuse_address = True
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
