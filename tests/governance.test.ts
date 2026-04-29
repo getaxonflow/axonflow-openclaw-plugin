@@ -36,6 +36,7 @@ function baseConfig(overrides?: Partial<AxonFlowPluginConfig>): AxonFlowPluginCo
     endpoint: "http://localhost:8080",
     clientId: "test-client",
     clientSecret: "test-secret",
+    mode: "self-hosted",
     highRiskTools: [],
     governedTools: [],
     excludedTools: [],
@@ -50,19 +51,35 @@ function baseConfig(overrides?: Partial<AxonFlowPluginConfig>): AxonFlowPluginCo
 
 describe("resolveConfig", () => {
   it("validates required fields", () => {
-    expect(() => resolveConfig(undefined)).toThrow("requires configuration");
-    expect(() => resolveConfig({})).toThrow("'endpoint' is required");
-    // Both absent: defaults to community (no throw)
+    // ADR-048: undefined and {} are treated as "no explicit user config" and
+    // resolve to Community-SaaS mode (no throw). Only mis-configurations
+    // throw — see the clientSecret-without-clientId case below.
+    expect(resolveConfig(undefined)).toMatchObject({
+      endpoint: "https://try.getaxonflow.com",
+      clientId: "",
+      clientSecret: "",
+      mode: "community-saas",
+    });
+    expect(resolveConfig({})).toMatchObject({
+      endpoint: "https://try.getaxonflow.com",
+      mode: "community-saas",
+    });
+    // Endpoint set → self-hosted; clientId defaults to "community" so the
+    // resulting client doesn't ship a half-credentialled request.
     expect(resolveConfig({ endpoint: "http://x" })).toMatchObject({
       clientId: "community",
       clientSecret: "",
+      mode: "self-hosted",
     });
-    // Only clientId: uses it with empty secret (community mode with custom tenant)
+    // clientId set with no clientSecret: community-credentialled self-hosted.
     expect(resolveConfig({ endpoint: "http://x", clientId: "my-tenant" })).toMatchObject({
       clientId: "my-tenant",
       clientSecret: "",
+      mode: "self-hosted",
     });
-    // Only clientSecret: throws — licensed mode must specify tenant
+    // clientSecret without clientId is the one true error condition: licensed
+    // setups must specify the tenant identity, otherwise the deployment
+    // ships a malformed Authorization header.
     expect(() =>
       resolveConfig({ endpoint: "http://x", clientSecret: "my-license" }),
     ).toThrow("'clientId' is required when 'clientSecret' is set");

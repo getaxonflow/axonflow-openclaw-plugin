@@ -21,6 +21,7 @@ const baseConfig: AxonFlowPluginConfig = {
   endpoint: "http://localhost:8080",
   clientId: "test",
   clientSecret: "secret",
+  mode: "self-hosted",
 };
 
 describe("createMessageSendingHandler", () => {

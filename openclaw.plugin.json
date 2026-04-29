@@ -52,16 +52,13 @@
     "additionalProperties": false,
     "properties": {
       "endpoint": {
-        "type": "string",
-        "default": "http://localhost:8080"
+        "type": "string"
       },
       "clientId": {
-        "type": "string",
-        "default": "community"
+        "type": "string"
       },
       "clientSecret": {
-        "type": "string",
-        "default": "community"
+        "type": "string"
       },
       "highRiskTools": {
         "type": "array",

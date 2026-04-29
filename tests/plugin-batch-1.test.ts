@@ -12,6 +12,7 @@ function makeClient() {
     endpoint: "http://localhost:8080",
     clientId: "test-client",
     clientSecret: "test-secret",
+    mode: "self-hosted",
   });
 }
 

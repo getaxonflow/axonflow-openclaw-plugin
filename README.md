@@ -177,7 +177,13 @@ See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for pr
 
 ## Configure
 
-Minimal configuration — community mode needs nothing beyond `endpoint`:
+The plugin works without any configuration. Install it and run a tool — on first run it registers against AxonFlow Community SaaS at `https://try.getaxonflow.com` and persists the resulting credentials to `~/.config/axonflow/try-registration.json` (mode 0600). Every plugin init logs:
+
+```
+[AxonFlow] Connected to AxonFlow at https://try.getaxonflow.com (mode=community-saas)
+```
+
+Community SaaS is intended for basic testing and evaluation. For real workflows, real systems, or sensitive data, point the plugin at a self-hosted AxonFlow:
 
 ```yaml
 # openclaw.config.yaml
@@ -189,15 +195,19 @@ plugins:
       - message
 ```
 
-That's it. Every governed tool call now flows through AxonFlow policy enforcement. `clientId` defaults to `"community"` and `clientSecret` can be left unset — add them only for evaluation or enterprise credentials.
+Setting any of `endpoint` / `clientId` / `clientSecret` opts you into self-hosted mode. The Community-SaaS bootstrap is skipped, and the plugin uses your values verbatim. The same canary log line confirms the destination on every init:
+
+```
+[AxonFlow] Connected to AxonFlow at http://localhost:8080 (mode=self-hosted)
+```
 
 ### Full configuration reference
 
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
-| `endpoint` | Yes | — | AxonFlow agent gateway URL |
-| `clientId` | No | `"community"` | Tenant identity for data isolation. Override for evaluation/enterprise. |
-| `clientSecret` | No | `""` | Basic-auth secret paired with `clientId`. Required for evaluation/enterprise tenants; leave unset in community mode. |
+| `endpoint` | No | `https://try.getaxonflow.com` (Community SaaS) when unset; `http://localhost:8080` when self-hosted with no endpoint specified | AxonFlow agent gateway URL |
+| `clientId` | No | `"community"` (self-hosted) or auto-bootstrapped `cs_<uuid>` (Community SaaS) | Tenant identity for data isolation. Override for evaluation/enterprise. |
+| `clientSecret` | No | `""` (self-hosted) or auto-bootstrapped (Community SaaS) | Basic-auth secret paired with `clientId`. Required for evaluation/enterprise tenants; leave unset in community mode. |
 | `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |

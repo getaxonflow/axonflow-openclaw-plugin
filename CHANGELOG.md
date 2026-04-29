@@ -2,11 +2,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- Plugin connects to AxonFlow Community SaaS by default for first-run convenience. When you don't supply `endpoint`, `clientId`, or `clientSecret` in `pluginConfig`, the plugin registers against `https://try.getaxonflow.com` on first run and persists the resulting credentials to `~/.config/axonflow/try-registration.json` (mode 0600). Set any of `endpoint` / `clientId` / `clientSecret` to opt into self-hosted.
+- Mode-clarity log line on every plugin init: `[AxonFlow] Connected to AxonFlow at <url> (mode=<community-saas|self-hosted>)`. Operator-facing canary that prevents the "thought I was on localhost, traffic went to SaaS" failure mode.
+- One-time setup notice on first Community-SaaS connection. Stamped at `<cache-dir>/openclaw-plugin-disclosure-shown` so it fires exactly once per install.
+- New telemetry `deployment_mode=community-saas` value distinguishing first-class Community-SaaS users from self-hosted production / development users (previously hidden inside `production`).
+- `AXONFLOW_CACHE_DIR` and `AXONFLOW_CONFIG_DIR` environment overrides for the cache/config directory resolver. Useful for sandboxed containers (read-only `$HOME`) and any deployment that wants to redirect AxonFlow state to a non-default location.
+
+### Changed
+
+- Telemetry switches to a 7-day heartbeat cadence (was once per plugin init). Stamp-on-delivery — a transient network failure does not silence telemetry until the next heartbeat window opens. Concurrent plugin loads are de-duplicated via a per-process in-flight gate.
+- `pluginConfig` is now optional (was required). Calling `registerAxonFlowGovernance` with no `pluginConfig`, `pluginConfig: undefined`, or `pluginConfig: {}` resolves to Community SaaS mode rather than throwing `requires configuration`.
+
 ### Removed
 
 - **BREAKING:** `DO_NOT_TRACK` is no longer honored as an AxonFlow telemetry opt-out. Use `AXONFLOW_TELEMETRY=off` instead.
 
   `DO_NOT_TRACK` was deprecated because it is commonly inherited from host tools and developer environments, which makes it an unreliable expression of user intent for AxonFlow telemetry.
+- `default` values for `endpoint`, `clientId`, and `clientSecret` removed from `openclaw.plugin.json`. The plugin loader now sees `pluginConfig.endpoint` as `undefined` when the user hasn't configured it, which is what the Community-SaaS-default resolver needs to distinguish "no choice" from "explicit localhost".
 
 ### Fixed
 
@@ -15,6 +29,7 @@
 ### CI / development
 
 - CI workflows (`ci.yml`, `publish.yml`, `install-smoke.yml`, `smoke-e2e.yml`) now use `AXONFLOW_TELEMETRY=off` to suppress telemetry during automated runs.
+- New `tests/mode-clarity.test.ts` enforces the canary-line + outbound-host invariant on every PR. Anti-spoof: assertions use parsed `URL.host`, not substring matching.
 
 
 ## [1.3.2] - 2026-04-22
