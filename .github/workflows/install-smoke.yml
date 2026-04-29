@@ -66,7 +66,7 @@ jobs:
         # through.
         node-version: [20, 22]
     env:
-      DO_NOT_TRACK: '1'
+      AXONFLOW_TELEMETRY: 'off'
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

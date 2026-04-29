@@ -13,7 +13,7 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
     env:
-      DO_NOT_TRACK: "1"
+      AXONFLOW_TELEMETRY: "off"
     strategy:
       matrix:
         node-version: [20, 22]

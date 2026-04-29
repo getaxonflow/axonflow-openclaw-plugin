@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING:** `DO_NOT_TRACK` is no longer honored as an AxonFlow telemetry opt-out. Use `AXONFLOW_TELEMETRY=off` instead.
+
+  `DO_NOT_TRACK` was deprecated because it is commonly inherited from host tools and developer environments, which makes it an unreliable expression of user intent for AxonFlow telemetry.
+
+### Fixed
+
+- The `[AxonFlow] DO_NOT_TRACK=1 is deprecated...` `console.warn` is no longer emitted. Removing the warning eliminates UX noise that previously appeared whenever `DO_NOT_TRACK=1` was set in the environment.
+
+### CI / development
+
+- CI workflows (`ci.yml`, `publish.yml`, `install-smoke.yml`, `smoke-e2e.yml`) now use `AXONFLOW_TELEMETRY=off` to suppress telemetry during automated runs.
+
 
 ## [1.3.2] - 2026-04-22
 

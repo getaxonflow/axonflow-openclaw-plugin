@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 env:
-  DO_NOT_TRACK: '1'
+  AXONFLOW_TELEMETRY: 'off'
 
 jobs:
   # Preflight runs first and is depended on by every publish/release job.
