@@ -39,6 +39,7 @@ import { createMessageSendingHandler } from "./message-guard.js";
 import { createLlmInputHandler, createLlmOutputHandler } from "./llm-audit.js";
 import { sendTelemetryPing } from "./telemetry.js";
 import { resetMetrics } from "./metrics.js";
+import { runPluginVersionCheck } from "./plugin-version-check.js";
 
 /** Plugin version — update before each release. */
 export const VERSION = "1.3.2";
@@ -92,6 +93,14 @@ export function registerAxonFlowGovernance(api: {
   }).catch(() => {
     // Silent — health check should never prevent plugin registration
   });
+
+  // Plugin/platform version compatibility check (fire-and-forget,
+  // platform 7.5.0+). Mirrors what the SDKs already do at startup —
+  // emits a one-time upgrade warning when the plugin's own version is
+  // below the floor the platform expects, stays silent otherwise.
+  // Failure modes (network error, older platform, malformed response)
+  // are swallowed by runPluginVersionCheck — never blocks startup.
+  void runPluginVersionCheck(client, VERSION, api.logger);
 
   // Hook 1: Input governance (before tool execution)
   const beforeToolCall = createBeforeToolCallHandler(client, config);

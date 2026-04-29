@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Plugin/platform version compatibility check.** On startup, the plugin queries the AxonFlow agent's `/health` endpoint and reads the new `plugin_compatibility.min_plugin_version["openclaw"]` field (advertised by platform v7.5.0+). If the plugin's runtime version is below the floor the platform expects, a one-time `console.warn` upgrade hint is logged. Mirrors the SDK pattern that has run since v4.8.0. Failure modes (older platform without the field, network error, malformed response) are swallowed — the check never blocks plugin startup or affects the hook hot path.
+
 ### Removed
 
 - **BREAKING:** `DO_NOT_TRACK` is no longer honored as an AxonFlow telemetry opt-out. Use `AXONFLOW_TELEMETRY=off` instead.

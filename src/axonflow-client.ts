@@ -130,6 +130,22 @@ export interface CreateOverrideResult {
  * governance.ts couldn't surface the richer reasoning even when the platform
  * returned it.
  */
+/**
+ * Type guard for the per-plugin map shape returned under
+ * `plugin_compatibility.min_plugin_version` and `recommended_plugin_version`.
+ * The platform sends `{ openclaw: "1.3.2", claude: "0.5.2", ... }` — every
+ * key and value must be a string for the map to be useful for comparison.
+ */
+function isStringMap(value: unknown): value is Record<string, string> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  for (const v of Object.values(value as Record<string, unknown>)) {
+    if (typeof v !== "string") return false;
+  }
+  return true;
+}
+
 function extractRicherContext(data: Record<string, unknown>): {
   decision_id?: string;
   policy_matches?: ExplainPolicy[];
@@ -472,6 +488,46 @@ export class AxonFlowClient {
       return response.ok;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Fetch the platform's plugin_compatibility map from /health.
+   *
+   * Mirrors the SDK pattern (Python `health_check_detailed()` etc.) — the
+   * plugin queries `/health` at startup and reads the per-plugin
+   * `min_plugin_version` and `recommended_plugin_version` entries so it
+   * can log an actionable upgrade warning when its own runtime version
+   * is below the floor the platform expects.
+   *
+   * Returns null when:
+   *   - the request fails (network error, timeout, non-2xx)
+   *   - the platform is older than v7.5.0 and doesn't advertise
+   *     `plugin_compatibility` (graceful degradation — same posture as
+   *     SDK clients reading older platforms)
+   *   - the response body is malformed
+   *
+   * Callers treat null as "no signal" rather than an error.
+   */
+  async getPluginCompatibility(): Promise<{
+    minPluginVersion: Record<string, string>;
+    recommendedPluginVersion: Record<string, string>;
+  } | null> {
+    try {
+      const response = await this.fetchWithTimeout(`${this.endpoint}/health`);
+      if (!response.ok) return null;
+      const body = (await response.json()) as Record<string, unknown>;
+      const compat = body["plugin_compatibility"] as Record<string, unknown> | undefined;
+      if (!compat || typeof compat !== "object") return null;
+      const min = compat["min_plugin_version"];
+      const rec = compat["recommended_plugin_version"];
+      if (!isStringMap(min) || !isStringMap(rec)) return null;
+      return {
+        minPluginVersion: min,
+        recommendedPluginVersion: rec,
+      };
+    } catch {
+      return null;
     }
   }
 
