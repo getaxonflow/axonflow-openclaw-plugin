@@ -8,7 +8,7 @@ In practice this affected every user who followed the documented configuration p
 
 ### Fixed
 
-- **`pluginConfig.userEmail` is now accepted by the configSchema.** Added `"userEmail": { "type": "string", "format": "email" }` to `openclaw.plugin.json` `properties`, plus a matching `uiHints.userEmail` block so portal UIs render a labelled input with placeholder and help text. Plugin runtime behaviour was already correct in v2.0.0+ — only the schema gate was rejecting it.
+- **`pluginConfig.userEmail` is now accepted by the configSchema.** Added `"userEmail": { "type": "string" }` to `openclaw.plugin.json` `properties`, plus a matching `uiHints.userEmail` block so portal UIs render a labelled input with placeholder and help text. Plugin runtime behaviour was already correct in v2.0.0+ — only the schema gate was rejecting it.
 
 ### Why this is a patch (not a minor)
 

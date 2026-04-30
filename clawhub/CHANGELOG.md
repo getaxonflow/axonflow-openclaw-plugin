@@ -4,12 +4,12 @@
 
 ### 2.0.1 (2026-05-01)
 
-Bumps the recommended `@axonflow/openclaw` floor from `2.0.0` to `2.0.4` — the recommended stable patch for the v2.x line. Two reasons users on earlier v2.0.x patches should upgrade:
+Bumps the recommended `@axonflow/openclaw` floor from `2.0.0` to `2.0.4` — the recommended stable patch for the v2.x line. Reasons users on earlier v2.0.x patches should upgrade:
 
-- **Schema gap silently disabled the plugin.** v2.0.0 through v2.0.3 shipped a `configSchema` in `openclaw.plugin.json` that did not list `userEmail`. OpenClaw's plugin loader rejected configs that set it (per the documented override-workflow path) and skipped the plugin entirely with only a log line as warning, leaving the user ungoverned. v2.0.4 closes the schema gap.
-- **Telemetry only became reliable in v2.0.4.** Earlier v2.0.x patches had brittle heartbeat behaviour (the schema rejection above prevented the plugin from registering at all on misconfigured installs, and other early-cycle issues caused stamp-on-failure semantics that silenced subsequent windows). v2.0.4 is the first patch where the 7-day anonymous heartbeat reaches the checkpoint reliably, which means it is also the first patch where the project can see who is on the plugin and respond to drop-off signals. Users on v2.0.0–v2.0.3 are effectively invisible — upgrading to v2.0.4 surfaces them in the active-install count.
+- **Schema gap silently disabled the plugin.** v2.0.0 through v2.0.3 shipped a `configSchema` in `openclaw.plugin.json` that did not list `userEmail`. OpenClaw's plugin loader rejected `pluginConfig` blocks that set it (which is what the documented override-workflow path requires) and skipped the plugin entirely with only a log line as warning, leaving the user ungoverned. v2.0.4 closes the schema gap.
+- **Affected users were invisible in telemetry.** When the schema rejection above silently disabled the plugin, the affected installs never reached the heartbeat path either — those users contributed no records to the 7-day anonymous active-install signal. Upgrading to v2.0.4 lets the plugin load on those configurations, which means we can see who was affected and respond to drop-off signals. Users on v2.0.0–v2.0.3 with `userEmail` set in `pluginConfig` are not represented in the current active-install count.
 
-Body is otherwise unchanged from v2.0.0; only the version qualifier in the Install section is updated.
+Skill body changes vs v2.0.0: the `@axonflow/openclaw` floor in the Install section bumped from 2.0.0 to 2.0.4, and the now-redundant "Plugin v2.0.0+" prefix dropped from the three-deployment-modes paragraph (the floor lives in Install).
 
 ### 2.0.0 (2026-05-01)
 
