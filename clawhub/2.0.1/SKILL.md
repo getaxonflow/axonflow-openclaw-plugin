@@ -30,7 +30,27 @@ LLM provider keys never leave the user's machine in any mode — OpenClaw makes 
 - You are configuring per-user identity so AxonFlow attributes decisions correctly.
 - You are hardening an OpenClaw deployment against reverse shells, SSRF, PII leakage, or agent-config poisoning.
 
-## Install the Plugin
+## Install
+
+This is a **two-step** install: stand up the AxonFlow platform, then add the plugin to OpenClaw. The plugin alone does not enforce policy — it is a thin client that talks to an AxonFlow agent gateway. If the platform is not installed and reachable, governed tool calls have nothing to evaluate against.
+
+### Step 1: install the AxonFlow platform
+
+For any real workload, run AxonFlow on your own infrastructure via Docker Compose. This is the recommended path for the plugin:
+
+```bash
+git clone https://github.com/getaxonflow/axonflow.git
+cd axonflow && docker compose up -d
+
+# verify
+curl -s http://localhost:8080/health | jq .
+```
+
+Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for prerequisites (Docker Engine or Desktop, Docker Compose v2, 4 GB RAM, 10 GB disk) and the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/) for production options. The agent gateway listens on port 8080 — all SDK and plugin traffic goes through this port.
+
+> If you skip this step entirely and just install the plugin, it falls back to the [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) endpoint at `try.getaxonflow.com` for early exploration only. **Do not skip Step 1 for any real workload** — Community SaaS is offered "as is" with no SLA, no warranties, and no commitment to retention or deletion timelines. See the [Privacy notice](#privacy-notice--read-before-installing) above.
+
+### Step 2: install the plugin
 
 ```bash
 openclaw plugins install @axonflow/openclaw
@@ -42,7 +62,7 @@ Requires OpenClaw **2026.4.15 or later** (CVE floor) and `@axonflow/openclaw` **
 
 > **Note on the package name:** the npm package is `@axonflow/openclaw`, not `@axonflow/openclaw-plugin`. The repo name differs from the package name.
 
-After install, the plugin auto-registers with Community SaaS on first load and emits a one-time disclosure banner via the OpenClaw plugin logger before the registration POST fires. Banner stamp is written under `$AXONFLOW_CONFIG_DIR`; remove the stamp file to re-display.
+After install, the plugin connects to the endpoint you configured in Step 1 (or auto-registers with Community SaaS as a fallback if Step 1 was skipped). The first-load disclosure banner surfaces the active mode in your plugin logs. Banner stamp is written under `$AXONFLOW_CONFIG_DIR`; remove the stamp file to re-display.
 
 ## Deployment Modes
 

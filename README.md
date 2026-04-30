@@ -206,6 +206,26 @@ Org-wide policies and session overrides are **Enterprise-only** — those are th
 
 ## Install
 
+This is a **two-step** install: stand up the AxonFlow platform, then add the plugin to OpenClaw. The plugin alone does not enforce policy — it is a thin client that talks to an AxonFlow agent gateway. If the platform is not installed and reachable, governed tool calls have nothing to evaluate against.
+
+### Step 1: install the AxonFlow platform
+
+For any real workload, run AxonFlow on your own infrastructure via Docker Compose:
+
+```bash
+git clone https://github.com/getaxonflow/axonflow.git
+cd axonflow && docker compose up -d
+
+# verify
+curl -s http://localhost:8080/health | jq .
+```
+
+Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for prerequisites (Docker Engine or Desktop, Docker Compose v2, 4 GB RAM, 10 GB disk) and the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/) for production options. For production with real users or clients, run Community Edition with a free 90-day [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/) or [AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/).
+
+> Skipping Step 1 makes the plugin fall back to the [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) endpoint at `try.getaxonflow.com` for early exploration only. **Do not skip Step 1 for any real workload** — see the [Privacy notice](#where-your-data-goes) above.
+
+### Step 2: install the plugin
+
 Requires OpenClaw **2026.4.14 or later**. Upgrade with `npm install -g openclaw@latest` if needed.
 
 ```bash
@@ -225,17 +245,6 @@ TGZ=$(npm pack @axonflow/openclaw 2>/dev/null | tail -1)
 openclaw plugins install "./$TGZ"
 ```
 </details>
-
-### Pick a deployment mode
-
-Pick one of the modes from [Where your data goes](#where-your-data-goes) above before you continue. For any real workload, run AxonFlow on your own infrastructure:
-
-```bash
-git clone https://github.com/getaxonflow/axonflow.git
-cd axonflow && docker compose up -d
-```
-
-See the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/) for prerequisites and production options. For production with real users or clients, run Community Edition with a free 90-day [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/) or [AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/).
 
 ---
 
