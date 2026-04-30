@@ -2,32 +2,30 @@ name: Security Scan
 
 # Pre-publish gate: two layers, both PR-blocking.
 #
-# Layer 1 (`scripts/check-dist-bait.mjs`): static grep guard, independent
-# of any external scanner version. Forbids known regex-bait property
-# shapes (`clientSecret: <token>`, `apiKey: <token>`, `password: <token>`,
-# `secret: <token>`) in compiled `dist/*.js`. Catches the class of
-# scanner regression that blocked v2.0.1 install: per-line rules that
-# don't distinguish runtime variable forwarding from hardcoded literals.
-# This layer fires regardless of which OpenClaw scanner ruleset is on
-# `latest` — defense in depth against ruleset drift.
+# Layer 1 (`scripts/check-publish-bait.mjs`): static grep guard,
+# independent of any external scanner version. Walks every path that
+# ships to npm — `dist/`, `policies/`, `README.md`, `CHANGELOG.md`,
+# `LICENSE`, `openclaw.plugin.json` — and forbids known regex-bait
+# property shapes for credential-shaped keys. Catches the class of
+# scanner regression that blocked v2.0.1 install AND the documentation
+# regression that blocked v2.0.2: per-line rules that don't distinguish
+# runtime variable forwarding from hardcoded literals, and that scan
+# every file in the tarball, not just compiled JavaScript. This layer
+# fires regardless of which OpenClaw scanner ruleset is on `latest` —
+# defense in depth against ruleset drift.
 #
 # Layer 2 (`scripts/scan-tarball.mjs`): runs the official OpenClaw
 # plugin scanner against the npm-pack tarball — exactly the artifact
 # ClawHub re-scans server-side at publish time. Catches today's flagged
-# patterns:
-#   - dist/ co-locates `process.env.*` access with `fetch(...)`
-#     (env_credential_access — install-blocking)
-#   - dist/ co-locates `fs.readFileSync` with an outbound network call
-#     (potential_exfiltration — verdict goes Suspicious)
-#   - scripts/ that end up in the published tarball introduce shell
-#     exec patterns
-# The scanner is invoked via `openclaw plugins install <tarball>` with
-# isolated state (OPENCLAW_STATE_DIR=mktemp -d) so the run never
-# pollutes a real install.
+# patterns (env-then-fetch co-location, fs-then-fetch co-location,
+# shell-exec patterns in scripts that end up in the tarball). Invoked
+# via `openclaw plugins install <tarball>` with isolated state
+# (OPENCLAW_STATE_DIR=mktemp -d) so the run never pollutes a real
+# install.
 #
 # Both layers run via `npm run scan`, which chains
-# `npm run check:dist-bait && node scripts/scan-tarball.mjs`. Either
-# failing fails the PR.
+# `npm run build && npm run check:publish-bait && node scripts/scan-tarball.mjs --no-build`.
+# Either failing fails the PR.
 
 on:
   pull_request:
@@ -40,7 +38,10 @@ on:
       - 'openclaw.plugin.json'
       - 'tsconfig.json'
       - 'scripts/scan-tarball.mjs'
-      - 'scripts/check-dist-bait.mjs'
+      - 'scripts/check-publish-bait.mjs'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'policies/**'
       - '.github/workflows/security-scan.yml'
   push:
     branches: [main]
@@ -52,7 +53,10 @@ on:
       - 'openclaw.plugin.json'
       - 'tsconfig.json'
       - 'scripts/scan-tarball.mjs'
-      - 'scripts/check-dist-bait.mjs'
+      - 'scripts/check-publish-bait.mjs'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'policies/**'
       - '.github/workflows/security-scan.yml'
 
 permissions:

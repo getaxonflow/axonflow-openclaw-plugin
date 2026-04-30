@@ -49,15 +49,13 @@ Auto-registration credentials persist at `$AXONFLOW_CONFIG_DIR/try-registration.
 
 Point the plugin at an AxonFlow instance you run. Nothing leaves your network except the anonymous 7-day heartbeat.
 
-```yaml
-plugins:
-  axonflow-governance:
-    endpoint: https://axonflow.your-corp.example.com
-    clientId: your-client-id
-    clientSecret: your-secret
-```
+Configure three values in `pluginConfig`:
 
-This is the recommended setup for any real workflow, real systems, or sensitive data. See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for deployment options or the [OpenClaw integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/) for the architecture.
+- `endpoint` — the URL of your AxonFlow agent gateway (for example `https://axonflow.your-corp.example.com`).
+- `clientId` — the AxonFlow tenant identifier issued to your deployment.
+- `clientSecret` — the matching secret. **Never commit this to source control or paste it into a config file checked into a repository.** Resolve it from a secret manager (Vault, AWS Secrets Manager, GCP Secret Manager, or your CI provider's secret store) and inject the value via your OpenClaw config templating, an environment variable consumed by your config loader, or your platform's secret-injection sidecar.
+
+See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for deployment options or the [OpenClaw integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/) for the architecture and full schema.
 
 ### Air-gapped: zero outbound
 

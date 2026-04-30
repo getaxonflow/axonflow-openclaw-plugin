@@ -91,22 +91,15 @@ VALUES
 
 ## Recommended Plugin Configuration
 
-```yaml
-plugins:
-  @axonflow/openclaw:
-    endpoint: http://your-axonflow:8080
-    clientId: your-client-id
-    clientSecret: your-secret
-    highRiskTools:
-      - exec
-      - process
-      - browser
-      - web_fetch
-      - message
-    onError: block  # fail-closed for security-sensitive deployments
-```
+For security-sensitive deployments, configure `pluginConfig` for the `@axonflow/openclaw` plugin with:
 
-Setting `onError: block` means if AxonFlow is unreachable, tool calls are blocked rather than allowed. This is the safer default for production. Use `onError: allow` for development where AxonFlow availability is less critical.
+- `endpoint` — your AxonFlow agent gateway URL (for example `http://your-axonflow:8080`).
+- `clientId` — your AxonFlow tenant identifier.
+- `clientSecret` — the matching secret. **Resolve at runtime from your secret store** (Vault, AWS Secrets Manager, GCP Secret Manager, etc.); never embed the value in a config file checked into source control.
+- `highRiskTools` — list the tools that should always require human approval. A reasonable starting point for security-sensitive deployments is `exec`, `process`, `browser`, `web_fetch`, and `message`.
+- `onError` set to `block` — fail-closed if AxonFlow is unreachable.
+
+Setting `onError` to `block` means if AxonFlow is unreachable, tool calls are blocked rather than allowed. This is the safer default for production. Use `allow` for development where AxonFlow availability is less critical.
 
 ## References
 

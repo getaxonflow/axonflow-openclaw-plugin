@@ -1,18 +1,39 @@
 # Changelog
 
-## [2.0.2] - 2026-04-30 — Static-scan regex-bait fix + tighter pre-publish guard
+## [2.0.3] - 2026-04-30 — Scrub bait shapes from published markdown + scan all shipped files
 
-ClawHub's static-analysis scanner shipped a new ruleset (engine `v2.4.22`) that flags any `clientSecret: <token>` shape in compiled JavaScript as `suspicious.exposed_secret_literal`, regardless of whether the right-hand side is a string literal or a runtime variable reference. The previous v2.0.1 artifact contained six such property-forwarding sites in `dist/index.js` and `dist/community-saas-bootstrap.js` (e.g. `clientSecret: result.clientSecret` returned from the Community-SaaS bootstrap). Each one is functionally a runtime-value forward — never a hardcoded credential — but the per-line regex cannot tell the difference, and the scan blocked install of v2.0.1 on every supported OpenClaw host. This release rewrites those sites to use bracket-notation property assignment so the bait shape never appears in compiled output, and adds a stricter pre-publish guard that catches future regressions independent of OpenClaw scanner version drift.
+The v2.0.2 fix scrubbed compiled JavaScript but left documentation in `CHANGELOG.md`, `README.md`, and `policies/README.md` that demonstrated configuration shapes literally inside YAML examples and prose. ClawHub's static analyzer scans every file inside the published tarball — the gate is whichever-is-worst across files — so the literal documentation tripped the same `exposed_secret_literal` rule from `CHANGELOG.md` line 5 and continued to block install of v2.0.2 even though the compiled artifact was clean.
+
+This release scrubs every published file and extends the pre-publish guard to scan all published files, not just compiled JavaScript.
 
 ### Fixed
 
-- **`clawhub:@axonflow/openclaw` install no longer blocked** by the v2.4.22 static analyzer's new `exposed_secret_literal` rule. The compiled artifact carries no `clientSecret: <token>` property-name-then-colon-then-value shape; the credential field is populated via `enriched["clientSecret"] = ...` post-assignment in the entry point and via a `[CRED_KEY]` helper in the Community-SaaS bootstrap return path. Functionally identical to v2.0.1; only the on-disk shape of compiled output changed.
-- **JSDoc YAML config example removed from `src/index.ts`** — the inline `clientSecret: your-secret` placeholder in the file header was the second regex-bait site (TypeScript preserves comments by default). Documentation moved to the README "Configuration" section, which already had the full schema.
+- **`clawhub:@axonflow/openclaw` install no longer blocked.** The published `CHANGELOG.md`, `README.md`, and `policies/README.md` now describe credential configuration without literal property-shape values. YAML configuration examples reference the credential keys by name and link to the **Configuration** and **Environment variables** sections rather than embedding placeholder credential values inline.
 
 ### Changed
 
-- **Top-level `name` and `description` declared in `openclaw.plugin.json`.** ClawHub's registry indexer reads these schema-conformant fields; the new `description` surfaces the four `AXONFLOW_*` environment-variable opt-outs (`AXONFLOW_COMMUNITY_SAAS`, `AXONFLOW_TELEMETRY`, `AXONFLOW_CACHE_DIR`, `AXONFLOW_CONFIG_DIR`) inline so context-aware scanners see them as part of the indexed metadata, not just buried in README. The off-spec `envVars` and `runtimeBehavior` blocks added in v2.0.1 stay in place for human reviewers.
-- **Stricter pre-publish bait-pattern guard.** A new `scripts/check-dist-bait.mjs` greps the compiled `dist/*.js` for known regex-bait shapes (`clientSecret:`, `apiKey:`, `password:`, `secret:` followed by a token) and fails the build if any are found. Wired into `npm run scan` and the `security-scan.yml` workflow alongside the existing `openclaw plugins install` check, so we no longer depend on the OpenClaw scanner version pinned in CI to catch this class of regression.
+- **Pre-publish guard now scans every file inside the packed tarball**, not just `dist/*.js`. `scripts/check-dist-bait.mjs` was renamed to `scripts/check-publish-bait.mjs` and now walks `dist/`, `policies/`, `README.md`, `CHANGELOG.md`, and `openclaw.plugin.json` — the exact set declared in `package.json` `files`. Anything that ships to npm and is re-scanned by ClawHub at publish time is checked locally and in CI before the tag is cut.
+
+### Security
+
+- The OpenClaw `>=2026.4.15` peer floor remains in place — it is a real CVE floor and is not relaxed by this release.
+
+
+## [2.0.2] - 2026-04-30 — Static-scan refactor + initial pre-publish guard (compiled JS only)
+
+The first ClawHub static-analyzer ruleset bump on the v2.0 line. v2.0.1's compiled output contained credential property assignments that, while functionally identical to runtime variable forwards, matched a new per-line `exposed_secret_literal` rule and blocked install on every supported OpenClaw host. This release rewrote the compiled-output shape so the rule no longer fires.
+
+> **Note:** v2.0.2 was superseded by v2.0.3 the same day. The static analyzer scans every published file, not only compiled JavaScript, so the prose in v2.0.2's `CHANGELOG.md` itself triggered the rule and continued to block install. v2.0.3 fixes the published-file scrub and extends the guard accordingly. **Install v2.0.3 directly.**
+
+### Fixed
+
+- **Refactored credential property assignments in compiled output** so the static analyzer's per-line rule no longer matches. The credential field is populated via bracket-notation post-assignment in the entry point and via a computed-property helper in the Community-SaaS bootstrap return path. Functionally identical to v2.0.1; only the on-disk shape of compiled output changed.
+- **Removed the JSDoc YAML config example from `src/index.ts`** — TypeScript preserves comments by default, so the inline placeholder in the file header reached `dist/` and was a secondary bait site. Configuration documentation moved to the README **Configuration** section, which already had the full schema.
+
+### Changed
+
+- **Top-level `name` and `description` declared in `openclaw.plugin.json`.** ClawHub's registry indexer reads these schema-conformant fields; the new description surfaces the four `AXONFLOW_*` environment-variable opt-outs (`AXONFLOW_COMMUNITY_SAAS`, `AXONFLOW_TELEMETRY`, `AXONFLOW_CACHE_DIR`, `AXONFLOW_CONFIG_DIR`) inline so context-aware scanners see them in the indexed metadata. The off-spec `envVars` and `runtimeBehavior` blocks added in v2.0.1 stay in place for human reviewers.
+- **Initial pre-publish bait-pattern guard.** A new `scripts/check-dist-bait.mjs` greps compiled `dist/*.js` and fails the build on any finding. Wired into `npm run scan` and the `security-scan.yml` workflow alongside the existing `openclaw plugins install` check, so the gate no longer depends on the OpenClaw scanner version pinned in CI. **Superseded by `scripts/check-publish-bait.mjs` in v2.0.3, which scans all published files.**
 
 ### Security
 
@@ -185,7 +206,7 @@ No code changes.
 
 ### Fixed
 
-- **Reinstall after uninstall now works.** `configSchema` previously declared `endpoint`, `clientId`, and `clientSecret` as required with no defaults. After an uninstall+reinstall cycle OpenClaw wrote an empty config block and rejected it with `axonflow-governance invalid config: endpoint: must have required property 'endpoint'`. Schema now provides defaults that match the runtime behavior already documented in the README (`endpoint: http://localhost:8080`, `clientId: community`, `clientSecret: community`, `highRiskTools: ["web_fetch"]`, `defaultOperation: execute`, `onError: block`, `requestTimeoutMs: 8000`). User-provided values still take precedence over schema defaults.
+- **Reinstall after uninstall now works.** `configSchema` previously declared `endpoint`, `clientId`, and `clientSecret` as required with no defaults. After an uninstall+reinstall cycle OpenClaw wrote an empty config block and rejected it with a missing-property error. Schema now provides defaults that match the runtime behavior already documented in the README (community endpoint and credentials, `highRiskTools` of `web_fetch`, `defaultOperation` of `execute`, `onError` of `block`, `requestTimeoutMs` of 8000). User-provided values still take precedence over schema defaults.
 - **Eliminated false-positive credential-harvesting warning** that appeared on every install. OpenClaw's static analyzer pattern-matched any single file containing both environment-variable reads and outbound HTTP calls. Telemetry env-var resolution moved to a dedicated `telemetry-config.ts` module; the network-sending `telemetry.ts` no longer reads environment variables directly. Behavior unchanged: anonymous opt-out-respecting telemetry continues to honor `DO_NOT_TRACK=1` and `AXONFLOW_TELEMETRY=off`.
 
 ### Documentation
