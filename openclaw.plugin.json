@@ -1,5 +1,7 @@
 {
   "id": "axonflow-governance",
+  "name": "AxonFlow Governance",
+  "description": "Policy enforcement, approval gates, and audit trails for OpenClaw tool execution and outbound messages. Sends governance events to AxonFlow Community SaaS (try.getaxonflow.com) by default; set pluginConfig.endpoint for self-hosted, AXONFLOW_COMMUNITY_SAAS=0 to disable auto-registration, AXONFLOW_TELEMETRY=off to disable the 7-day anonymous heartbeat.",
   "envVars": {
     "AXONFLOW_TELEMETRY": {
       "required": false,
