@@ -206,7 +206,7 @@ Org-wide policies and session overrides are **Enterprise-only** — those are th
 
 ## Install
 
-This is a **two-step** install: stand up the AxonFlow platform, then add the plugin to OpenClaw. The plugin alone does not enforce policy — it is a thin client that talks to an AxonFlow agent gateway. If the platform is not installed and reachable, governed tool calls have nothing to evaluate against.
+This is a **three-step** install: stand up the AxonFlow platform, add the plugin to OpenClaw, then point the plugin at the platform. The plugin alone does not enforce policy — it is a thin client that talks to an AxonFlow agent gateway. If the platform is not installed and reachable, governed tool calls have nothing to evaluate against. **Skipping Step 3 is the most common mistake**: the platform is running locally but the plugin still falls back to Community SaaS because no endpoint is configured.
 
 ### Step 1: install the AxonFlow platform
 
@@ -246,35 +246,33 @@ openclaw plugins install "./$TGZ"
 ```
 </details>
 
----
+### Step 3: point the plugin at the platform
 
-## Configure
-
-For any real workload, point the plugin at a self-hosted AxonFlow:
+Without this step the plugin auto-registers with Community SaaS regardless of whether you ran Step 1 — it does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them):
 
 ```yaml
 # openclaw.config.yaml
 plugins:
-  @axonflow/openclaw:
-    endpoint: http://localhost:8080
-    highRiskTools:
-      - web_fetch
-      - message
+  "@axonflow/openclaw":
+    endpoint: http://localhost:8080  # or your remote AxonFlow URL
+    # clientId + clientSecret are required for Evaluation License or Enterprise tenants
 ```
 
-Setting any of `endpoint` / `clientId` / `clientSecret` opts you into self-hosted mode. The plugin uses your values verbatim. Every plugin init logs a one-line canary confirming the destination:
+Every plugin init logs a one-line canary on stderr confirming the active mode:
 
 ```
 [AxonFlow] Connected to AxonFlow at http://localhost:8080 (mode=self-hosted)
 ```
 
-If you do not configure an endpoint, the plugin falls back to AxonFlow Community SaaS at `https://try.getaxonflow.com` and auto-registers on first run, persisting credentials to `~/.config/axonflow/try-registration.json` (mode `0600`):
+If the canary says `mode=community-saas` after you ran Step 1, the plugin is still hitting `try.getaxonflow.com` because Step 3 was skipped or `pluginConfig.endpoint` is unset. Fix Step 3 and reload.
 
-```
-[AxonFlow] Connected to AxonFlow at https://try.getaxonflow.com (mode=community-saas)
-```
+See [Configure](#configure) below for the full pluginConfig schema (`highRiskTools`, `governedTools`, `onError`, `userEmail`, etc.).
 
-**Use Community SaaS only for early exploration of the plugin's behaviour.** It is offered "as is" with no SLA, no warranties, and no commitment to retention or deletion timelines, and is not appropriate for production workloads, regulated environments, real user data, or any other sensitive information. See the [Privacy notice](#where-your-data-goes) above for the full disclosure and the production-fit alternatives.
+---
+
+## Configure
+
+[Step 3](#step-3-point-the-plugin-at-the-platform) above covers the minimum config (`endpoint` + optional `clientId` / `clientSecret`). The full pluginConfig schema is below.
 
 ### Full configuration reference
 

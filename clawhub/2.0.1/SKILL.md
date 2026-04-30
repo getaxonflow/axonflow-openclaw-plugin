@@ -32,7 +32,7 @@ LLM provider keys never leave the user's machine in any mode — OpenClaw makes 
 
 ## Install
 
-This is a **two-step** install: stand up the AxonFlow platform, then add the plugin to OpenClaw. The plugin alone does not enforce policy — it is a thin client that talks to an AxonFlow agent gateway. If the platform is not installed and reachable, governed tool calls have nothing to evaluate against.
+This is a **three-step** install: stand up the AxonFlow platform, add the plugin to OpenClaw, then point the plugin at the platform. The plugin alone does not enforce policy — it is a thin client that talks to an AxonFlow agent gateway. If the platform is not installed and reachable, governed tool calls have nothing to evaluate against. **Skipping Step 3 is the most common mistake**: the platform is running locally but the plugin still falls back to Community SaaS because no endpoint is configured.
 
 ### Step 1: install the AxonFlow platform
 
@@ -62,7 +62,27 @@ Requires OpenClaw **2026.4.15 or later** (CVE floor) and `@axonflow/openclaw` **
 
 > **Note on the package name:** the npm package is `@axonflow/openclaw`, not `@axonflow/openclaw-plugin`. The repo name differs from the package name.
 
-After install, the plugin connects to the endpoint you configured in Step 1 (or auto-registers with Community SaaS as a fallback if Step 1 was skipped). The first-load disclosure banner surfaces the active mode in your plugin logs. Banner stamp is written under `$AXONFLOW_CONFIG_DIR`; remove the stamp file to re-display.
+### Step 3: point the plugin at the platform
+
+Without this step the plugin auto-registers with Community SaaS regardless of whether you ran Step 1 — it does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them):
+
+```yaml
+# openclaw.config.yaml
+plugins:
+  "@axonflow/openclaw":
+    endpoint: http://localhost:8080  # or your remote AxonFlow URL
+    # clientId + clientSecret are required for Evaluation License or Enterprise tenants
+```
+
+Every plugin init logs a one-line canary on stderr confirming the active mode:
+
+```
+[AxonFlow] Connected to AxonFlow at http://localhost:8080 (mode=self-hosted)
+```
+
+If the canary says `mode=community-saas` after you ran Step 1, the plugin is still hitting `try.getaxonflow.com` because Step 3 was skipped or `pluginConfig.endpoint` is unset. Fix Step 3 and reload.
+
+Skipping Step 3 entirely (and Step 1) falls back to Community SaaS for early exploration only — see the [Privacy notice](#privacy-notice--read-before-installing) above. The first-load disclosure banner stamps under `$AXONFLOW_CONFIG_DIR`; remove the stamp file to re-display.
 
 ## Deployment Modes
 
