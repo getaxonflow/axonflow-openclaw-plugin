@@ -27,7 +27,7 @@
     "test": "jest",
     "test:coverage": "jest --coverage",
     "check:dist-bait": "node scripts/check-dist-bait.mjs",
-    "scan": "npm run check:dist-bait && node scripts/scan-tarball.mjs",
+    "scan": "npm run build && npm run check:dist-bait && node scripts/scan-tarball.mjs --no-build",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
