@@ -28,7 +28,7 @@ openclaw plugins install @axonflow/openclaw
 
 The `clawhub:@axonflow/openclaw` form also works.
 
-Requires OpenClaw **2026.4.15 or later** (CVE floor) and `@axonflow/openclaw` **2.0.0 or later**. Upgrade the CLI with `npm install -g openclaw@latest`.
+Requires OpenClaw **2026.4.15 or later** (CVE floor) and `@axonflow/openclaw` **2.0.0 or later**. Upgrade the CLI with `npm install -g openclaw@latest` and the plugin with `openclaw plugins install @axonflow/openclaw@latest`. Staying on the latest plugin patch is recommended — security and quality fixes ship monthly under the v2.x line.
 
 > **Note on the package name:** the npm package is `@axonflow/openclaw`, not `@axonflow/openclaw-plugin`. The repo name differs from the package name.
 
@@ -228,7 +228,7 @@ Full policy templates: [Starter Policies](https://github.com/getaxonflow/axonflo
 
 **Get Started**
 - [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) — quickstart for new users
-- [Try AxonFlow — Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) — zero-config evaluation, what gets sent off-host, registration mechanics, rate limits, retention
+- [Try AxonFlow — Free Trial Server](https://docs.getaxonflow.com/docs/deployment/community-saas/) — zero-config evaluation, what gets sent off-host, registration mechanics, rate limits, retention
 - [Self-Hosted Deployment](https://docs.getaxonflow.com/docs/deployment/self-hosted/) — Docker Compose, prerequisites, production options
 - [OpenClaw Integration Guide](https://docs.getaxonflow.com/docs/integration/openclaw/) — full plugin setup walkthrough
 
