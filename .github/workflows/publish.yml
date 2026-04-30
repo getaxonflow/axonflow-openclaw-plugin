@@ -183,6 +183,7 @@ jobs:
           VERSION=${{ steps.version.outputs.VERSION }}
           clawhub login --token "$CLAWHUB_TOKEN"
           clawhub package publish . \
+            --family code-plugin \
             --name "@axonflow/openclaw" \
             --display-name "AxonFlow Governance" \
             --version "$VERSION" \
