@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.0.4] - 2026-05-01 — Restore `userEmail` configuration via pluginConfig
+## [2.0.4] - 2026-05-01 — Restore `userEmail` configuration + reframe Community SaaS as exploration-only
 
 `openclaw.plugin.json` declared `configSchema.additionalProperties: false` but did not list `userEmail` in `properties`, even though the plugin's runtime config resolver (`src/config.ts`) reads `userEmail` from `pluginConfig` and forwards it as the `X-User-Email` header on every request. OpenClaw's plugin loader runs the published configSchema against the user's `pluginConfig`; when validation fails (because of the unknown property), the loader emits a single `[plugins] axonflow-governance invalid config: ...` log line and skips the plugin entirely — it never registers, no hooks fire, and tool calls execute completely ungoverned.
 
@@ -17,6 +17,18 @@ The capability already existed in code; we're closing the schema gap that preven
 ### Upgrade
 
 `openclaw plugins install @axonflow/openclaw@latest`. No code changes required on your side. If your config currently sets `userEmail` and the plugin was being silently disabled, it will now register and start enforcing policy on the next plugin reload.
+
+### Documentation: Community SaaS reframed as exploration-only
+
+The README "Where your data goes" section now leads with **Self-hosted (recommended for any real use)** as the primary deployment path and demotes Community SaaS to a clearly labelled "for early exploration only" section. Community SaaS is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention or deletion timelines, and is not appropriate for production workloads, regulated environments, real user data, or any other sensitive information.
+
+The reframing surfaces three production-fit alternatives:
+
+- **[Self-host AxonFlow Community Edition](https://docs.getaxonflow.com/docs/deployment/self-hosted/)** for any real workload (data stays within your boundary).
+- **Community Edition with an [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/)** for production with real users on the open core (free 90 days).
+- **[AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/)** for regulated industries with SLOs and contractual commitments.
+
+Plugin runtime behaviour is unchanged — Community SaaS auto-bootstrap still happens on zero-config installs, with the `AXONFLOW_COMMUNITY_SAAS=0` opt-out documented in v2.0.0+.
 
 ---
 
