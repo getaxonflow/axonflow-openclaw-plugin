@@ -2,6 +2,22 @@
 
 ## @axonflow/governance-policies
 
+### 2.0.0 (2026-05-01)
+
+Major bump tracking the plugin's v2.0 major line. Catches the skill up with the deployment-mode and telemetry changes shipped in `@axonflow/openclaw` v2.0.0–v2.0.3 and platform v7.0.0. From a user-following-prior-skill-instructions perspective the change is breaking: the default deployment mode flipped from "self-hosted only" to "Community SaaS auto-registration", and the previously-documented `DO_NOT_TRACK=1` opt-out no longer works (canonical opt-out is now `AXONFLOW_TELEMETRY=off`).
+
+_The intent here is a 2.0.0 major. ClawHub's publish-form bug ([openclaw/clawhub#1739](https://github.com/openclaw/clawhub/issues/1739)) still rejects manually-entered minor/major versions with a misleading "must be valid semver" error, so the actually-published version may fall back to a patch bump (1.5.3) until the bug is fixed. Content is unchanged either way._
+
+Changes vs 1.5.2:
+
+- **Three deployment modes documented.** New "Deployment Modes" section covers Community SaaS (the new default — `openclaw plugins install @axonflow/openclaw` auto-registers with `try.getaxonflow.com` on first load with no further config), Self-hosted (recommended for any real workload), and Air-gapped (`AXONFLOW_COMMUNITY_SAAS=0` + `AXONFLOW_TELEMETRY=off` + same-network endpoint = zero outbound). Replaces the previous "AxonFlow is self-hosted" framing which became inaccurate when plugin v2.0.0 made Community SaaS the default.
+- **`AXONFLOW_COMMUNITY_SAAS` opt-out documented.** New env var introduced in plugin v2.0.0 to disable the Community SaaS auto-bootstrap; required for air-gapped operation. Accepted off-values: `0`, `false`, `off`, `no`.
+- **`DO_NOT_TRACK` removed.** The legacy `DO_NOT_TRACK=1` opt-out was fully removed in plugin v2.0.0 / platform v7.0.0; `AXONFLOW_TELEMETRY=off` is now the canonical and only telemetry opt-out. Skill no longer mentions `DO_NOT_TRACK`.
+- **New "Environment variables" section** lists all four user-facing env vars (`AXONFLOW_TELEMETRY`, `AXONFLOW_COMMUNITY_SAAS`, `AXONFLOW_CACHE_DIR`, `AXONFLOW_CONFIG_DIR`) with effects and defaults.
+- **Configure section rewritten** to describe `pluginConfig` keys in prose with explicit "resolve the credential value from a secret store, never embed in a checked-in config file" guidance. Replaces the previous YAML config block which embedded a literal credential placeholder and tripped per-line static-analyzer rules — same scrub pattern applied to the plugin README in v2.0.3.
+- **Plugin/CLI version floor bumped.** Minimum OpenClaw CLI stated as 2026.4.15 (real CVE floor); minimum plugin version stated as 2.0.0 (the deployment-mode + telemetry-canonicalization release). Earlier per-feature qualifiers (`v1.3.0+` / `v1.3.1+`) consolidated into the single 2.0.0+ floor; the underlying capabilities (richer block context, override lifecycle, `userEmail` forwarding) are all available on this floor.
+- **Community SaaS docs page linked** in the "Get Started" subsection of "Learn More", alongside the existing Self-Hosted Deployment, Getting Started, and OpenClaw Integration Guide links. The page covers the data-flow disclosure, registration mechanics, rate limits, and data retention specifically for the `try.getaxonflow.com` Community SaaS endpoint.
+
 ### 1.5.2 (2026-04-19)
 
 Major content expansion covering Plugin Batch 1 features shipped in @axonflow/openclaw v1.3.0 and v1.3.1. _This release was originally authored as v1.6.0 (minor bump to signal the significant content additions) but released as v1.5.2 (patch bump) due to an active ClawHub publish-form bug ([openclaw/clawhub#1739](https://github.com/openclaw/clawhub/issues/1739)) that rejects manually-entered minor/major versions with a misleading "must be valid semver" error. Content is unchanged; the semantic intent remains a minor release._
