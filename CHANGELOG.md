@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.0.4] - 2026-05-01 — Restore `userEmail` configuration via pluginConfig
+
+`openclaw.plugin.json` declared `configSchema.additionalProperties: false` but did not list `userEmail` in `properties`, even though the plugin's runtime config resolver (`src/config.ts`) reads `userEmail` from `pluginConfig` and forwards it as the `X-User-Email` header on every request. OpenClaw's plugin loader runs the published configSchema against the user's `pluginConfig`; when validation fails (because of the unknown property), the loader emits a single `[plugins] axonflow-governance invalid config: ...` log line and skips the plugin entirely — it never registers, no hooks fire, and tool calls execute completely ungoverned.
+
+In practice this affected every user who followed the documented configuration path for the override workflow. `client.createOverride()`, `client.revokeOverride()`, `client.listOverrides()` all require `userEmail` to be set (the endpoints reject calls without user identity with HTTP 401), and `client.explainDecision()` needs it for correct per-user scoping. Setting it via `pluginConfig.userEmail` — which is what the README, the SKILL.md on ClawHub, and the rest of the documentation describe — failed schema validation, disabled the plugin silently, and left the user with neither governance nor an obvious error.
+
+### Fixed
+
+- **`pluginConfig.userEmail` is now accepted by the configSchema.** Added `"userEmail": { "type": "string", "format": "email" }` to `openclaw.plugin.json` `properties`, plus a matching `uiHints.userEmail` block so portal UIs render a labelled input with placeholder and help text. Plugin runtime behaviour was already correct in v2.0.0+ — only the schema gate was rejecting it.
+
+### Why this is a patch (not a minor)
+
+The capability already existed in code; we're closing the schema gap that prevented the documented `pluginConfig` path from reaching it. Pure additive change to the schema — no existing valid config breaks.
+
+### Upgrade
+
+`openclaw plugins install @axonflow/openclaw@latest`. No code changes required on your side. If your config currently sets `userEmail` and the plugin was being silently disabled, it will now register and start enforcing policy on the next plugin reload.
+
+---
+
 ## [2.0.3] - 2026-04-30 — Scrub bait shapes from published markdown + scan all shipped files
 
 The v2.0.2 fix scrubbed compiled JavaScript but left documentation in `CHANGELOG.md`, `README.md`, and `policies/README.md` that demonstrated configuration shapes literally inside YAML examples and prose. ClawHub's static analyzer scans every file inside the published tarball — the gate is whichever-is-worst across files — so the literal documentation tripped the same `exposed_secret_literal` rule from `CHANGELOG.md` line 5 and continued to block install of v2.0.2 even though the compiled artifact was clean.

@@ -2,6 +2,15 @@
 
 ## @axonflow/governance-policies
 
+### 2.0.1 (2026-05-01)
+
+Bumps the recommended `@axonflow/openclaw` floor from `2.0.0` to `2.0.4` — the recommended stable patch for the v2.x line. Two reasons users on earlier v2.0.x patches should upgrade:
+
+- **Schema gap silently disabled the plugin.** v2.0.0 through v2.0.3 shipped a `configSchema` in `openclaw.plugin.json` that did not list `userEmail`. OpenClaw's plugin loader rejected configs that set it (per the documented override-workflow path) and skipped the plugin entirely with only a log line as warning, leaving the user ungoverned. v2.0.4 closes the schema gap.
+- **Telemetry only became reliable in v2.0.4.** Earlier v2.0.x patches had brittle heartbeat behaviour (the schema rejection above prevented the plugin from registering at all on misconfigured installs, and other early-cycle issues caused stamp-on-failure semantics that silenced subsequent windows). v2.0.4 is the first patch where the 7-day anonymous heartbeat reaches the checkpoint reliably, which means it is also the first patch where the project can see who is on the plugin and respond to drop-off signals. Users on v2.0.0–v2.0.3 are effectively invisible — upgrading to v2.0.4 surfaces them in the active-install count.
+
+Body is otherwise unchanged from v2.0.0; only the version qualifier in the Install section is updated.
+
 ### 2.0.0 (2026-05-01)
 
 Major bump tracking the plugin's v2.0 major line. Catches the skill up with the deployment-mode and telemetry changes shipped in `@axonflow/openclaw` v2.0.0–v2.0.3 and platform v7.0.0. From a user-following-prior-skill-instructions perspective the change is breaking: the default deployment mode flipped from "self-hosted only" to "Community SaaS auto-registration", and the previously-documented `DO_NOT_TRACK=1` opt-out no longer works (canonical opt-out is now `AXONFLOW_TELEMETRY=off`).
