@@ -66,6 +66,142 @@ function jsonResponse(status: number, body: Record<string, unknown>): Response {
 }
 
 describe("bootstrapCommunitySaas", () => {
+  describe("operator opt-out via AXONFLOW_COMMUNITY_SAAS", () => {
+    it("short-circuits with source=opted-out when AXONFLOW_COMMUNITY_SAAS=0", async () => {
+      process.env.AXONFLOW_COMMUNITY_SAAS = "0";
+      const fetchSpy = jest.fn().mockResolvedValue(jsonResponse(201, {}));
+      const result = await bootstrapCommunitySaas({
+        fetchImpl: fetchSpy as unknown as typeof fetch,
+        pluginVersion: "1.0.0",
+      });
+      expect(result?.source).toBe("opted-out");
+      expect(result?.clientId).toBe("");
+      expect(result?.clientSecret).toBe("");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("short-circuits for 'false', 'off', 'no' values too", async () => {
+      const fetchSpy = jest.fn();
+      for (const value of ["false", "off", "no", "FALSE", "Off"]) {
+        process.env.AXONFLOW_COMMUNITY_SAAS = value;
+        _resetBootstrapInFlightForTests();
+        const result = await bootstrapCommunitySaas({
+          fetchImpl: fetchSpy as unknown as typeof fetch,
+          pluginVersion: "1.0.0",
+        });
+        expect(result?.source).toBe("opted-out");
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("does NOT opt out when AXONFLOW_COMMUNITY_SAAS=1", async () => {
+      process.env.AXONFLOW_COMMUNITY_SAAS = "1";
+      const fetchSpy = jest.fn().mockResolvedValue(jsonResponse(503, {}));
+      const result = await bootstrapCommunitySaas({
+        fetchImpl: fetchSpy as unknown as typeof fetch,
+        pluginVersion: "1.0.0",
+      });
+      expect(result?.source).not.toBe("opted-out");
+      expect(fetchSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe("first-load disclosure banner", () => {
+    it("invokes the disclosureLogger before the registration fetch fires", async () => {
+      const callLog: Array<{ kind: string; arg: unknown }> = [];
+      const disclosureLogger = jest.fn((msg: string) => callLog.push({ kind: "log", arg: msg }));
+      const fetchSpy = jest.fn().mockImplementation(async () => {
+        callLog.push({ kind: "fetch", arg: null });
+        return jsonResponse(201, {
+          tenant_id: "cs_xyz",
+          secret: "sec",
+          expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      });
+      await bootstrapCommunitySaas({
+        fetchImpl: fetchSpy as unknown as typeof fetch,
+        pluginVersion: "1.0.0",
+        disclosureLogger,
+      });
+      expect(disclosureLogger).toHaveBeenCalledTimes(1);
+      const banner = (disclosureLogger.mock.calls[0]?.[0] ?? "") as string;
+      expect(banner).toMatch(/Community SaaS/);
+      expect(banner).toMatch(/AXONFLOW_COMMUNITY_SAAS=0/);
+      // Order: log first, then fetch.
+      const logIdx = callLog.findIndex((c) => c.kind === "log");
+      const fetchIdx = callLog.findIndex((c) => c.kind === "fetch");
+      expect(logIdx).toBeGreaterThanOrEqual(0);
+      expect(fetchIdx).toBeGreaterThan(logIdx);
+    });
+
+    it("does not re-fire the banner on a subsequent run when the stamp exists", async () => {
+      const disclosureLogger = jest.fn();
+      const fetchSpy = jest.fn().mockResolvedValue(jsonResponse(201, {
+        tenant_id: "cs_xyz",
+        secret: "sec",
+        expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      }));
+      // First call writes the disclosure stamp.
+      await bootstrapCommunitySaas({
+        fetchImpl: fetchSpy as unknown as typeof fetch,
+        pluginVersion: "1.0.0",
+        disclosureLogger,
+      });
+      expect(disclosureLogger).toHaveBeenCalledTimes(1);
+
+      // Drop the cached registration so we go through the registration
+      // path again, and reset the in-flight gate.
+      try { fs.unlinkSync(registrationFile); } catch { /* fine */ }
+      _resetBootstrapInFlightForTests();
+
+      await bootstrapCommunitySaas({
+        fetchImpl: fetchSpy as unknown as typeof fetch,
+        pluginVersion: "1.0.0",
+        disclosureLogger,
+      });
+      // Still 1 — second call did not re-warn.
+      expect(disclosureLogger).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT show the disclosure banner on the cached fast path", async () => {
+      // Pre-populate a fresh cached registration; bootstrap should
+      // fast-path-return without any disclosure logging or fetch.
+      fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(registrationFile, makeFreshRegistration(), { mode: 0o600 });
+      const disclosureLogger = jest.fn();
+      const fetchSpy = jest.fn();
+      const result = await bootstrapCommunitySaas({
+        fetchImpl: fetchSpy as unknown as typeof fetch,
+        pluginVersion: "1.0.0",
+        disclosureLogger,
+      });
+      expect(result?.source).toBe("cached-registration");
+      expect(disclosureLogger).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("falls back to stderr when no logger is supplied", async () => {
+      const stderrSpy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
+      const fetchSpy = jest.fn().mockResolvedValue(jsonResponse(201, {
+        tenant_id: "cs_xyz",
+        secret: "sec",
+        expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      }));
+      try {
+        await bootstrapCommunitySaas({
+          fetchImpl: fetchSpy as unknown as typeof fetch,
+          pluginVersion: "1.0.0",
+          // disclosureLogger intentionally omitted
+        });
+        const calls = stderrSpy.mock.calls.map((args) => String(args[0]));
+        const hadBanner = calls.some((s) => /Community SaaS/.test(s));
+        expect(hadBanner).toBe(true);
+      } finally {
+        stderrSpy.mockRestore();
+      }
+    });
+  });
+
   it("returns failed when network errors and no cached registration is present", async () => {
     // Test isolation note: clearing AXONFLOW_CONFIG_DIR alone is not enough
     // because the OS-default resolver lands at ~/Library/Application
