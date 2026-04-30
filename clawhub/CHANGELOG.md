@@ -4,12 +4,13 @@
 
 ### 2.0.1 (2026-05-01)
 
-Bumps the recommended `@axonflow/openclaw` floor from `2.0.0` to `2.0.4` — the recommended stable patch for the v2.x line. Reasons users on earlier v2.0.x patches should upgrade:
+Two changes:
 
-- **Schema gap silently disabled the plugin.** v2.0.0 through v2.0.3 shipped a `configSchema` in `openclaw.plugin.json` that did not list `userEmail`. OpenClaw's plugin loader rejected `pluginConfig` blocks that set it (which is what the documented override-workflow path requires) and skipped the plugin entirely with only a log line as warning, leaving the user ungoverned. v2.0.4 closes the schema gap.
-- **Affected users were invisible in telemetry.** Schema-rejected installs never reached the heartbeat path, so the active-install signal didn't surface drop-off from this bug. v2.0.4 lets those configurations load and surfaces the affected population.
+**Recommended deployment path is now self-hosted, not Community SaaS.** The v2.0.0 skill correctly described Community SaaS as the zero-config default, but framed it as a peer of self-hosted in the deployment-modes section. That framing was inaccurate for any real workload — Community SaaS is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention or deletion timelines, and it should not be used for production workloads, regulated environments, real user data, or any other sensitive information. The v2.0.1 skill leads with self-hosted as the recommended path for any real use, demotes Community SaaS to a clearly-labelled "early exploration only" section, and adds an explicit privacy notice near the top of the document. Production paths surface the [Plugin Evaluation Tier (90-day License)](https://getaxonflow.com/plugins/evaluation-license) for real-user use on the open core and [AxonFlow Enterprise](https://getaxonflow.com/enterprise) for regulated industries.
 
-Skill body changes vs v2.0.0: the `@axonflow/openclaw` floor in the Install section bumped from 2.0.0 to 2.0.4, and the now-redundant "Plugin v2.0.0+" prefix dropped from the three-deployment-modes paragraph (the floor lives in Install).
+**Plugin floor bumped from 2.0.0 to 2.0.4.** v2.0.0 through v2.0.3 shipped a `configSchema` in `openclaw.plugin.json` that did not list `userEmail`. OpenClaw's plugin loader rejected `pluginConfig` blocks that set it (which is what the documented override-workflow path requires) and skipped the plugin entirely with only a log line as warning, leaving the user ungoverned. Affected installs never reached the heartbeat path either, so the active-install telemetry signal didn't surface drop-off from this bug. v2.0.4 closes the schema gap; users on v2.0.0–v2.0.3 with `userEmail` set should upgrade.
+
+Skill body changes vs v2.0.0: privacy notice added immediately under the title; deployment-modes section reordered (self-hosted first, Community SaaS labelled "for early exploration only", air-gapped third); production paths (Eval License, Enterprise) surfaced under self-hosted; `@axonflow/openclaw` floor in Install bumped from 2.0.0 to 2.0.4.
 
 ### 2.0.0 (2026-05-01)
 

@@ -1,15 +1,25 @@
 ---
 name: governance-policies
-description: Govern OpenClaw with AxonFlow — block dangerous commands, detect PII, prevent data exfiltration, protect agent config files, explain policy decisions, grant time-bounded overrides with mandatory justification. Default Community SaaS for one-command evaluation, self-host for production. Use when hardening an OpenClaw deployment, debugging a policy block, or setting up compliance-grade audit trails.
+description: Govern OpenClaw with AxonFlow — block dangerous commands, detect PII, prevent data exfiltration, protect agent config files, explain policy decisions, grant time-bounded overrides with mandatory justification. Self-host AxonFlow Community Edition for any real workload; Community SaaS at try.getaxonflow.com is for early exploration only. Use when hardening an OpenClaw deployment, debugging a policy block, or setting up compliance-grade audit trails.
 homepage: https://github.com/getaxonflow/axonflow-openclaw-plugin/tree/main/policies
 tags: agent-security, approvals, audit, compliance, data-loss-prevention, explainability, governance, human-in-the-loop, llm-governance, mcp, openclaw, overrides, pii, policies, prompt-injection, safety, security, sqli
 ---
 
 # AxonFlow Governance Policies for OpenClaw
 
-Use this skill when setting up, hardening, or operating an OpenClaw deployment with AxonFlow governance. It covers the three deployment modes (Community SaaS default, self-hosted, air-gapped), plugin installation, policy configuration, understanding why a tool call was blocked, granting a time-bounded override with mandatory justification, and building compliance-grade audit trails.
+Use this skill when setting up, hardening, or operating an OpenClaw deployment with AxonFlow governance. It covers the recommended deployment path (self-hosted), plugin installation, policy configuration, understanding why a tool call was blocked, granting a time-bounded override with mandatory justification, and building compliance-grade audit trails.
 
-**Three deployment modes.** The plugin defaults to **Community SaaS** — `openclaw plugins install @axonflow/openclaw` auto-registers with `try.getaxonflow.com` on first load and starts governing tool calls without any further configuration. For real workloads or sensitive data, point the plugin at a **self-hosted** AxonFlow instance you run via Docker Compose. For air-gapped operation, opt out of Community SaaS auto-registration with `AXONFLOW_COMMUNITY_SAAS=0` and the 7-day anonymous heartbeat with `AXONFLOW_TELEMETRY=off`. LLM provider keys never leave the user's machine in any mode — OpenClaw makes the LLM calls; AxonFlow only enforces policies and records audit trails.
+> ⚠️ **Privacy notice — read before installing.** AxonFlow Community SaaS at `try.getaxonflow.com` is the zero-config endpoint the plugin uses if no other endpoint is configured. In Community SaaS mode, governed tool inputs (tool name + arguments) and outbound message bodies are sent off-host to AxonFlow's shared evaluation endpoint for policy evaluation and audit. **Community SaaS is for early exploration only** — not for production workloads, regulated environments, real user data, personal data, or any other sensitive information. It is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention, deletion, or incident-response timelines.
+>
+> For any serious use, choose one of the following instead:
+>
+> 1. **Self-host AxonFlow Community Edition** — runs entirely on your infrastructure and keeps data within your boundary. Recommended for any real workload. See [Self-hosted](#self-hosted-recommended-for-any-real-use) below.
+> 2. **Community Edition with an Evaluation License** — for production use with real users or clients on the open core; adds production-fit limits and license-gated features. See [Plugin Evaluation Tier (Free 90-day License)](https://getaxonflow.com/plugins/evaluation-license).
+> 3. **AxonFlow Enterprise** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries. Contact [hello@getaxonflow.com](mailto:hello@getaxonflow.com).
+>
+> To opt out of the Community SaaS auto-bootstrap before installing: set `AXONFLOW_COMMUNITY_SAAS=0` and configure `pluginConfig.endpoint` to a self-hosted AxonFlow on the same network. Set `AXONFLOW_TELEMETRY=off` to also disable the anonymous 7-day heartbeat.
+
+LLM provider keys never leave the user's machine in any mode — OpenClaw makes the LLM calls; AxonFlow only enforces policies and records audit trails.
 
 ## When to use this skill
 
@@ -36,23 +46,28 @@ After install, the plugin auto-registers with Community SaaS on first load and e
 
 ## Deployment Modes
 
-### Default: AxonFlow Community SaaS
+### Self-hosted (recommended for any real use)
 
-Zero-config evaluation path. Install the plugin, do not set `pluginConfig.endpoint`, and the plugin registers a tenant with `try.getaxonflow.com` on first load and persists credentials at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`). All policy evaluation, PII detection, and audit logging runs against the shared Community SaaS instance.
-
-What goes off-host on each governed call: tool name + arguments before execution, outbound message bodies before delivery (PII/secret scan), and an anonymous 7-day heartbeat (plugin version, OS, runtime). What does **not** go off-host: LLM provider API keys, OpenClaw conversation history outside governed tools, or any data outside the OpenClaw runtime.
-
-Community SaaS is intended for evaluation and prototyping. It has no SLA, no production guarantees, runs against shared Ollama models, and rate-limits at 20 req/min · 500 req/day per tenant. Read the [Try AxonFlow — Free Trial Server](https://docs.getaxonflow.com/docs/deployment/community-saas/) page for the full disclosure, including data retention and registration mechanics.
-
-### Self-hosted: your own AxonFlow
-
-Recommended for any real workflow, real systems, or sensitive data. Run AxonFlow yourself via Docker Compose; nothing leaves your network except the anonymous 7-day heartbeat. Point the plugin at your endpoint via `pluginConfig.endpoint` and provide the matching `clientId` / `clientSecret` issued to your tenant.
+Run AxonFlow yourself via Docker Compose. Nothing leaves your network except the anonymous 7-day heartbeat (which can also be disabled). Point the plugin at your endpoint via `pluginConfig.endpoint` and provide the matching `clientId` / `clientSecret` issued to your tenant.
 
 **Prerequisites:** Docker Engine or Desktop, Docker Compose v2, 4 GB RAM, 10 GB disk.
 
-**Quick start:** Clone the [AxonFlow community repo](https://github.com/getaxonflow/axonflow), copy `.env.example` to `.env`, and run `docker compose up -d`. The agent gateway starts on port 8080 — all SDK and plugin traffic goes through this port.
+**Quick start:** Clone the [AxonFlow community repo](https://github.com/getaxonflow/axonflow), copy `.env.example` to `.env`, and run `docker compose up -d`. The agent gateway starts on port 8080 — all SDK and plugin traffic goes through this port. Full setup: [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/).
 
-Full setup: [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/).
+For production use with real clients or users:
+
+- **Community Edition with an [Evaluation License](https://getaxonflow.com/plugins/evaluation-license)** — production-fit limits and license-gated features on the open core, free for 90 days.
+- **[AxonFlow Enterprise](https://getaxonflow.com/enterprise)** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries.
+
+### Community SaaS — for early exploration only
+
+The plugin's zero-config fallback. Install the plugin without setting `pluginConfig.endpoint` and it registers a tenant with `try.getaxonflow.com` on first load, persisting credentials at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`). All policy evaluation, PII detection, and audit logging then runs against the shared Community SaaS instance.
+
+**Use only for early exploration of the plugin's behaviour. Not for production workloads, regulated environments, real user data, personal data, or any other sensitive information.** The endpoint is offered "as is" on a best-effort basis with no SLA, no warranties, no commitment to retention or deletion timelines, and may be modified or discontinued without notice. It runs against shared Ollama models and rate-limits at 20 req/min · 500 req/day per tenant.
+
+What goes off-host on each governed call: tool name + arguments before execution, outbound message bodies before delivery (PII/secret scan), and an anonymous 7-day heartbeat (plugin version, OS, runtime). What does **not** go off-host: LLM provider API keys, OpenClaw conversation history outside governed tools, or any data outside the OpenClaw runtime.
+
+Read the [Try AxonFlow — Free Trial Server](https://docs.getaxonflow.com/docs/deployment/community-saas/) page for the full disclosure, including [data retention](https://docs.getaxonflow.com/docs/deployment/community-saas/#limitations-and-disclaimers) and [registration mechanics](https://docs.getaxonflow.com/docs/deployment/community-saas/#registration).
 
 ### Air-gapped: zero outbound
 
