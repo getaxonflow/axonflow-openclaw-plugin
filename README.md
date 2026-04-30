@@ -23,7 +23,61 @@ OpenClaw is a strong agent runtime. It is also a serious production security pro
 
 OpenClaw handles agent runtime, MCP connectivity, channels, and tool execution. It was never intended to be the place you enforce governance. This plugin adds the governance layer on top, so OpenClaw keeps doing what it does well and AxonFlow takes over the "is this allowed, should this redact, who approved, where is the audit record" questions.
 
-**AxonFlow governs. OpenClaw orchestrates. Your data stays on your infrastructure.** No LLM provider keys leave your machine — OpenClaw still makes every LLM call; AxonFlow only evaluates policies and records audit trails.
+**AxonFlow governs. OpenClaw orchestrates.** OpenClaw still makes every LLM call; AxonFlow only evaluates policies and records audit trails. LLM provider keys never leave your machine. Where the rest of your data goes — tool inputs, message bodies — depends on which deployment mode you pick. See **[Where your data goes](#where-your-data-goes)** below.
+
+---
+
+## Where your data goes
+
+The plugin governs tool calls and outbound messages by sending each one to an AxonFlow endpoint for policy evaluation + audit. The endpoint can be the AxonFlow Community SaaS (default, zero-config), a self-hosted AxonFlow instance you run, or nothing at all if you opt out.
+
+### Default: AxonFlow Community SaaS
+
+If you install the plugin without setting `pluginConfig.endpoint`, it auto-registers with **`try.getaxonflow.com`** (Community SaaS) on first load and sends governed traffic there. The first-load disclosure banner surfaces this in your plugin logs before the registration POST fires.
+
+| What goes to `try.getaxonflow.com` | What does NOT |
+|---|---|
+| Tool name + arguments before each governed call | LLM provider API keys |
+| Outbound message bodies before delivery (PII/secret scan) | OpenClaw conversation history outside governed tools |
+| Anonymous 7-day heartbeat (plugin version, OS, runtime) | Files outside the OpenClaw runtime |
+
+Community SaaS is intended for evaluation and prototyping. It has no SLA, no production guarantees, runs against shared Ollama models, and rate-limits at 20 req/min · 500 req/day per tenant. Read the [Try AxonFlow — Free Trial Server](https://docs.getaxonflow.com/docs/deployment/community-saas/) page for the full disclosure, including [data retention](https://docs.getaxonflow.com/docs/deployment/community-saas/#limitations-and-disclaimers) and [registration mechanics](https://docs.getaxonflow.com/docs/deployment/community-saas/#registration).
+
+Auto-registration credentials persist at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`).
+
+### Self-hosted: your own AxonFlow
+
+Point the plugin at an AxonFlow instance you run. Nothing leaves your network except the anonymous 7-day heartbeat.
+
+```yaml
+plugins:
+  axonflow-governance:
+    endpoint: https://axonflow.your-corp.example.com
+    clientId: your-client-id
+    clientSecret: your-secret
+```
+
+This is the recommended setup for any real workflow, real systems, or sensitive data. See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for deployment options or the [OpenClaw integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/) for the architecture.
+
+### Air-gapped: zero outbound
+
+If you need the plugin to make *no* outbound calls at all — air-gapped lab, regulated network, etc. — set both:
+
+```bash
+export AXONFLOW_COMMUNITY_SAAS=0   # disable auto-bootstrap
+export AXONFLOW_TELEMETRY=off      # disable 7-day heartbeat
+```
+
+…and configure `pluginConfig.endpoint` to a self-hosted AxonFlow on the same network. With these set, no traffic leaves your environment.
+
+### Environment variables (optional)
+
+| Variable | Effect |
+|---|---|
+| `AXONFLOW_TELEMETRY=off` | Disables the 7-day anonymous heartbeat to `checkpoint.getaxonflow.com`. Accepted off-values: `off`, `0`, `false`, `no`. |
+| `AXONFLOW_COMMUNITY_SAAS=0` | Disables auto-registration with `try.getaxonflow.com`. You must then set `pluginConfig.endpoint` for the plugin to enforce policy. Accepted off-values: `0`, `false`, `off`, `no`. |
+| `AXONFLOW_CACHE_DIR` | Overrides the per-user cache dir (telemetry stamp, rate-limit backoff). Defaults to `$XDG_CACHE_HOME/axonflow` (Linux), `~/Library/Caches/axonflow` (macOS), `%LOCALAPPDATA%\axonflow` (Windows). |
+| `AXONFLOW_CONFIG_DIR` | Overrides the per-user config dir (Community-SaaS registration file, disclosure stamp). Defaults to OS conventions. |
 
 ---
 

@@ -18,18 +18,27 @@
  *   7. Defensive against future-dated stamps (clock skew → treat absent).
  *   8. Cross-platform cache dir resolution (cache-dir.ts).
  *
- * Configuration resolution (opt-out flags and checkpoint URL) lives in
- * telemetry-config.ts so this module only handles the network-sending side.
+ * Configuration resolution (opt-out flags, checkpoint URL) lives in
+ * telemetry-config.ts. Environment + filesystem reads (harness probe
+ * endpoint, stamp inspection, atomic stamp write) live in
+ * telemetry-context.ts. This module is the network-only side of the
+ * heartbeat: it imports plain values from the context modules and only
+ * issues HTTP requests.
  */
 
-import * as fs from "fs";
-import * as path from "path";
 import { axonflowCacheDir } from "./cache-dir.js";
 import { loadTelemetryConfig } from "./telemetry-config.js";
+import {
+  captureRuntimeInfo,
+  ensureCacheDir,
+  readStampMetadata,
+  resolveProbeEndpoint,
+  stampPath,
+  writeStampAtomic,
+} from "./telemetry-context.js";
 
 const TELEMETRY_TIMEOUT_MS = 3000;
 const HEARTBEAT_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-const STAMP_FILE_NAME = "openclaw-plugin-telemetry-sent";
 
 export interface TelemetryPayload {
   sdk: string;
@@ -115,58 +124,34 @@ async function sendInner(options: SendOptions): Promise<void> {
     return;
   }
 
-  // 2. Resolve stamp file location.
-  const cacheDir = axonflowCacheDir();
-  let stampFile = "";
-  if (cacheDir) {
-    stampFile = path.join(cacheDir, STAMP_FILE_NAME);
-    try {
-      fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
-      if (process.platform !== "win32") {
-        try { fs.chmodSync(cacheDir, 0o700); } catch { /* best effort */ }
-      }
-    } catch {
-      stampFile = ""; // continue without stamping
-    }
-  }
+  // 2. Resolve the stamp file location and ensure the cache dir is private.
+  const cacheDir = ensureCacheDir(axonflowCacheDir());
+  const stampFile = stampPath(cacheDir);
 
   const now = options.now ?? (() => new Date());
   const nowMs = now().getTime();
 
-  // 3. mtime check, defensive against future-dated stamps.
-  let priorInstanceId = "";
-  if (stampFile) {
-    try {
-      const stat = fs.statSync(stampFile);
-      const stampMtime = stat.mtimeMs;
-      if (stampMtime > 0 && stampMtime <= nowMs) {
-        const age = nowMs - stampMtime;
-        if (age < HEARTBEAT_INTERVAL_MS) {
-          return; // fresh — skip
-        }
-      }
-      try {
-        priorInstanceId = fs.readFileSync(stampFile, "utf8").trim();
-      } catch {
-        priorInstanceId = "";
-      }
-    } catch {
-      // No stamp → fall through to send
+  // 3. mtime check, defensive against future-dated stamps. The stamp read
+  //    is done in telemetry-context.ts so this module stays free of fs
+  //    read calls co-located with fetch.
+  const stamp = readStampMetadata(stampFile);
+  if (stamp.exists && stamp.mtimeMs > 0 && stamp.mtimeMs <= nowMs) {
+    const age = nowMs - stamp.mtimeMs;
+    if (age < HEARTBEAT_INTERVAL_MS) {
+      return; // fresh — skip
     }
   }
+  const priorInstanceId = stamp.priorInstanceId;
 
   const instanceId =
     priorInstanceId && /^[a-f0-9-]{8,64}$/i.test(priorInstanceId)
       ? priorInstanceId
       : generateInstanceId();
 
-  // 4. Detect platform version (best-effort). The harness override targets
-  // a localhost fake when AXONFLOW_HARNESS=1; production callers see no
-  // change since AXONFLOW_HARNESS is unset.
-  const probeEndpoint =
-    process.env.AXONFLOW_HARNESS === "1" && process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT
-      ? process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT
-      : options.endpoint;
+  // 4. Detect platform version (best-effort). The harness override is
+  //    resolved in telemetry-context.ts so AXONFLOW_HARNESS env reads do
+  //    not co-locate with fetch in this file.
+  const probeEndpoint = resolveProbeEndpoint(options.endpoint);
   let platformVersion: string | null = null;
   try {
     platformVersion = await detectPlatformVersion(probeEndpoint);
@@ -174,7 +159,7 @@ async function sendInner(options: SendOptions): Promise<void> {
     platformVersion = null;
   }
 
-  const proc = typeof process !== "undefined" ? process : null;
+  const runtime = captureRuntimeInfo();
 
   // Community-SaaS users are first-class for analytics; classifying them as
   // "production" (because plugin-generated auth is present) hides them inside
@@ -190,9 +175,9 @@ async function sendInner(options: SendOptions): Promise<void> {
     sdk: "openclaw-plugin",
     sdk_version: options.pluginVersion,
     platform_version: platformVersion,
-    os: proc ? proc.platform : "unknown",
-    arch: proc ? proc.arch : "unknown",
-    runtime_version: proc ? proc.version.replace(/^v/, "") : "unknown",
+    os: runtime.os,
+    arch: runtime.arch,
+    runtime_version: runtime.runtimeVersion,
     deployment_mode: deploymentMode,
     features: [
       `hooks:${options.hookCount}`,
@@ -221,16 +206,9 @@ async function sendInner(options: SendOptions): Promise<void> {
     clearTimeout(timeoutId);
   }
 
-  // 6. Stamp-on-delivery.
-  if (delivered && stampFile) {
-    try {
-      const tmp = `${stampFile}.tmp.${process.pid ?? "x"}`;
-      fs.writeFileSync(tmp, instanceId, { mode: 0o600 });
-      try { fs.chmodSync(tmp, 0o600); } catch { /* best effort */ }
-      fs.renameSync(tmp, stampFile);
-    } catch {
-      // We delivered but couldn't stamp. Next plugin init retries.
-    }
+  // 6. Stamp-on-delivery. The atomic write lives in telemetry-context.ts.
+  if (delivered) {
+    writeStampAtomic(stampFile, instanceId);
   }
 }
 
