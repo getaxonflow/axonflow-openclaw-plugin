@@ -226,7 +226,7 @@ Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/)
 
 ### Step 2: install the plugin
 
-Requires OpenClaw **2026.4.14 or later**. Upgrade with `npm install -g openclaw@latest` if needed.
+Requires OpenClaw **2026.4.15 or later** (CVE floor). Upgrade with `npm install -g openclaw@latest` if needed.
 
 ```bash
 openclaw plugins install @axonflow/openclaw

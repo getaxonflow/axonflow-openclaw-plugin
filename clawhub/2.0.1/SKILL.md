@@ -9,15 +9,17 @@ tags: agent-security, approvals, audit, compliance, data-loss-prevention, explai
 
 Use this skill when setting up, hardening, or operating an OpenClaw deployment with AxonFlow governance. It covers the recommended deployment path (self-hosted), plugin installation, policy configuration, understanding why a tool call was blocked, granting a time-bounded override with mandatory justification, and building compliance-grade audit trails.
 
-> **Privacy notice — read before installing.** AxonFlow [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) at `try.getaxonflow.com` is the zero-config endpoint the plugin uses if no other endpoint is configured. In Community SaaS mode, governed tool inputs (tool name + arguments) and outbound message bodies are sent off-host to AxonFlow's shared evaluation endpoint for policy evaluation and audit. **Community SaaS is for early exploration only** — not for production workloads, regulated environments, real user data, personal data, or any other sensitive information. It is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention, deletion, or incident-response timelines.
->
-> For any serious use, choose one of the following instead:
->
-> 1. **[Self-host AxonFlow Community Edition](https://docs.getaxonflow.com/docs/deployment/self-hosted/)** — runs entirely on your infrastructure and keeps data within your boundary. Recommended for any real workload. See the [Self-hosted](#self-hosted-recommended-for-any-real-use) section below for the in-skill quick start.
-> 2. **Community Edition with an [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/)** — for production use with real users or clients on the open core; adds production-fit limits and license-gated features. Free 90-day [evaluation license](https://getaxonflow.com/plugins/evaluation-license).
-> 3. **[AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/)** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries. Contact [hello@getaxonflow.com](mailto:hello@getaxonflow.com).
->
-> To skip Community SaaS entirely: set `pluginConfig.endpoint` to a self-hosted AxonFlow URL. That alone flips the plugin into self-hosted mode — the Community SaaS auto-bootstrap is not attempted, and no env var is required. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for the Docker Compose setup. For air-gapped environments where AxonFlow is not yet reachable but you want to suppress the bootstrap attempt, set `AXONFLOW_COMMUNITY_SAAS=0`; set `AXONFLOW_TELEMETRY=off` to also disable the anonymous 7-day heartbeat.
+## Privacy notice
+
+**Read before installing.** AxonFlow [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) at `try.getaxonflow.com` is the zero-config endpoint the plugin uses if no other endpoint is configured. In Community SaaS mode, governed tool inputs (tool name + arguments) and outbound message bodies are sent off-host to AxonFlow's shared evaluation endpoint for policy evaluation and audit. **Community SaaS is for early exploration only** — not for production workloads, regulated environments, real user data, personal data, or any other sensitive information. It is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention, deletion, or incident-response timelines.
+
+For any serious use, choose one of the following instead:
+
+1. **[Self-host AxonFlow Community Edition](https://docs.getaxonflow.com/docs/deployment/self-hosted/)** — runs entirely on your infrastructure and keeps data within your boundary. Recommended for any real workload. The in-skill quick start is in [Step 1](#step-1-install-the-axonflow-platform) below.
+2. **Community Edition with an [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/)** — for production use with real users or clients on the open core; adds production-fit limits and license-gated features. Free 90-day [evaluation license](https://getaxonflow.com/plugins/evaluation-license).
+3. **[AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/)** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries. Contact [hello@getaxonflow.com](mailto:hello@getaxonflow.com).
+
+To skip Community SaaS entirely: set `pluginConfig.endpoint` to a self-hosted AxonFlow URL. That alone flips the plugin into self-hosted mode — the Community SaaS auto-bootstrap is not attempted, and no env var is required. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for the Docker Compose setup. For air-gapped environments where AxonFlow is not yet reachable but you want to suppress the bootstrap attempt, set `AXONFLOW_COMMUNITY_SAAS=0`; set `AXONFLOW_TELEMETRY=off` to also disable the anonymous 7-day heartbeat.
 
 LLM provider keys never leave the user's machine in any mode — OpenClaw makes the LLM calls; AxonFlow only enforces policies and records audit trails.
 
@@ -48,7 +50,7 @@ curl -s http://localhost:8080/health | jq .
 
 Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for prerequisites (Docker Engine or Desktop, Docker Compose v2, 4 GB RAM, 10 GB disk) and the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/) for production options. The agent gateway listens on port 8080 — all SDK and plugin traffic goes through this port.
 
-> If you skip this step entirely and just install the plugin, it falls back to the [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) endpoint at `try.getaxonflow.com` for early exploration only. **Do not skip Step 1 for any real workload** — Community SaaS is offered "as is" with no SLA, no warranties, and no commitment to retention or deletion timelines. See the [Privacy notice](#privacy-notice--read-before-installing) above.
+> If you skip this step entirely and just install the plugin, it falls back to the [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) endpoint at `try.getaxonflow.com` for early exploration only. **Do not skip Step 1 for any real workload** — Community SaaS is offered "as is" with no SLA, no warranties, and no commitment to retention or deletion timelines. See the [Privacy notice](#privacy-notice) above.
 
 ### Step 2: install the plugin
 
@@ -82,26 +84,15 @@ Every plugin init logs a one-line canary on stderr confirming the active mode:
 
 If the canary says `mode=community-saas` after you ran Step 1, the plugin is still hitting `try.getaxonflow.com` because Step 3 was skipped or `pluginConfig.endpoint` is unset. Fix Step 3 and reload.
 
-Skipping Step 3 entirely (and Step 1) falls back to Community SaaS for early exploration only — see the [Privacy notice](#privacy-notice--read-before-installing) above. The first-load disclosure banner stamps under `$AXONFLOW_CONFIG_DIR`; remove the stamp file to re-display.
+Skipping Step 3 entirely (and Step 1) falls back to Community SaaS for early exploration only — see the [Privacy notice](#privacy-notice) above. The first-load disclosure banner stamps under `$AXONFLOW_CONFIG_DIR`; remove the stamp file to re-display.
 
-## Deployment Modes
+## Mode-specific reference
 
-### Self-hosted (recommended for any real use)
-
-Run AxonFlow yourself via Docker Compose. Nothing leaves your network except the anonymous 7-day heartbeat (which can also be disabled). Point the plugin at your endpoint via `pluginConfig.endpoint` and provide the matching `clientId` / `clientSecret` issued to your tenant.
-
-**Prerequisites:** Docker Engine or Desktop, Docker Compose v2, 4 GB RAM, 10 GB disk.
-
-**Quick start:** Clone the [AxonFlow community repo](https://github.com/getaxonflow/axonflow), copy `.env.example` to `.env`, and run `docker compose up -d`. The agent gateway starts on port 8080 — all SDK and plugin traffic goes through this port. Full setup: [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/).
-
-For production use with real clients or users:
-
-- **Community Edition with an [Evaluation License](https://getaxonflow.com/plugins/evaluation-license)** — production-fit limits and license-gated features on the open core, free for 90 days.
-- **[AxonFlow Enterprise](https://getaxonflow.com/enterprise)** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries.
+The recommended self-hosted path is covered in [Install Step 1](#step-1-install-the-axonflow-platform). The two subsections below add detail for the Community SaaS exploration path and the air-gapped opt-out path.
 
 ### Community SaaS — for early exploration only
 
-The plugin's zero-config fallback. Install the plugin without setting `pluginConfig.endpoint` and it registers a tenant with `try.getaxonflow.com` on first load, persisting credentials at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`). All policy evaluation, PII detection, and audit logging then runs against the shared Community SaaS instance.
+The plugin's zero-config fallback when [Step 3](#step-3-point-the-plugin-at-the-platform) is skipped. The plugin registers a tenant with `try.getaxonflow.com` on first load and persists credentials at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`). All policy evaluation, PII detection, and audit logging then runs against the shared Community SaaS instance.
 
 **Use only for early exploration of the plugin's behaviour. Not for production workloads, regulated environments, real user data, personal data, or any other sensitive information.** The endpoint is offered "as is" on a best-effort basis with no SLA, no warranties, no commitment to retention or deletion timelines, and may be modified or discontinued without notice. It runs against shared Ollama models and rate-limits at 20 req/min · 500 req/day per tenant.
 
@@ -122,14 +113,12 @@ export AXONFLOW_TELEMETRY=off      # disable the anonymous 7-day heartbeat
 
 ## Configure
 
-Configure four `pluginConfig` keys plus optional environment variables:
+[Step 3](#step-3-point-the-plugin-at-the-platform) covers the primary keys (`endpoint` / `clientId` / `clientSecret`). Two more `pluginConfig` keys are worth highlighting:
 
-- **`endpoint`** — the URL of your AxonFlow agent gateway. Leave unset for Community SaaS auto-registration; set to your self-hosted AxonFlow URL for production.
-- **`clientId`** — your AxonFlow tenant identifier. In Community SaaS mode, the auto-registration flow populates this. In self-hosted mode, set the tenant ID issued to your deployment.
-- **`clientSecret`** — the matching secret. **Resolve at runtime from a secret store** (Vault, AWS Secrets Manager, GCP Secret Manager, or your CI provider's secret store) rather than embedding the value in a config file checked into source control. The config resolver rejects `clientSecret` set without `clientId` — licensed mode must specify both.
 - **`userEmail`** — per-user identity, forwarded as the `X-User-Email` header. **Required** for `client.createOverride()`, `client.revokeOverride()`, `client.listOverrides()` (the endpoints reject calls without user identity, returning HTTP 401), and for correct per-user scoping on `client.explainDecision()`. If unset the client still works for block-path features but override lifecycle methods return 401.
+- **`clientSecret`** handling — **resolve at runtime from a secret store** (Vault, AWS Secrets Manager, GCP Secret Manager, or your CI provider's secret store) rather than embedding the value in a config file checked into source control. The config resolver rejects `clientSecret` set without `clientId` — licensed mode must specify both.
 
-Optional `pluginConfig` keys: `highRiskTools` (tools requiring human approval after AxonFlow allows), `onError` (`block` for fail-closed in production, `allow` for dev), `requestTimeoutMs` (raise when AxonFlow is remote/VPN).
+Optional `pluginConfig` keys: `highRiskTools` (tools requiring human approval after AxonFlow allows), `onError` (`block` for fail-closed in production, `allow` for dev), `requestTimeoutMs` (raise when AxonFlow is remote/VPN), `governedTools` / `excludedTools` (scope which tools the plugin governs), `defaultOperation` (`execute` or `query` for `mcp_check_input`).
 
 Full configuration reference: [OpenClaw Integration Guide](https://docs.getaxonflow.com/docs/integration/openclaw/).
 
