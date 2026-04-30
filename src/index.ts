@@ -31,10 +31,7 @@
  * for async hook support.
  */
 
-import * as fs from "fs";
-import * as path from "path";
 import { AxonFlowClient } from "./axonflow-client.js";
-import { axonflowCacheDir } from "./cache-dir.js";
 import type { ClientRef } from "./client-ref.js";
 import { resolveConfig } from "./config.js";
 import { createBeforeToolCallHandler } from "./governance.js";
@@ -47,7 +44,7 @@ import { resetMetrics } from "./metrics.js";
 import { runPluginVersionCheck } from "./plugin-version-check.js";
 
 /** Plugin version — update before each release. */
-export const VERSION = "2.0.0";
+export const VERSION = "2.0.1";
 
 // Re-export for external consumers
 export { AxonFlowClient } from "./axonflow-client.js";
@@ -102,12 +99,39 @@ export function registerAxonFlowGovernance(api: {
     void bootstrapCommunitySaas({
       endpoint: config.endpoint,
       pluginVersion: VERSION,
+      // Surface the first-load consent disclosure through the plugin
+      // logger so it shows up alongside other plugin warnings rather than
+      // only on stderr. The bootstrap module fires the banner at most
+      // once per machine (stamp file in the config dir).
+      disclosureLogger: (msg) => {
+        if (api.logger.warn) {
+          api.logger.warn(msg);
+        } else {
+          api.logger.error(msg);
+        }
+      },
     }).then((result) => {
       if (!result || result.source === "failed" || result.source === "rate-limited") {
         const detail = result?.source === "rate-limited"
           ? "rate-limited (will retry)"
           : "failed (network error or non-2xx response)";
         const msg = `AxonFlow Community SaaS registration ${detail}. Tool calls will fail-${config.onError === "allow" ? "open (allow through)" : "closed (block)"} until registration succeeds.`;
+        if (api.logger.warn) {
+          api.logger.warn(msg);
+        } else {
+          api.logger.error(msg);
+        }
+        return;
+      }
+      if (result.source === "opted-out") {
+        // Operator set AXONFLOW_COMMUNITY_SAAS=0. The plugin loaded but
+        // is not registered with any AxonFlow instance. Surface this so
+        // the operator sees why governance calls might fail-open or
+        // fail-closed depending on onError config.
+        const msg =
+          "AxonFlow Community SaaS auto-bootstrap skipped (AXONFLOW_COMMUNITY_SAAS=0). " +
+          "Set pluginConfig.endpoint to a self-hosted AxonFlow instance, or unset the " +
+          "opt-out env var to register with try.getaxonflow.com.";
         if (api.logger.warn) {
           api.logger.warn(msg);
         } else {
@@ -129,13 +153,6 @@ export function registerAxonFlowGovernance(api: {
       // Silent — bootstrap should never block plugin registration. The
       // governance handlers will fail-open or fail-closed per onError config.
     });
-  }
-
-  // One-time positive disclosure on first Community-SaaS connection.
-  // Stamped at axonflowCacheDir()/openclaw-plugin-disclosure-shown so it
-  // fires exactly once per install (separate stamp from the heartbeat).
-  if (config.mode === "community-saas") {
-    showCommunitySaasDisclosureOnce(api);
   }
 
   // Startup health check (fire-and-forget, non-blocking)
@@ -192,48 +209,6 @@ export function registerAxonFlowGovernance(api: {
     onError: config.onError ?? "block",
     mode: config.mode,
   });
-}
-
-/**
- * One-time positive disclosure when first connecting to Community SaaS.
- * Stamped at axonflowCacheDir()/openclaw-plugin-disclosure-shown so it
- * fires exactly once per install. Failures (no writable cache dir, etc.)
- * fall through silently — the disclosure is best-effort and never blocks
- * plugin registration.
- */
-function showCommunitySaasDisclosureOnce(api: {
-  logger: { info: (msg: string) => void };
-}): void {
-  const cacheDir = axonflowCacheDir();
-  if (!cacheDir) return;
-  const stamp = path.join(cacheDir, "openclaw-plugin-disclosure-shown");
-  try {
-    fs.statSync(stamp);
-    return; // already shown
-  } catch {
-    // not stamped yet — proceed
-  }
-  try {
-    fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
-    if (process.platform !== "win32") {
-      try { fs.chmodSync(cacheDir, 0o700); } catch { /* best effort */ }
-    }
-  } catch {
-    return;
-  }
-  api.logger.info(
-    "[AxonFlow] Connected to AxonFlow Community SaaS at https://try.getaxonflow.com.\n" +
-    "Intended for basic testing and evaluation. For real workflows, real systems,\n" +
-    "or sensitive data, we recommend self-hosting AxonFlow from day one:\n" +
-    "  https://docs.getaxonflow.com/quickstart\n" +
-    "Anonymous telemetry: weekly heartbeat. Opt out: AXONFLOW_TELEMETRY=off",
-  );
-  try {
-    fs.writeFileSync(stamp, "", { mode: 0o600 });
-  } catch {
-    // best effort; if we can't stamp, the message will fire again
-    // next time. Acceptable trade-off vs not surfacing it.
-  }
 }
 
 /**

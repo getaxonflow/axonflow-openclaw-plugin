@@ -1,0 +1,79 @@
+name: Security Scan
+
+# Pre-publish gate: runs the official OpenClaw plugin scanner against
+# the npm-pack tarball — exactly the artifact ClawHub re-scans
+# server-side at publish time. Any critical or warning fails the PR.
+#
+# Catches the class of regressions where:
+#   - a compiled file in dist/ co-locates `process.env.*` access with an
+#     outbound `fetch(...)` (env_credential_access — install-blocking)
+#   - a compiled file co-locates `fs.readFileSync` with an outbound
+#     network call (potential_exfiltration — verdict goes Suspicious)
+#   - a script under scripts/ that ends up in the published tarball
+#     introduces shell exec patterns
+#
+# The scanner is invoked via `openclaw plugins install <tarball>` with
+# isolated state (OPENCLAW_STATE_DIR=mktemp -d) so the run never
+# pollutes a real install.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'dist/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'openclaw.plugin.json'
+      - 'tsconfig.json'
+      - 'scripts/scan-tarball.mjs'
+      - '.github/workflows/security-scan.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'dist/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'openclaw.plugin.json'
+      - 'tsconfig.json'
+      - 'scripts/scan-tarball.mjs'
+      - '.github/workflows/security-scan.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  security-scan:
+    name: Pack + scan tarball with openclaw
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      AXONFLOW_TELEMETRY: 'off'
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install build deps
+        run: npm ci
+
+      # Install the latest published openclaw on every run. This is
+      # deliberate: the scanner ruleset evolves with each openclaw
+      # release; pinning here would let new rules ship without us
+      # noticing. If a future ruleset rejects our package, that is the
+      # signal to refactor — not the signal to pin.
+      - name: Install openclaw CLI (latest)
+        run: npm install -g openclaw@latest
+
+      - name: Run security scan against packed tarball
+        run: npm run scan

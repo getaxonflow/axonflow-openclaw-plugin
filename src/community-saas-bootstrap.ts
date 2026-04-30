@@ -7,8 +7,7 @@
  * resulting credential to a 0600 file under the user's config dir, and
  * returns Basic-auth credentials the caller can hand to the AxonFlow client.
  *
- * Design rules (per feedback_telemetry_heartbeat_design_rules.md and
- * feedback_pg_advisory_lock_pin_connection.md):
+ * Design rules:
  *   - Stamp-on-delivery: registration file is written ONLY after the
  *     POST returns 201 with a valid response body. A network failure
  *     leaves the previous (or absent) state untouched.
@@ -23,12 +22,31 @@
  *   - Cross-platform cache dir resolution (Linux/macOS/Windows).
  *   - Refuses to load a registration file with non-0600 permissions
  *     (defends against silent credential leak via accidental chmod).
+ *   - Operator opt-out via AXONFLOW_COMMUNITY_SAAS=0 short-circuits the
+ *     bootstrap entirely; callers see source="opted-out".
+ *
+ * Environment + filesystem operations live in community-saas-context.ts.
+ * This module is the orchestration + network-only side of the bootstrap:
+ * it imports plain values from the context module and only issues HTTP
+ * requests + invokes the plugin logger.
  */
 
-import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import { axonflowCacheDir, axonflowConfigDir } from "./cache-dir.js";
+import {
+  buildRegistrationLabel,
+  disclosureStampPath,
+  ensureSecureDir,
+  hasShownDisclosure,
+  isCommunitySaasOptedOut,
+  isWithinBackoff,
+  markDisclosureShown,
+  readRegistrationIfFreshAndSafe,
+  resolveHarnessInputs,
+  unlinkIfExists,
+  writeFileAtomicallyWithMode,
+  type PersistedRegistration,
+} from "./community-saas-context.js";
 
 const REGISTER_URL_DEFAULT = "https://try.getaxonflow.com/api/v1/register";
 const ENDPOINT_DEFAULT = "https://try.getaxonflow.com";
@@ -39,13 +57,6 @@ const BACKOFF_SECONDS = 3600;
 // a tenant lapse silently while users are actively using the plugin.
 const REFRESH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-interface PersistedRegistration {
-  tenant_id: string;
-  secret: string;
-  expires_at: string;
-  endpoint?: string;
-}
-
 export interface BootstrapResult {
   /** Resolved AxonFlow agent endpoint to use for subsequent requests. */
   endpoint: string;
@@ -53,9 +64,30 @@ export interface BootstrapResult {
   clientId: string;
   /** Plain-text credential paired with clientId for Basic auth. */
   clientSecret: string;
-  /** Source for telemetry / logging (`community-saas-fresh`, `community-saas-cached`, etc). */
-  source: "fresh-registration" | "cached-registration" | "rate-limited" | "failed";
+  /**
+   * Source for telemetry / logging:
+   *   "fresh-registration"  — first-time POST to /api/v1/register succeeded.
+   *   "cached-registration" — existing on-disk credential is fresh enough.
+   *   "rate-limited"        — 429 from the registrar; backoff active.
+   *   "failed"              — network or response error; no credential.
+   *   "opted-out"           — operator set AXONFLOW_COMMUNITY_SAAS=0.
+   */
+  source:
+    | "fresh-registration"
+    | "cached-registration"
+    | "rate-limited"
+    | "failed"
+    | "opted-out";
 }
+
+/**
+ * Optional injection hook for the disclosure banner. The plugin entry
+ * point passes its OpenClaw `PluginLogger.warn` here so the banner shows
+ * up in plugin/gateway logs in the same style as other plugin warnings.
+ * When omitted, falls back to `process.stderr.write` so test harnesses
+ * and ad-hoc invocations still surface the disclosure.
+ */
+export type DisclosureLogger = (message: string) => void;
 
 /**
  * Per-process in-flight gate. When two plugin loads happen concurrently
@@ -63,6 +95,19 @@ export interface BootstrapResult {
  * waits on the first's promise rather than firing a duplicate registration.
  */
 let inFlight: Promise<BootstrapResult | null> | null = null;
+
+export interface BootstrapOptions {
+  registerUrl?: string;
+  endpoint?: string;
+  pluginVersion?: string;
+  fetchImpl?: typeof fetch;
+  now?: () => Date;
+  /**
+   * Caller-provided logger for the first-load Community-SaaS disclosure.
+   * Plugin entry passes `api.logger.warn`; tests pass a capture function.
+   */
+  disclosureLogger?: DisclosureLogger;
+}
 
 /**
  * Bootstrap a Community-SaaS registration. Returns null if bootstrap was
@@ -73,13 +118,9 @@ let inFlight: Promise<BootstrapResult | null> | null = null;
  * Safe to call concurrently — the second concurrent call awaits the first
  * rather than racing.
  */
-export async function bootstrapCommunitySaas(opts?: {
-  registerUrl?: string;
-  endpoint?: string;
-  pluginVersion?: string;
-  fetchImpl?: typeof fetch;
-  now?: () => Date;
-}): Promise<BootstrapResult | null> {
+export async function bootstrapCommunitySaas(
+  opts?: BootstrapOptions,
+): Promise<BootstrapResult | null> {
   if (inFlight) {
     return inFlight;
   }
@@ -89,23 +130,22 @@ export async function bootstrapCommunitySaas(opts?: {
   return inFlight;
 }
 
-async function bootstrapCommunitySaasInner(opts?: {
-  registerUrl?: string;
-  endpoint?: string;
-  pluginVersion?: string;
-  fetchImpl?: typeof fetch;
-  now?: () => Date;
-}): Promise<BootstrapResult | null> {
-  // Test-harness overrides — only honoured when AXONFLOW_HARNESS=1 and
-  // exclusively used by tests/heartbeat-real-stack/. Production callers
-  // leave AXONFLOW_HARNESS unset and the URLs stay pinned to
-  // try.getaxonflow.com.
-  const harnessOn = process.env.AXONFLOW_HARNESS === "1";
-  const harnessRegister = harnessOn ? process.env.AXONFLOW_HARNESS_REGISTER_URL : "";
-  const harnessAgent = harnessOn ? process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT : "";
+async function bootstrapCommunitySaasInner(
+  opts?: BootstrapOptions,
+): Promise<BootstrapResult | null> {
+  // 0. Operator opt-out short-circuits everything. No env-var disclosure
+  //    lookup, no fs touches, no network — return immediately.
+  if (isCommunitySaasOptedOut()) {
+    return { endpoint: opts?.endpoint ?? ENDPOINT_DEFAULT, clientId: "", clientSecret: "", source: "opted-out" };
+  }
 
-  const registerUrl = opts?.registerUrl ?? (harnessRegister || REGISTER_URL_DEFAULT);
-  const endpoint = opts?.endpoint ?? (harnessAgent || ENDPOINT_DEFAULT);
+  // 1. Test-harness URL overrides — only honoured when AXONFLOW_HARNESS=1
+  //    and exclusively used by tests/heartbeat-real-stack/. Production
+  //    callers leave AXONFLOW_HARNESS unset and the URLs stay pinned to
+  //    try.getaxonflow.com.
+  const harness = resolveHarnessInputs();
+  const registerUrl = opts?.registerUrl ?? (harness.harnessRegisterUrl || REGISTER_URL_DEFAULT);
+  const endpoint = opts?.endpoint ?? (harness.harnessAgentEndpoint || ENDPOINT_DEFAULT);
   const fetchFn = opts?.fetchImpl ?? fetch;
   const now = opts?.now ?? (() => new Date());
 
@@ -120,21 +160,12 @@ async function bootstrapCommunitySaasInner(opts?: {
     ? path.join(cacheDir, BACKOFF_FILE_NAME)
     : "";
 
-  try {
-    fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-    // mkdir's mode only applies to directories it creates. A user with
-    // ~/.config already at 0755 would otherwise hold our 0600 credential
-    // file inside a traversable directory; chmod restores the dir-mode
-    // contract on every invocation. Skip on Windows (mode bits don't map).
-    if (process.platform !== "win32") {
-      try { fs.chmodSync(configDir, 0o700); } catch { /* best effort */ }
-    }
-  } catch {
+  if (!ensureSecureDir(configDir)) {
     return null;
   }
 
   // Fast path: existing registration is fresh enough.
-  const cached = readRegistrationIfFreshAndSafe(registrationFile, now);
+  const cached = readRegistrationIfFreshAndSafe(registrationFile, now, REFRESH_WINDOW_MS);
   if (cached) {
     return {
       endpoint: cached.endpoint ?? endpoint,
@@ -149,8 +180,19 @@ async function bootstrapCommunitySaasInner(opts?: {
     return { endpoint, clientId: "", clientSecret: "", source: "rate-limited" };
   }
 
+  // First-load disclosure: announce the auto-registration once per machine
+  // before issuing the network call. The stamp is written after the
+  // banner emits so we don't re-warn on subsequent loads, but never before
+  // the banner emits so a crash mid-disclosure stays loud.
+  emitFirstLoadDisclosureIfNeeded({
+    configDir,
+    endpoint,
+    registerUrl,
+    logger: opts?.disclosureLogger,
+  });
+
   // Issue the registration.
-  const label = buildLabel(opts?.pluginVersion);
+  const label = buildRegistrationLabel(opts?.pluginVersion);
   let response: Response;
   try {
     const ctl = new AbortController();
@@ -170,12 +212,8 @@ async function bootstrapCommunitySaasInner(opts?: {
   }
 
   if (response.status === 429) {
-    if (backoffFile && cacheDir) {
+    if (backoffFile && cacheDir && ensureSecureDir(cacheDir)) {
       try {
-        fs.mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
-        if (process.platform !== "win32") {
-          try { fs.chmodSync(cacheDir, 0o700); } catch { /* best effort */ }
-        }
         const backoffUntil = Math.floor(now().getTime() / 1000) + BACKOFF_SECONDS;
         writeFileAtomicallyWithMode(backoffFile, String(backoffUntil), 0o600);
       } catch {
@@ -213,7 +251,7 @@ async function bootstrapCommunitySaasInner(opts?: {
   try {
     writeFileAtomicallyWithMode(registrationFile, JSON.stringify(parsed), 0o600);
     if (backoffFile) {
-      try { fs.unlinkSync(backoffFile); } catch { /* fine */ }
+      unlinkIfExists(backoffFile);
     }
   } catch {
     // We received valid credentials but couldn't persist them. Return them
@@ -229,84 +267,69 @@ async function bootstrapCommunitySaasInner(opts?: {
   };
 }
 
-function readRegistrationIfFreshAndSafe(
-  file: string,
-  now: () => Date,
-): PersistedRegistration | null {
-  let stat: fs.Stats;
-  try {
-    stat = fs.statSync(file);
-  } catch {
-    return null;
-  }
-  // Refuse to read a registration file with non-0600 permissions. World-
-  // readable credential storage is a real bug; the caller surfaces the
-  // refusal so the user knows to delete + re-register.
-  if (process.platform !== "win32") {
-    const mode = stat.mode & 0o777;
-    if (mode !== 0o600) {
-      try {
-        process.stderr.write(
-          `[AxonFlow] ${file} has unsafe permissions (${mode.toString(8).padStart(3, "0")}); refusing to use. ` +
-          `Re-register: rm ${JSON.stringify(file)} and reload.\n`,
-        );
-      } catch { /* stderr unavailable in some hosts */ }
-      return null;
-    }
-  }
-  let parsed: PersistedRegistration;
-  try {
-    const raw = fs.readFileSync(file, "utf8");
-    parsed = JSON.parse(raw) as PersistedRegistration;
-  } catch {
-    return null;
-  }
-  if (
-    typeof parsed.tenant_id !== "string" || parsed.tenant_id.length === 0 ||
-    typeof parsed.secret !== "string" || parsed.secret.length === 0 ||
-    typeof parsed.expires_at !== "string"
-  ) {
-    return null;
-  }
-  const expiresMs = Date.parse(parsed.expires_at);
-  if (!Number.isFinite(expiresMs)) {
-    return null;
-  }
-  const remaining = expiresMs - now().getTime();
-  if (remaining < REFRESH_WINDOW_MS) {
-    return null;
-  }
-  return parsed;
+interface DisclosureEmitInputs {
+  configDir: string;
+  endpoint: string;
+  registerUrl: string;
+  logger: DisclosureLogger | undefined;
 }
 
-function isWithinBackoff(backoffFile: string, now: () => Date): boolean {
+function emitFirstLoadDisclosureIfNeeded(inputs: DisclosureEmitInputs): void {
+  const stampFile = disclosureStampPath(inputs.configDir);
+  if (hasShownDisclosure(stampFile)) {
+    return;
+  }
+  const banner = buildDisclosureBanner(inputs.endpoint, inputs.registerUrl);
+  const delivered = emitDisclosureBanner(banner, inputs.logger);
+  if (delivered) {
+    markDisclosureShown(stampFile);
+  }
+  // If neither logger nor stderr accepted the banner, leave the stamp
+  // unwritten so the next load tries again. Better to re-warn once we have
+  // a working output than to silently swallow the disclosure.
+}
+
+function buildDisclosureBanner(endpoint: string, registerUrl: string): string {
+  const url = new URL(registerUrl);
+  const host = url.host;
+  return [
+    "AxonFlow Governance — Community SaaS auto-registration",
+    "",
+    `  This plugin will register with ${host} (Community SaaS) and use it`,
+    "  to evaluate tool inputs and message bodies for policy + audit.",
+    "",
+    "  What is sent off-host on each governed call:",
+    "    - tool name + arguments before execution",
+    "    - outbound message bodies before delivery",
+    "  What is NOT sent: LLM provider keys, OpenClaw conversation history",
+    "  outside governed tools, or any data outside the OpenClaw runtime.",
+    "",
+    "  To opt out: set AXONFLOW_COMMUNITY_SAAS=0 in your environment, or",
+    "  point the plugin at your own AxonFlow instance:",
+    "      pluginConfig.endpoint = \"https://your-axonflow.example.com\"",
+    "",
+    "  This message shows once per machine; remove the disclosure stamp",
+    `  to re-display: rm "$AXONFLOW_CONFIG_DIR"/openclaw-plugin-community-saas-disclosure-shown`,
+    `  Default endpoint: ${endpoint}`,
+    "  Docs: https://docs.getaxonflow.com/docs/integration/openclaw/",
+  ].join("\n");
+}
+
+function emitDisclosureBanner(banner: string, logger: DisclosureLogger | undefined): boolean {
+  if (logger) {
+    try {
+      logger(banner);
+      return true;
+    } catch {
+      // Fall through to stderr.
+    }
+  }
   try {
-    const raw = fs.readFileSync(backoffFile, "utf8").trim();
-    const until = Number(raw);
-    if (!Number.isFinite(until) || until <= 0) return false;
-    return until > Math.floor(now().getTime() / 1000);
+    process.stderr.write(banner + "\n");
+    return true;
   } catch {
     return false;
   }
-}
-
-function buildLabel(pluginVersion: string | undefined): string {
-  const version = pluginVersion ?? "unknown";
-  const platform = `${os.type()}-${os.arch()}`;
-  const label = `openclaw-plugin@${version} / ${platform}`;
-  return label.length > 255 ? label.slice(0, 255) : label;
-}
-
-function writeFileAtomicallyWithMode(file: string, content: string, mode: number): void {
-  // tmp file in the same directory so rename is atomic on POSIX. On Windows,
-  // fs.renameSync replaces the destination atomically since Node 14+.
-  const dir = path.dirname(file);
-  const tmp = path.join(dir, `${path.basename(file)}.tmp.${process.pid}`);
-  fs.writeFileSync(tmp, content, { mode });
-  // chmod again because some filesystems / umask combinations ignore the
-  // mode passed to writeFileSync for already-existing temp files.
-  try { fs.chmodSync(tmp, mode); } catch { /* best effort */ }
-  fs.renameSync(tmp, file);
 }
 
 /**

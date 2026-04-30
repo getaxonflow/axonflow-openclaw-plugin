@@ -66,27 +66,21 @@ function jsonResponse(status: number, body: Record<string, unknown>): Response {
 }
 
 describe("bootstrapCommunitySaas", () => {
-  it("returns null when config dir cannot be resolved", async () => {
-    delete process.env.AXONFLOW_CONFIG_DIR;
-    // Force an empty cache dir resolution by also clearing relevant env.
-    delete process.env.XDG_CONFIG_HOME;
-    delete process.env.LOCALAPPDATA;
-    delete process.env.APPDATA;
-    // No HOME override on macOS — but if homedir resolves, configDir is
-    // populated, so we test the no-configDir branch by using an env
-    // override pattern: jest can't intercept this without mocking, so we
-    // skip that branch in this test (covered by the cache-dir suite).
-    // Ensure we can still progress under the default resolver.
+  it("returns failed when network errors and no cached registration is present", async () => {
+    // Test isolation note: clearing AXONFLOW_CONFIG_DIR alone is not enough
+    // because the OS-default resolver lands at ~/Library/Application
+    // Support/axonflow on macOS, which on developer machines often holds
+    // a real registration file. Pin AXONFLOW_CONFIG_DIR to the per-test
+    // tmp dir set up in beforeEach so the cache-miss → fetch path is
+    // exercised deterministically regardless of dev-machine state.
+    // (configDir is the tmp dir from beforeEach; no registration file
+    // exists there.)
     const result = await bootstrapCommunitySaas({
       fetchImpl: jest.fn().mockResolvedValue(jsonResponse(503, {})) as unknown as typeof fetch,
       pluginVersion: "1.0.0",
     });
-    // Default resolver may produce a path on macOS — accept either no-op or fresh failure.
-    if (result === null) {
-      expect(result).toBeNull();
-    } else {
-      expect(result.source).toBe("failed");
-    }
+    expect(result).not.toBeNull();
+    expect(result?.source).toBe("failed");
   });
 
   it("fast path: returns cached registration when fresh and 0600", async () => {
