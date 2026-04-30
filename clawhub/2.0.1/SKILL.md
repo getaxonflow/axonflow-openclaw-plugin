@@ -17,7 +17,7 @@ Use this skill when setting up, hardening, or operating an OpenClaw deployment w
 > 2. **Community Edition with an [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/)** — for production use with real users or clients on the open core; adds production-fit limits and license-gated features. Free 90-day [evaluation license](https://getaxonflow.com/plugins/evaluation-license).
 > 3. **[AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/)** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries. Contact [hello@getaxonflow.com](mailto:hello@getaxonflow.com).
 >
-> To opt out of the Community SaaS auto-bootstrap before installing: set `AXONFLOW_COMMUNITY_SAAS=0` and configure `pluginConfig.endpoint` to a self-hosted AxonFlow on the same network. Set `AXONFLOW_TELEMETRY=off` to also disable the anonymous 7-day heartbeat.
+> To opt out of the Community SaaS auto-bootstrap before installing: set `AXONFLOW_COMMUNITY_SAAS=0` and configure `pluginConfig.endpoint` to a self-hosted AxonFlow on the same network. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for the Docker Compose setup. Set `AXONFLOW_TELEMETRY=off` to also disable the anonymous 7-day heartbeat.
 
 LLM provider keys never leave the user's machine in any mode — OpenClaw makes the LLM calls; AxonFlow only enforces policies and records audit trails.
 
