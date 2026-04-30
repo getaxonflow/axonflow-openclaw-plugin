@@ -29,11 +29,35 @@ OpenClaw handles agent runtime, MCP connectivity, channels, and tool execution. 
 
 ## Where your data goes
 
-The plugin governs tool calls and outbound messages by sending each one to an AxonFlow endpoint for policy evaluation + audit. The endpoint can be the AxonFlow Community SaaS (default, zero-config), a self-hosted AxonFlow instance you run, or nothing at all if you opt out.
+The plugin governs tool calls and outbound messages by sending each one to an AxonFlow endpoint for policy evaluation and audit. Pick the deployment mode that fits your workload:
 
-### Default: AxonFlow Community SaaS
+> **Privacy notice — read before installing.** AxonFlow [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) at `try.getaxonflow.com` is the zero-config endpoint the plugin uses if no other endpoint is configured. In that mode, governed tool inputs (tool name + arguments) and outbound message bodies are sent off-host to AxonFlow's shared evaluation endpoint for policy evaluation and audit. **Community SaaS is for early exploration only** — not for production workloads, regulated environments, real user data, personal data, or any other sensitive information. It is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention, deletion, or incident-response timelines.
+>
+> For any serious use, choose one of the following instead:
+>
+> 1. **[Self-host AxonFlow Community Edition](https://docs.getaxonflow.com/docs/deployment/self-hosted/)** — runs entirely on your infrastructure and keeps data within your boundary. Recommended for any real workload.
+> 2. **Community Edition with an [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/)** — for production use with real users or clients on the open core; adds production-fit limits and license-gated features. Free 90-day [evaluation license](https://getaxonflow.com/plugins/evaluation-license).
+> 3. **[AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/)** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries. Contact [hello@getaxonflow.com](mailto:hello@getaxonflow.com).
+>
+> To skip Community SaaS entirely: set `pluginConfig.endpoint` to a self-hosted AxonFlow URL. That alone flips the plugin into self-hosted mode — the Community SaaS auto-bootstrap is not attempted, and no env var is required. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for the Docker Compose setup. For air-gapped environments where AxonFlow is not yet reachable but you want to suppress the bootstrap attempt, set `AXONFLOW_COMMUNITY_SAAS=0`; set `AXONFLOW_TELEMETRY=off` to also disable the anonymous 7-day heartbeat.
 
-If you install the plugin without setting `pluginConfig.endpoint`, it auto-registers with **`try.getaxonflow.com`** (Community SaaS) on first load and sends governed traffic there. The first-load disclosure banner surfaces this in your plugin logs before the registration POST fires.
+### Self-hosted (recommended for any real use)
+
+Point the plugin at an AxonFlow instance you run. Nothing leaves your network except the anonymous 7-day heartbeat (which can also be disabled). Configure three values in `pluginConfig`:
+
+- `endpoint` — the URL of your AxonFlow agent gateway (for example `https://axonflow.your-corp.example.com`).
+- `clientId` — the AxonFlow tenant identifier issued to your deployment.
+- `clientSecret` — the matching secret. **Never commit this to source control or paste it into a config file checked into a repository.** Resolve it from a secret manager (Vault, AWS Secrets Manager, GCP Secret Manager, or your CI provider's secret store) and inject the value via your OpenClaw config templating, an environment variable consumed by your config loader, or your platform's secret-injection sidecar.
+
+For production with real users or clients: run Community Edition with a free 90-day [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/) for production-fit limits and license-gated features, or [AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/) for regulated industries with SLOs and contractual commitments.
+
+See the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/) for prerequisites and production options, or the [OpenClaw Integration Guide](https://docs.getaxonflow.com/docs/integration/openclaw/) for architecture and the full pluginConfig schema.
+
+### Community SaaS — for early exploration only
+
+The plugin's zero-config fallback. Install the plugin without setting `pluginConfig.endpoint` and it auto-registers with **`try.getaxonflow.com`** on first load. The first-load disclosure banner surfaces this in your plugin logs before the registration POST fires. Auto-registration credentials persist at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`).
+
+**Use only for early exploration of the plugin's behaviour. Not for production workloads, regulated environments, real user data, personal data, or any other sensitive information.**
 
 | What goes to `try.getaxonflow.com` | What does NOT |
 |---|---|
@@ -41,21 +65,7 @@ If you install the plugin without setting `pluginConfig.endpoint`, it auto-regis
 | Outbound message bodies before delivery (PII/secret scan) | OpenClaw conversation history outside governed tools |
 | Anonymous 7-day heartbeat (plugin version, OS, runtime) | Files outside the OpenClaw runtime |
 
-Community SaaS is intended for evaluation and prototyping. It has no SLA, no production guarantees, runs against shared Ollama models, and rate-limits at 20 req/min · 500 req/day per tenant. Read the [Try AxonFlow — Free Trial Server](https://docs.getaxonflow.com/docs/deployment/community-saas/) page for the full disclosure, including [data retention](https://docs.getaxonflow.com/docs/deployment/community-saas/#limitations-and-disclaimers) and [registration mechanics](https://docs.getaxonflow.com/docs/deployment/community-saas/#registration).
-
-Auto-registration credentials persist at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`).
-
-### Self-hosted: your own AxonFlow
-
-Point the plugin at an AxonFlow instance you run. Nothing leaves your network except the anonymous 7-day heartbeat.
-
-Configure three values in `pluginConfig`:
-
-- `endpoint` — the URL of your AxonFlow agent gateway (for example `https://axonflow.your-corp.example.com`).
-- `clientId` — the AxonFlow tenant identifier issued to your deployment.
-- `clientSecret` — the matching secret. **Never commit this to source control or paste it into a config file checked into a repository.** Resolve it from a secret manager (Vault, AWS Secrets Manager, GCP Secret Manager, or your CI provider's secret store) and inject the value via your OpenClaw config templating, an environment variable consumed by your config loader, or your platform's secret-injection sidecar.
-
-See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for deployment options or the [OpenClaw integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/) for the architecture and full schema.
+The endpoint runs against shared Ollama models, rate-limits at 20 req/min · 500 req/day per tenant, and is offered "as is" on a best-effort basis with no SLA, no warranties, no commitment to retention or deletion timelines, and may be modified or discontinued without notice. Read the [Try AxonFlow — Free Trial Server](https://docs.getaxonflow.com/docs/deployment/community-saas/) page for the full disclosure, including [data retention](https://docs.getaxonflow.com/docs/deployment/community-saas/#limitations-and-disclaimers) and [registration mechanics](https://docs.getaxonflow.com/docs/deployment/community-saas/#registration).
 
 ### Air-gapped: zero outbound
 
@@ -196,7 +206,27 @@ Org-wide policies and session overrides are **Enterprise-only** — those are th
 
 ## Install
 
-Requires OpenClaw **2026.4.14 or later**. Upgrade with `npm install -g openclaw@latest` if needed.
+This is a **three-step** install: stand up the AxonFlow platform, add the plugin to OpenClaw, then point the plugin at the platform. The plugin alone does not enforce policy — it is a thin client that talks to an AxonFlow agent gateway. If the platform is not installed and reachable, governed tool calls have nothing to evaluate against. **Skipping Step 3 is the most common mistake**: the platform is running locally but the plugin still falls back to Community SaaS because no endpoint is configured.
+
+### Step 1: install the AxonFlow platform
+
+For any real workload, run AxonFlow on your own infrastructure via Docker Compose:
+
+```bash
+git clone https://github.com/getaxonflow/axonflow.git
+cd axonflow && docker compose up -d
+
+# verify
+curl -s http://localhost:8080/health | jq .
+```
+
+Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for prerequisites (Docker Engine or Desktop, Docker Compose v2, 4 GB RAM, 10 GB disk) and the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/) for production options. For production with real users or clients, run Community Edition with a free 90-day [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/) or [AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/).
+
+> Skipping Step 1 makes the plugin fall back to the [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) endpoint at `try.getaxonflow.com` for early exploration only. **Do not skip Step 1 for any real workload** — see the [Privacy notice](#where-your-data-goes) above.
+
+### Step 2: install the plugin
+
+Requires OpenClaw **2026.4.15 or later** (CVE floor). Upgrade with `npm install -g openclaw@latest` if needed.
 
 ```bash
 openclaw plugins install @axonflow/openclaw
@@ -216,44 +246,33 @@ openclaw plugins install "./$TGZ"
 ```
 </details>
 
-### Start AxonFlow
+### Step 3: point the plugin at the platform
 
-The plugin connects to AxonFlow, a self-hosted governance platform. AxonFlow must be running before the plugin loads. Everything stays on your infrastructure.
+Without this step the plugin auto-registers with Community SaaS regardless of whether you ran Step 1 — it does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them):
 
-```bash
-git clone https://github.com/getaxonflow/axonflow.git
-cd axonflow && docker compose up -d
+```yaml
+# openclaw.config.yaml
+plugins:
+  "@axonflow/openclaw":
+    endpoint: http://localhost:8080  # or your remote AxonFlow URL
+    # clientId + clientSecret are required for Evaluation License or Enterprise tenants
 ```
 
-See [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) for production deployment options.
+Every plugin init logs a one-line canary on stderr confirming the active mode:
+
+```
+[AxonFlow] Connected to AxonFlow at http://localhost:8080 (mode=self-hosted)
+```
+
+If the canary says `mode=community-saas` after you ran Step 1, the plugin is still hitting `try.getaxonflow.com` because Step 3 was skipped or `pluginConfig.endpoint` is unset. Fix Step 3 and reload.
+
+See [Configure](#configure) below for the full pluginConfig schema (`highRiskTools`, `governedTools`, `onError`, `userEmail`, etc.).
 
 ---
 
 ## Configure
 
-The plugin works without any configuration. Install it and run a tool — on first run it registers against AxonFlow Community SaaS at `https://try.getaxonflow.com` and persists the resulting credentials to `~/.config/axonflow/try-registration.json` (mode 0600). Every plugin init logs:
-
-```
-[AxonFlow] Connected to AxonFlow at https://try.getaxonflow.com (mode=community-saas)
-```
-
-Community SaaS is intended for basic testing and evaluation. For real workflows, real systems, or sensitive data, point the plugin at a self-hosted AxonFlow:
-
-```yaml
-# openclaw.config.yaml
-plugins:
-  @axonflow/openclaw:
-    endpoint: http://localhost:8080
-    highRiskTools:
-      - web_fetch
-      - message
-```
-
-Setting any of `endpoint` / `clientId` / `clientSecret` opts you into self-hosted mode. The Community-SaaS bootstrap is skipped, and the plugin uses your values verbatim. The same canary log line confirms the destination on every init:
-
-```
-[AxonFlow] Connected to AxonFlow at http://localhost:8080 (mode=self-hosted)
-```
+[Step 3](#step-3-point-the-plugin-at-the-platform) above covers the minimum config (`endpoint` + optional `clientId` / `clientSecret`). The full pluginConfig schema is below.
 
 ### Full configuration reference
 
@@ -261,7 +280,7 @@ Setting any of `endpoint` / `clientId` / `clientSecret` opts you into self-hoste
 |--------|----------|---------|-------------|
 | `endpoint` | No | `https://try.getaxonflow.com` (Community SaaS) when unset; `http://localhost:8080` when self-hosted with no endpoint specified | AxonFlow agent gateway URL |
 | `clientId` | No | `"community"` (self-hosted) or auto-bootstrapped `cs_<uuid>` (Community SaaS) | Tenant identity for data isolation. Override for evaluation/enterprise. |
-| `clientSecret` | No | `""` (self-hosted) or auto-bootstrapped (Community SaaS) | Basic-auth secret paired with `clientId`. Required for evaluation/enterprise tenants; leave unset in community mode. |
+| `clientSecret` | No | `""` (self-hosted) or auto-bootstrapped (Community SaaS) | Basic-auth secret paired with `clientId`. Required for self-hosted Community Edition with an Evaluation License or AxonFlow Enterprise; auto-populated for Community SaaS; can be left unset for self-hosted Community Edition without a license. |
 | `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |

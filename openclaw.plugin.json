@@ -76,6 +76,11 @@
       "placeholder": "your-secret",
       "help": "AxonFlow authentication client secret"
     },
+    "userEmail": {
+      "label": "User Email",
+      "placeholder": "alice@example.com",
+      "help": "Per-user identity forwarded as the X-User-Email header. Required for the override lifecycle endpoints (createOverride, revokeOverride, listOverrides) and for correct per-user scoping on explainDecision. Block-path features still work without it."
+    },
     "highRiskTools": {
       "label": "High-Risk Tools",
       "placeholder": "web_fetch, message",
@@ -117,6 +122,9 @@
         "type": "string"
       },
       "clientSecret": {
+        "type": "string"
+      },
+      "userEmail": {
         "type": "string"
       },
       "highRiskTools": {
