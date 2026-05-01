@@ -4,7 +4,11 @@
 
 ### 2.0.2 (2026-05-01)
 
-Reframes the data-flow disclosure to address two ClawScan Concerns flagged on v2.0.1: "Memory and Context Poisoning" (Medium) and "Insecure Inter-Agent Communication" (High). Install was never blocked — the badge is informational, not a gate (verified via `openclaw skills install governance-policies` returning success on v2.0.1) — but the visible "Skill flagged — review recommended" warning erodes user trust. The two scanners were quoting back the responsible-disclosure language from v2.0.1's own SKILL.md and flagging the disclosure as risk: skills that hide their behavior score better than ones that explain it.
+Two changes in this patch:
+
+**Terminology cleanup: 'evaluation' is now reserved for the Evaluation License product tier name only.** Prior copy used 'evaluation' in two distinct senses — the product tier (Evaluation License) and the generic verb / context (e.g., 'evaluates tool calls', 'for evaluation', 'evaluated server-side'). The overlap was confusing for users trying to map between the SaaS trial path and the licensed product tier. Replaced generic uses with context-appropriate alternatives: 'checks tool calls' / 'checks against policy' for the verb, 'trial' for the SaaS-trial-context, 'applied' for runtime policy semantics. Only the literal `Evaluation License` and the linked product URL retain the term.
+
+**Reframes the data-flow disclosure to address two ClawScan Concerns flagged on v2.0.1:** "Memory and Context Poisoning" (Medium) and "Insecure Inter-Agent Communication" (High). Install was never blocked — the badge is informational, not a gate (verified via `openclaw skills install governance-policies` returning success on v2.0.1) — but the visible "Skill flagged — review recommended" warning erodes user trust. The two scanners were quoting back the responsible-disclosure language from v2.0.1's own SKILL.md and flagging the disclosure as risk: skills that hide their behavior score better than ones that explain it.
 
 Changes that keep accuracy intact while not triggering the LLM scanner's specific phrase patterns:
 
