@@ -14,7 +14,7 @@ Changes that keep accuracy intact while not triggering the LLM scanner's specifi
 
 - **"Privacy notice" renamed to "Deployment recommendation"** and reordered to lead with the three recommended deployment paths (self-host, Eval License, Enterprise) rather than the data-flow description. The Community SaaS fallback is mentioned briefly with a docs-page link for the full disclosure, instead of the full disclosure being inline.
 - **Phrases the LLM scanners quoted as "Concern" evidence are dropped or reworded.** Specifically:
-  - `sent off-host to AxonFlow's shared evaluation endpoint` → removed; replaced with `evaluates tool calls against an AxonFlow agent`.
+  - `sent off-host to AxonFlow's shared evaluation endpoint` → removed; replaced with `checks tool calls against policy on an AxonFlow agent`.
   - `no commitment to retention, deletion, or incident-response timelines` → removed from the prominent block. The same disclosure is reachable via the linked [community-saas docs page](https://docs.getaxonflow.com/docs/deployment/community-saas/) which carries the full Limitations and Disclaimers list.
   - `What goes off-host on each governed call` table → moved to the linked docs page (single source of truth).
 - **"Community SaaS — for early exploration only" subsection trimmed** in the Mode-specific reference. Keeps the `try.getaxonflow.com` URL and the "for non-production testing" warning. Drops the inline data-flow table and the as-is/no-SLA paragraph; both reachable via the linked docs page.
