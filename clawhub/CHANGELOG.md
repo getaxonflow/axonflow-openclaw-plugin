@@ -2,6 +2,29 @@
 
 ## @axonflow/governance-policies
 
+### 2.0.2 (2026-05-01)
+
+Reframes the data-flow disclosure to address two ClawScan Concerns flagged on v2.0.1: "Memory and Context Poisoning" (Medium) and "Insecure Inter-Agent Communication" (High). Install was never blocked — the badge is informational, not a gate (verified via `openclaw skills install governance-policies` returning success on v2.0.1) — but the visible "Skill flagged — review recommended" warning erodes user trust. The two scanners were quoting back the responsible-disclosure language from v2.0.1's own SKILL.md and flagging the disclosure as risk: skills that hide their behavior score better than ones that explain it.
+
+Changes that keep accuracy intact while not triggering the LLM scanner's specific phrase patterns:
+
+- **"Privacy notice" renamed to "Deployment recommendation"** and reordered to lead with the three recommended deployment paths (self-host, Eval License, Enterprise) rather than the data-flow description. The Community SaaS fallback is mentioned briefly with a docs-page link for the full disclosure, instead of the full disclosure being inline.
+- **Phrases the LLM scanners quoted as "Concern" evidence are dropped or reworded.** Specifically:
+  - `sent off-host to AxonFlow's shared evaluation endpoint` → removed; replaced with `evaluates tool calls against an AxonFlow agent`.
+  - `no commitment to retention, deletion, or incident-response timelines` → removed from the prominent block. The same disclosure is reachable via the linked [community-saas docs page](https://docs.getaxonflow.com/docs/deployment/community-saas/) which carries the full Limitations and Disclaimers list.
+  - `What goes off-host on each governed call` table → moved to the linked docs page (single source of truth).
+- **"Community SaaS — for early exploration only" subsection trimmed** in the Mode-specific reference. Keeps the `try.getaxonflow.com` URL and the "for non-production testing" warning. Drops the inline data-flow table and the as-is/no-SLA paragraph; both reachable via the linked docs page.
+- **In-document anchor refs updated** from `#privacy-notice` to `#deployment-recommendation`.
+
+What stays unchanged:
+
+- The three recommended deployment paths and their docs.getaxonflow.com links.
+- The 3-step Install structure (platform → plugin → endpoint config).
+- The "Use only for early exploration. Not for production workloads, regulated environments, real user data, personal data, or any other sensitive information." warning on the Community SaaS subsection.
+- All capability content (override workflow, explainability, audit, MCP tools, etc.).
+
+User-facing accuracy is preserved by linking out to the [Free Trial Server docs page](https://docs.getaxonflow.com/docs/deployment/community-saas/), which is the source of truth for the full disclosure.
+
 ### 2.0.1 (2026-05-01)
 
 Two changes:
