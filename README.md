@@ -29,9 +29,9 @@ OpenClaw handles agent runtime, MCP connectivity, channels, and tool execution. 
 
 ## Where your data goes
 
-The plugin governs tool calls and outbound messages by sending each one to an AxonFlow endpoint for policy evaluation and audit. Pick the deployment mode that fits your workload:
+The plugin governs tool calls and outbound messages by sending each one to an AxonFlow endpoint for policy enforcement and audit. Pick the deployment mode that fits your workload:
 
-> **Privacy notice — read before installing.** AxonFlow [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) at `try.getaxonflow.com` is the zero-config endpoint the plugin uses if no other endpoint is configured. In that mode, governed tool inputs (tool name + arguments) and outbound message bodies are sent off-host to AxonFlow's shared evaluation endpoint for policy evaluation and audit. **Community SaaS is for early exploration only** — not for production workloads, regulated environments, real user data, personal data, or any other sensitive information. It is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention, deletion, or incident-response timelines.
+> **Privacy notice — read before installing.** AxonFlow [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) at `try.getaxonflow.com` is the zero-config endpoint the plugin uses if no other endpoint is configured. In that mode, governed tool inputs (tool name + arguments) and outbound message bodies are checked by AxonFlow's policy enforcement endpoint. **Community SaaS is for early exploration only** — not for production workloads, regulated environments, real user data, personal data, or any other sensitive information. It is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention, deletion, or incident-response timelines.
 >
 > For any serious use, choose one of the following instead:
 >
@@ -279,7 +279,7 @@ See [Configure](#configure) below for the full pluginConfig schema (`highRiskToo
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `endpoint` | No | `https://try.getaxonflow.com` (Community SaaS) when unset; `http://localhost:8080` when self-hosted with no endpoint specified | AxonFlow agent gateway URL |
-| `clientId` | No | `"community"` (self-hosted) or auto-bootstrapped `cs_<uuid>` (Community SaaS) | Tenant identity for data isolation. Override for evaluation/enterprise. |
+| `clientId` | No | `"community"` (self-hosted) or auto-bootstrapped `cs_<uuid>` (Community SaaS) | Tenant identity for data isolation. Override for Evaluation License or Enterprise tenants. |
 | `clientSecret` | No | `""` (self-hosted) or auto-bootstrapped (Community SaaS) | Basic-auth secret paired with `clientId`. Required for self-hosted Community Edition with an Evaluation License or AxonFlow Enterprise; auto-populated for Community SaaS; can be left unset for self-hosted Community Edition without a license. |
 | `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
