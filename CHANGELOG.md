@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.0.7] - 2026-05-02 — Pin ClawHub CLI to v0.12.0 + restore ClawPack publish + add ClawHub install smoke
+
+v2.0.6 reverted to folder upload to escape v2.0.5's broken-install state but the install was **still broken** with a different error (`ClawHub archive contents do not match files[] metadata for "@axonflow/openclaw@2.0.6": missing "package.json"`). Both broken versions used `clawhub` CLI v0.12.1, which was published 2026-05-02 20:50 UTC — about two hours before our v2.0.5 ship.
+
+v2.0.4 (last known-good install) was published 2026-04-30 with `clawhub` CLI v0.12.0 and still installs cleanly. The regression is in CLI v0.12.1's publish pipeline: regardless of whether you pass a folder or a tarball, the resulting artifact registers as `npm-pack (tgz)` with bytes that don't match the SHA-256 ClawHub records — breaking the install path.
+
+### Changed
+
+- **Pin `clawhub@0.12.0` in `.github/workflows/publish.yml`.** `npm install -g clawhub` (unpinned) was always pulling latest, which is why the regression hit on the next publish after v0.12.1 shipped. The pin holds until ClawHub fixes the upstream regression in v0.12.1+.
+- **Restore ClawPack tarball publish path.** With CLI pinned to v0.12.0, `clawhub package publish ./<tarball>.tgz` returns to producing a publishable ClawPack artifact. Re-earns the ClawPack badge on the install page. If install still breaks despite the pin, v2.0.8 will revert to folder upload (Legacy ZIP).
+
+### Added
+
+- **`verify-clawhub-install` job in `publish.yml`.** Runs `openclaw plugins install clawhub:@axonflow/openclaw@<version>` against the just-published version and fails the workflow if install errors. v2.0.5 + v2.0.6 both shipped to ClawHub successfully and `verify-publish` (which only checks npm propagation) reported success — but adopters could not install. This job closes the gap so future regressions in the ClawHub install path surface in CI within ~3 minutes of tag rather than via adopter reports.
+
+### Carried forward from v2.0.5/v2.0.6 (unchanged)
+
+- `@anthropic-ai/sdk` `>=0.91.1` override remains in `package.json` (closes the moderate GHSA on insecure default file permissions).
+- Explicit `permissions: contents: read` remains on the `Heartbeat Real-Stack E2E` workflow (CodeQL parity).
+
+### Upgrade
+
+`openclaw plugins install @axonflow/openclaw@latest`. If you were stuck on v2.0.5 or v2.0.6 with `ClawHub archive integrity mismatch` or `missing "package.json"` errors, retry — v2.0.7 should resolve cleanly via the pinned CLI's ClawPack path.
+
+---
+
 ## [2.0.6] - 2026-05-02 — Revert ClawPack publish path (v2.0.5 was uninstallable via ClawHub)
 
 v2.0.5 switched the ClawHub publish artifact from folder upload (Legacy ZIP) to the `npm-pack` tarball (ClawPack). That triggered two ClawHub-side regressions specific to the ClawPack handling path that left v2.0.5 unusable for adopters:
