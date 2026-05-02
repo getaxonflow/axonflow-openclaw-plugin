@@ -164,8 +164,15 @@ jobs:
       - name: Install dependencies and build
         run: npm ci && npm run build
 
+      # Pin clawhub@0.12.0 — v0.12.1 (2026-05-02) regressed the publish
+      # path so that uploads (folder OR tarball) register as
+      # `npm-pack (tgz)` artifact format whose served bytes don't match
+      # ClawHub's recorded SHA-256, breaking `openclaw plugins install`
+      # with integrity errors. v2.0.5 + v2.0.6 hit this. v2.0.4 was
+      # published with v0.12.0 and installs cleanly. Hold the pin until
+      # ClawHub fixes the regression upstream.
       - name: Install ClawHub CLI
-        run: npm install -g clawhub
+        run: npm install -g clawhub@0.12.0
 
       - name: Extract version
         id: version
@@ -176,21 +183,26 @@ jobs:
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
 
-      # NOTE: Folder upload (Legacy ZIP) intentional. The ClawPack tarball
-      # path was tried in v2.0.5 and exposed two ClawHub-side regressions:
-      # (1) install resolution served bytes that didn't match the recorded
-      # SHA-256, blocking every adopter with an integrity-mismatch error;
-      # (2) the LLM scanner pipeline only fed gpt-5.5 the manifest files,
-      # hallucinating "missing implementation". Folder upload re-introduces
-      # the "Legacy ZIP" badge but keeps install working. Revisit when
-      # ClawHub fixes the ClawPack handling.
+      # Tarball upload (ClawPack) restored. With CLI pinned to v0.12.0,
+      # the previously-broken integrity-mismatch regression should not
+      # occur. If install still breaks on v2.0.7, ship v2.0.8 reverting
+      # to folder upload (Legacy ZIP) until ClawHub fixes ClawPack
+      # handling upstream.
+      - name: Pack tarball
+        id: pack
+        run: |
+          TARBALL=$(npm pack --silent)
+          echo "TARBALL=$TARBALL" >> $GITHUB_OUTPUT
+          ls -l "$TARBALL"
+
       - name: Publish to ClawHub
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
+          TARBALL=${{ steps.pack.outputs.TARBALL }}
           clawhub login --token "$CLAWHUB_TOKEN"
-          clawhub package publish . \
+          clawhub package publish "./$TARBALL" \
             --family code-plugin \
             --name "@axonflow/openclaw" \
             --display-name "AxonFlow Governance" \
@@ -224,4 +236,51 @@ jobs:
             sleep 30
           done
           echo "FAILURE: @axonflow/openclaw@${VERSION} not found on npm after 5 attempts"
+          exit 1
+
+  # Verifies the actual end-user install path works against ClawHub. v2.0.5 +
+  # v2.0.6 published cleanly and verify-publish (npm-only) passed, but
+  # `openclaw plugins install clawhub:@axonflow/openclaw@<v>` failed with
+  # ClawHub-side integrity mismatches that no other CI job exercised.
+  # If this step fails, the just-published version is uninstallable —
+  # ship a follow-up patch.
+  verify-clawhub-install:
+    needs: [preflight, publish, publish-clawhub]
+    runs-on: ubuntu-latest
+    env:
+      AXONFLOW_TELEMETRY: 'off'
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+
+      - name: Install openclaw CLI
+        run: npm install -g openclaw
+
+      - name: Wait for ClawHub propagation
+        run: sleep 30
+
+      - name: openclaw plugins install clawhub:@axonflow/openclaw@<version>
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          set -e
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i: openclaw plugins install clawhub:@axonflow/openclaw@${VERSION}"
+            if openclaw plugins install "clawhub:@axonflow/openclaw@${VERSION}" 2>&1 | tee /tmp/install-out.log; then
+              if grep -q "Installed plugin: axonflow-governance" /tmp/install-out.log; then
+                echo "SUCCESS: ClawHub install path returns the plugin cleanly"
+                exit 0
+              fi
+            fi
+            echo "Install attempt $i did not succeed, retrying in 30s..."
+            sleep 30
+          done
+          echo "FAILURE: ClawHub install path is broken for @axonflow/openclaw@${VERSION}"
+          echo "Last output:"
+          cat /tmp/install-out.log
           exit 1
