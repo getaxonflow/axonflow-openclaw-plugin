@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.0.6] - 2026-05-02 — Revert ClawPack publish path (v2.0.5 was uninstallable via ClawHub)
+
+v2.0.5 switched the ClawHub publish artifact from folder upload (Legacy ZIP) to the `npm-pack` tarball (ClawPack). That triggered two ClawHub-side regressions specific to the ClawPack handling path that left v2.0.5 unusable for adopters:
+
+1. **Install integrity mismatch.** `openclaw plugins install clawhub:@axonflow/openclaw@2.0.5` failed with `ClawHub archive integrity mismatch: expected sha256-RJwSW6ANBH3JKUkP06oA++JY9r1XAx58NDWKCeD6hwQ=, got sha256-7gGhfvJM/LuF9HfTZG2EsbjkSoImPau6h2wt+nwlhKo=`. The expected hash matched the published tarball; the bytes ClawHub's install endpoint actually served did not. ClawHub's CLI download path (`clawhub package download`) returned the correct bytes — only the install resolution path was broken.
+2. **LLM scanner hallucinated "missing implementation".** ClawScan flagged dimensions at `concern` claiming "the bundle contains only package.json and openclaw.plugin.json", "implementation code is absent", and "registry presents this as an instruction-only skill with no code" — all factually false. ClawHub's own package record correctly tagged the artifact as `family: "code-plugin"` with `npmFileCount: 70` and `unpackedSize: 280368`. Static Analysis (deterministic — reads actual bytes) returned Benign. Only the LLM scanner pipeline saw an incomplete prompt context.
+
+### Changed
+
+- **Revert ClawHub publish step to folder upload.** `.github/workflows/publish.yml` now runs `clawhub package publish .` (folder) instead of `clawhub package publish ./<tarball>.tgz`. This re-introduces the "Legacy ZIP — may have compatibility issues" badge on the ClawHub install page but restores `openclaw plugins install` for every adopter. Trade-off accepted until ClawHub fixes the ClawPack handling path.
+
+### Carried forward from v2.0.5
+
+- `@anthropic-ai/sdk` `>=0.91.1` override remains in `package.json` (closes the moderate GHSA on insecure default file permissions; `@anthropic-ai/sdk` is a transitive dev-only dependency through the `openclaw` peerDep).
+- Explicit `permissions: contents: read` remains on the `Heartbeat Real-Stack E2E` workflow (CodeQL parity).
+
+### Upgrade
+
+`openclaw plugins install @axonflow/openclaw@latest`. No code or configuration changes on your side. If you tried to install v2.0.5 and hit `ClawHub archive integrity mismatch`, retry with v2.0.6 — install resolves cleanly via the Legacy ZIP path.
+
+---
+
 ## [2.0.5] - 2026-05-02 — Publish as ClawPack + transitive security bump
 
 ClawHub's install page on prior versions surfaced a "Legacy ZIP — may have compatibility issues" badge because the publish flow uploaded a folder rather than the npm-pack tarball. The plugin already declared the `openclaw.compat.pluginApi` and `openclaw.build.openclawVersion` metadata that ClawPack requires, so the only change needed was the publish artifact format itself.
