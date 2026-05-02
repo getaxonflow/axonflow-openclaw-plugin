@@ -176,13 +176,25 @@ jobs:
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
 
+      # ClawPack publish requires uploading the npm-pack tarball (not the
+      # folder). Folder uploads land as the legacy ZIP path which surfaces
+      # a "may have compatibility issues" badge on ClawHub. Tarball uploads
+      # are verified against npm integrity/shasum + ClawHub SHA-256.
+      - name: Pack tarball
+        id: pack
+        run: |
+          TARBALL=$(npm pack --silent)
+          echo "TARBALL=$TARBALL" >> $GITHUB_OUTPUT
+          ls -l "$TARBALL"
+
       - name: Publish to ClawHub
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
+          TARBALL=${{ steps.pack.outputs.TARBALL }}
           clawhub login --token "$CLAWHUB_TOKEN"
-          clawhub package publish . \
+          clawhub package publish "./$TARBALL" \
             --family code-plugin \
             --name "@axonflow/openclaw" \
             --display-name "AxonFlow Governance" \
