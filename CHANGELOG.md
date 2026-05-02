@@ -17,9 +17,9 @@ Falling back to the v2.0.4 baseline: CLI v0.12.0 + folder upload (Legacy ZIP). T
 - `@anthropic-ai/sdk` `>=0.91.1` override
 - `permissions: contents: read` on heartbeat-real-stack workflow
 
-### Status of in-flight ClawHub bug report
+### Upstream regression and follow-up
 
-Filing a bug with ClawHub describing the v0.12.1 publish-pipeline regression (artifacts upload as `npm-pack (tgz)` with bytes that don't match the recorded SHA-256, breaking `openclaw plugins install`). Once ClawHub fixes v0.12.1+, we can revisit the ClawPack tarball publish path and drop the Legacy ZIP badge.
+The underlying issue is in `clawhub` CLI v0.12.1+: published artifacts register as `npm-pack (tgz)` with bytes that don't match the recorded SHA-256, which breaks `openclaw plugins install` regardless of whether you upload a folder or a tarball. We've reproduced the failure across both upload modes on v0.12.1 and confirmed v0.12.0 still works for folder uploads. Once ClawHub addresses the v0.12.1+ regression upstream, we'll revisit the ClawPack tarball publish path and drop the Legacy ZIP badge.
 
 ### Upgrade
 
