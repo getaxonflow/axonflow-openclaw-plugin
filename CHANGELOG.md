@@ -21,6 +21,15 @@ Falling back to the v2.0.4 baseline: CLI v0.12.0 + folder upload (Legacy ZIP). T
 
 The underlying issue is in `clawhub` CLI v0.12.1+: published artifacts register as `npm-pack (tgz)` with bytes that don't match the recorded SHA-256, which breaks `openclaw plugins install` regardless of whether you upload a folder or a tarball. We've reproduced the failure across both upload modes on v0.12.1 and confirmed v0.12.0 still works for folder uploads. Once ClawHub addresses the v0.12.1+ regression upstream, we'll revisit the ClawPack tarball publish path and drop the Legacy ZIP badge.
 
+### Registry-state asymmetry
+
+The release train this afternoon left npm and ClawHub in slightly different states:
+
+- **npm** has `2.0.5`, `2.0.6`, `2.0.7`, `2.0.8` (each version's `publish` job succeeded; npm publish is independent of ClawHub publish).
+- **ClawHub** has `2.0.5`, `2.0.6`, `2.0.8` (v2.0.7's `publish-clawhub` job failed mid-workflow with `Error: Path must be a folder`, so v2.0.7 was never registered on ClawHub).
+
+For most users on `@latest` this is invisible — both registries point at v2.0.8. Anyone explicitly pinning `clawhub:@axonflow/openclaw@2.0.7` will hit "version not found"; in that case, either pin to `2.0.8` or drop the version pin entirely.
+
 ### Upgrade
 
 `openclaw plugins install @axonflow/openclaw@latest`. If you tried v2.0.5, v2.0.6, or v2.0.7 and hit any install error, retry — v2.0.8 should resolve cleanly.
