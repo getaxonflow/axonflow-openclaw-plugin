@@ -265,17 +265,15 @@ jobs:
       - name: Wait for ClawHub propagation
         run: sleep 30
 
-      - name: openclaw plugins install clawhub:@axonflow/openclaw@<version>
+      - name: Install via openclaw plugins install clawhub
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          set -e
           for i in 1 2 3 4 5; do
             echo "Attempt $i: openclaw plugins install clawhub:@axonflow/openclaw@${VERSION}"
-            if openclaw plugins install "clawhub:@axonflow/openclaw@${VERSION}" 2>&1 | tee /tmp/install-out.log; then
-              if grep -q "Installed plugin: axonflow-governance" /tmp/install-out.log; then
-                echo "SUCCESS: ClawHub install path returns the plugin cleanly"
-                exit 0
-              fi
+            openclaw plugins install "clawhub:@axonflow/openclaw@${VERSION}" 2>&1 | tee /tmp/install-out.log || true
+            if grep -q "Installed plugin: axonflow-governance" /tmp/install-out.log; then
+              echo "SUCCESS: ClawHub install path returns the plugin cleanly"
+              exit 0
             fi
             echo "Install attempt $i did not succeed, retrying in 30s..."
             sleep 30
