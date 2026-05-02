@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.0.5] - 2026-05-03 — Publish as ClawPack + transitive security bump
+## [2.0.5] - 2026-05-02 — Publish as ClawPack + transitive security bump
 
 ClawHub's install page on prior versions surfaced a "Legacy ZIP — may have compatibility issues" badge because the publish flow uploaded a folder rather than the npm-pack tarball. The plugin already declared the `openclaw.compat.pluginApi` and `openclaw.build.openclawVersion` metadata that ClawPack requires, so the only change needed was the publish artifact format itself.
 
