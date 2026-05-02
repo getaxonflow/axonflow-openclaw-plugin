@@ -24,6 +24,9 @@ on:
       - "tsconfig.json"
       - ".github/workflows/heartbeat-real-stack.yml"
 
+permissions:
+  contents: read
+
 jobs:
   real-stack:
     name: Real-stack E2E (${{ matrix.os }} / Node ${{ matrix.node }})

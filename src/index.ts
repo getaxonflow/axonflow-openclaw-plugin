@@ -38,7 +38,7 @@ import { resetMetrics } from "./metrics.js";
 import { runPluginVersionCheck } from "./plugin-version-check.js";
 
 /** Plugin version — update before each release. */
-export const VERSION = "2.0.4";
+export const VERSION = "2.0.5";
 
 // Re-export for external consumers
 export { AxonFlowClient } from "./axonflow-client.js";

@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.5] - 2026-05-03 — Publish as ClawPack + transitive security bump
+
+ClawHub's install page on prior versions surfaced a "Legacy ZIP — may have compatibility issues" badge because the publish flow uploaded a folder rather than the npm-pack tarball. The plugin already declared the `openclaw.compat.pluginApi` and `openclaw.build.openclawVersion` metadata that ClawPack requires, so the only change needed was the publish artifact format itself.
+
+### Changed
+
+- **Publish as ClawPack tarball.** The `publish-clawhub` job now runs `npm pack` and uploads the resulting `.tgz` to ClawHub's package registry. ClawPack downloads are verified against npm integrity/shasum **and** ClawHub SHA-256, giving stronger artifact provenance than the legacy ZIP path. No change to install command — `openclaw plugins install clawhub:@axonflow/openclaw` resolves the same way.
+
+### Security
+
+- **Bump transitive `@anthropic-ai/sdk` to `>=0.91.1`** via `package.json` `overrides` (closes a moderate-severity GHSA on insecure default file permissions in the local-filesystem memory tool). The SDK is a transitive dev-only dependency through the `openclaw` peerDep — not bundled in the published `dist/` — so plugin users were never exposed at runtime; this closes the lockfile alert and ensures CI runs against a patched copy.
+- **Add explicit `permissions: contents: read` to the `Heartbeat Real-Stack E2E` workflow** to match every other workflow in the repo and satisfy the CodeQL `missing-workflow-permissions` rule. Job already only needed read access for checkout.
+
+### Upgrade
+
+`openclaw plugins install @axonflow/openclaw@latest`. No code or configuration changes on your side.
+
+---
+
 ## [2.0.4] - 2026-05-01 — Restore `userEmail` configuration + reframe Community SaaS as exploration-only
 
 `openclaw.plugin.json` declared `configSchema.additionalProperties: false` but did not list `userEmail` in `properties`, even though the plugin's runtime config resolver (`src/config.ts`) reads `userEmail` from `pluginConfig` and forwards it as the `X-User-Email` header on every request. OpenClaw's plugin loader runs the published configSchema against the user's `pluginConfig`; when validation fails (because of the unknown property), the loader emits a single `[plugins] axonflow-governance invalid config: ...` log line and skips the plugin entirely — it never registers, no hooks fire, and tool calls execute completely ungoverned.
