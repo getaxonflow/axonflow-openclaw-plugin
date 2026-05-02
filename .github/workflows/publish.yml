@@ -183,26 +183,20 @@ jobs:
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
 
-      # Tarball upload (ClawPack) restored. With CLI pinned to v0.12.0,
-      # the previously-broken integrity-mismatch regression should not
-      # occur. If install still breaks on v2.0.7, ship v2.0.8 reverting
-      # to folder upload (Legacy ZIP) until ClawHub fixes ClawPack
-      # handling upstream.
-      - name: Pack tarball
-        id: pack
-        run: |
-          TARBALL=$(npm pack --silent)
-          echo "TARBALL=$TARBALL" >> $GITHUB_OUTPUT
-          ls -l "$TARBALL"
-
+      # Folder upload (Legacy ZIP) is the only working combination right
+      # now. v2.0.7 attempted CLI pin v0.12.0 + tarball arg and got
+      # `Error: Path must be a folder` — tarball arg was a v0.12.1 feature.
+      # v2.0.5 + v2.0.6 (CLI v0.12.1, both upload modes) hit broken-install
+      # bytes-mismatch. v2.0.4 (CLI v0.12.0 + folder) is the last known-good
+      # combination and still installs cleanly. Holding here until ClawHub
+      # fixes the v0.12.1+ regression upstream.
       - name: Publish to ClawHub
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          TARBALL=${{ steps.pack.outputs.TARBALL }}
           clawhub login --token "$CLAWHUB_TOKEN"
-          clawhub package publish "./$TARBALL" \
+          clawhub package publish . \
             --family code-plugin \
             --name "@axonflow/openclaw" \
             --display-name "AxonFlow Governance" \
