@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **5 agent-callable governance tools.** OpenClaw agents can now invoke
+  AxonFlow's read-side governance surface directly through tool-calling:
+  `axonflow_audit_search` (search audit trail), `axonflow_explain_decision`
+  (fetch the full reasoning behind a previous decision), `axonflow_list_overrides`,
+  `axonflow_create_override`, and `axonflow_revoke_override`. Tools are
+  registered when OpenClaw exposes `registerTool` (2026.3.22+); on older
+  runtimes the plugin logs a one-line warning and continues with hooks
+  only.
+
 ## [2.0.8] - 2026-05-02 — Drop tarball arg; v0.12.0 only supports folder upload
 
 v2.0.7 attempted CLI pin v0.12.0 + tarball arg and got `Error: Path must be a folder` from the publisher — tarball-arg support is a v0.12.1+ feature. The publish-clawhub job failed; v2.0.7 is on npm but never registered on ClawHub.

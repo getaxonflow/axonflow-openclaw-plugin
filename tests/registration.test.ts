@@ -95,6 +95,58 @@ describe("registerAxonFlowGovernance", () => {
     );
   });
 
+  it("registers all 5 agent-callable tools when registerTool API is present", () => {
+    const registered: Array<{ name: string; description: string }> = [];
+    const logger = { info: jest.fn(), error: jest.fn() };
+    const api = {
+      pluginConfig: {
+        endpoint: "http://localhost:8080",
+        clientId: "test",
+        clientSecret: "secret",
+      },
+      logger,
+      on: jest.fn(),
+      registerTool: jest.fn(
+        (tool: { name: string; description: string }) => {
+          registered.push({ name: tool.name, description: tool.description });
+        },
+      ),
+    };
+
+    registerAxonFlowGovernance(api);
+
+    expect(api.registerTool).toHaveBeenCalledTimes(5);
+    expect(registered.map((t) => t.name).sort()).toEqual([
+      "axonflow_audit_search",
+      "axonflow_create_override",
+      "axonflow_explain_decision",
+      "axonflow_list_overrides",
+      "axonflow_revoke_override",
+    ]);
+    expect(logger.info).toHaveBeenCalledWith(
+      "[AxonFlow] Registered 5 agent-callable tools",
+    );
+  });
+
+  it("logs a warning and skips tool registration on older OpenClaw runtimes", () => {
+    const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
+    const api = {
+      pluginConfig: {
+        endpoint: "http://localhost:8080",
+        clientId: "test",
+        clientSecret: "secret",
+      },
+      logger,
+      on: jest.fn(),
+      // registerTool intentionally absent — simulates pre-2026.3.22 runtime
+    };
+
+    expect(() => registerAxonFlowGovernance(api)).not.toThrow();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("OpenClaw runtime does not expose registerTool"),
+    );
+  });
+
   it("rejects clientSecret without clientId regardless of mode", () => {
     // Defense against half-credentialled licensed setups: clientSecret on
     // its own is meaningless and almost always indicates a misconfiguration
