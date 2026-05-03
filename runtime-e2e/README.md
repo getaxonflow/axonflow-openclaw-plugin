@@ -12,8 +12,6 @@ The single rule:
 
 > **If a user cannot reach the feature from their runtime, we did not ship a feature, we shipped a library.**
 
-See `axonflow-business-docs/engineering/E2E_EXAMPLES_TESTING_WORKFLOW.md` Policy section for the full methodology.
-
 ## What "runtime" means here
 
 The runtime is the OpenClaw plugin host. A test must:
@@ -46,5 +44,5 @@ Each test folder has its own README with prereqs and run instructions. Most test
 
 1. Confirm you can invoke the feature through `openclaw` — install the plugin, then trigger via tool/hook dispatch. If you can't, the answer is to fix the plugin's tool registration (in `src/index.ts`), not to write an SDK-import test.
 2. Create the folder, write `test.sh` and `README.md`.
-3. Update `axonflow-business-docs/engineering/FEATURE_RUNTIME_COVERAGE.md` to mark the new green cell under the OpenClaw column.
+3. Update `axonflow-internal-docs/engineering/FEATURE_RUNTIME_COVERAGE.md` (private; engineering team only) to mark the new green cell under the OpenClaw column.
 4. Reference the test in the PR that wires the feature.
