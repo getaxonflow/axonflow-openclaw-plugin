@@ -36,6 +36,7 @@ import { sendTelemetryPing } from "./telemetry.js";
 import { bootstrapCommunitySaas } from "./community-saas-bootstrap.js";
 import { resetMetrics } from "./metrics.js";
 import { runPluginVersionCheck } from "./plugin-version-check.js";
+import { buildAgentTools, type AgentToolDef } from "./agent-tools.js";
 
 /** Plugin version — update before each release. */
 export const VERSION = "2.0.8";
@@ -46,6 +47,15 @@ export type { AxonFlowPluginConfig } from "./config.js";
 export { resolveConfig, shouldGovernTool } from "./config.js";
 export { deriveConnectorType } from "./governance.js";
 export { getMetrics, type GovernanceMetrics } from "./metrics.js";
+export {
+  buildAgentTools,
+  buildAuditSearchTool,
+  buildExplainDecisionTool,
+  buildListOverridesTool,
+  buildCreateOverrideTool,
+  buildRevokeOverrideTool,
+} from "./agent-tools.js";
+export type { AgentToolDef } from "./agent-tools.js";
 
 /**
  * Plugin registration function.
@@ -62,6 +72,11 @@ export function registerAxonFlowGovernance(api: {
     handler: (...args: any[]) => any,
     opts?: { priority?: number },
   ) => void;
+  // OpenClaw 2026.3.22+ — agent-callable tool registration. Optional in the
+  // type so older runtimes (pre-tool-API) gracefully no-op rather than fail
+  // to load the plugin entirely. The runtime check below skips registration
+  // with a one-line warning when the API isn't present.
+  registerTool?: (tool: AgentToolDef, opts?: Record<string, unknown>) => void;
 }): void {
   const config = resolveConfig(api.pluginConfig);
 
@@ -193,6 +208,24 @@ export function registerAxonFlowGovernance(api: {
 
   const llmOutput = createLlmOutputHandler(clientRef, config, llmCallState);
   api.on("llm_output", llmOutput, { priority: 90 });
+
+  // Agent-callable tools (W2): expose AxonFlow's read-side governance
+  // surface so an agent running in OpenClaw can search audit logs,
+  // explain a previous policy decision, and manage session overrides
+  // via the standard tool-calling path. Registration is gated on the
+  // runtime providing `registerTool` — older OpenClaw runtimes that
+  // pre-date the tool API simply skip this section.
+  if (typeof api.registerTool === "function") {
+    const tools = buildAgentTools(clientRef);
+    for (const tool of tools) {
+      api.registerTool(tool);
+    }
+    api.logger.info(`[AxonFlow] Registered ${tools.length} agent-callable tools`);
+  } else {
+    (api.logger.warn ?? api.logger.info)(
+      "[AxonFlow] OpenClaw runtime does not expose registerTool — skipping agent-callable governance tools.",
+    );
+  }
 
   // Telemetry — 7-day heartbeat (fire-and-forget; opt out with
   // AXONFLOW_TELEMETRY=off). The promise is intentionally not awaited.
