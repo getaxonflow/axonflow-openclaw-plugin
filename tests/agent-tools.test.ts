@@ -63,7 +63,7 @@ describe("axonflow_audit_search", () => {
   it("forwards mapped args to client.searchAuditEvents", async () => {
     const ref = makeClientRef();
     const spy = jest
-      .spyOn(ref.current, "searchAuditEvents")
+      .spyOn(ref.current, "searchAuditEventsStrict")
       .mockResolvedValue({ entries: [{ id: "evt-1" }], total: 1 });
 
     const tool = buildAuditSearchTool(ref);
@@ -88,7 +88,7 @@ describe("axonflow_audit_search", () => {
   it("passes only present args when caller omits fields", async () => {
     const ref = makeClientRef();
     const spy = jest
-      .spyOn(ref.current, "searchAuditEvents")
+      .spyOn(ref.current, "searchAuditEventsStrict")
       .mockResolvedValue({ entries: [], total: 0 });
 
     const tool = buildAuditSearchTool(ref);
@@ -103,11 +103,29 @@ describe("axonflow_audit_search", () => {
 
   it("returns isError when the client throws", async () => {
     const ref = makeClientRef();
-    jest.spyOn(ref.current, "searchAuditEvents").mockRejectedValue(new Error("boom"));
+    jest.spyOn(ref.current, "searchAuditEventsStrict").mockRejectedValue(new Error("boom"));
     const tool = buildAuditSearchTool(ref);
     const result = await tool.execute("call-1", {});
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("Error: boom");
+  });
+
+  it("surfaces a 503 transport failure as isError, not as 'no audit events'", async () => {
+    // Regression: the previous implementation called the lossy
+    // searchAuditEvents which collapses non-2xx into {entries:[], total:0}.
+    // An agent reading that during a platform outage would say "no audit
+    // events" and move on. The strict variant must surface it as isError.
+    const ref = makeClientRef();
+    jest
+      .spyOn(ref.current, "searchAuditEventsStrict")
+      .mockRejectedValue(
+        new AxonFlowHttpError(503, "Service Unavailable", { error: "down" }, "audit search"),
+      );
+    const tool = buildAuditSearchTool(ref);
+    const result = await tool.execute("call-1", {});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("HTTP 503");
+    expect((result.details as { status: number }).status).toBe(503);
   });
 });
 
@@ -122,14 +140,17 @@ describe("axonflow_explain_decision", () => {
 
   it("returns ok payload when client returns explanation", async () => {
     const ref = makeClientRef();
-    jest.spyOn(ref.current, "explainDecision").mockResolvedValue({
-      decision_id: "dec-42",
-      timestamp: "2026-05-03T00:00:00Z",
-      policy_matches: [],
-      decision: "deny",
-      reason: "matched policy X",
-      override_available: false,
-      historical_hit_count_session: 0,
+    jest.spyOn(ref.current, "explainDecisionStrict").mockResolvedValue({
+      kind: "ok",
+      explanation: {
+        decision_id: "dec-42",
+        timestamp: "2026-05-03T00:00:00Z",
+        policy_matches: [],
+        decision: "deny",
+        reason: "matched policy X",
+        override_available: false,
+        historical_hit_count_session: 0,
+      },
     });
     const tool = buildExplainDecisionTool(ref);
     const result = await tool.execute("call-1", { decision_id: "dec-42" });
@@ -137,25 +158,55 @@ describe("axonflow_explain_decision", () => {
     expect((result.details as { decision_id: string }).decision_id).toBe("dec-42");
   });
 
-  it("returns isError when client returns null", async () => {
+  it("returns isError with not_found:true on a 404", async () => {
     const ref = makeClientRef();
-    jest.spyOn(ref.current, "explainDecision").mockResolvedValue(null);
+    jest
+      .spyOn(ref.current, "explainDecisionStrict")
+      .mockResolvedValue({ kind: "not_found" });
     const tool = buildExplainDecisionTool(ref);
     const result = await tool.execute("call-1", { decision_id: "missing" });
     expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("No explanation available");
+    expect(result.content[0]?.text).toContain("No explanation found");
+    expect((result.details as { not_found: boolean }).not_found).toBe(true);
   });
 
-  it("forwards AxonFlowHttpError details", async () => {
+  it("surfaces transport / non-2xx as isError (not as 'no explanation available')", async () => {
     const ref = makeClientRef();
-    jest.spyOn(ref.current, "explainDecision").mockRejectedValue(
-      new AxonFlowHttpError(403, "Forbidden", { error: "denied" }, "explain"),
-    );
+    jest
+      .spyOn(ref.current, "explainDecisionStrict")
+      .mockRejectedValue(
+        new AxonFlowHttpError(503, "Service Unavailable", { error: "down" }, "explain decision"),
+      );
+    const tool = buildExplainDecisionTool(ref);
+    const result = await tool.execute("call-1", { decision_id: "dec-42" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("HTTP 503 Service Unavailable");
+    expect((result.details as { status: number }).status).toBe(503);
+  });
+
+  it("forwards AxonFlowHttpError details on 403", async () => {
+    const ref = makeClientRef();
+    jest
+      .spyOn(ref.current, "explainDecisionStrict")
+      .mockRejectedValue(
+        new AxonFlowHttpError(403, "Forbidden", { error: "denied" }, "explain"),
+      );
     const tool = buildExplainDecisionTool(ref);
     const result = await tool.execute("call-1", { decision_id: "dec-42" });
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("HTTP 403 Forbidden");
     expect((result.details as { status: number }).status).toBe(403);
+  });
+
+  it("surfaces network errors (no AxonFlowHttpError) as isError", async () => {
+    const ref = makeClientRef();
+    jest
+      .spyOn(ref.current, "explainDecisionStrict")
+      .mockRejectedValue(new Error("ECONNREFUSED"));
+    const tool = buildExplainDecisionTool(ref);
+    const result = await tool.execute("call-1", { decision_id: "dec-42" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("ECONNREFUSED");
   });
 });
 
@@ -163,7 +214,7 @@ describe("axonflow_list_overrides", () => {
   it("forwards optional filters", async () => {
     const ref = makeClientRef();
     const spy = jest
-      .spyOn(ref.current, "listOverrides")
+      .spyOn(ref.current, "listOverridesStrict")
       .mockResolvedValue({ overrides: [], count: 0 });
     const tool = buildListOverridesTool(ref);
     await tool.execute("call-1", { policy_id: "POL-1", include_revoked: true });
@@ -173,7 +224,7 @@ describe("axonflow_list_overrides", () => {
   it("calls client without filters when args empty", async () => {
     const ref = makeClientRef();
     const spy = jest
-      .spyOn(ref.current, "listOverrides")
+      .spyOn(ref.current, "listOverridesStrict")
       .mockResolvedValue({ overrides: [], count: 0 });
     const tool = buildListOverridesTool(ref);
     await tool.execute("call-1", {});
@@ -182,16 +233,34 @@ describe("axonflow_list_overrides", () => {
 
   it("surfaces client errors as isError", async () => {
     const ref = makeClientRef();
-    jest.spyOn(ref.current, "listOverrides").mockRejectedValue(new Error("net down"));
+    jest.spyOn(ref.current, "listOverridesStrict").mockRejectedValue(new Error("net down"));
     const tool = buildListOverridesTool(ref);
     const result = await tool.execute("call-1", {});
     expect(result.isError).toBe(true);
   });
 
+  it("surfaces a 503 transport failure as isError, not as 'no overrides'", async () => {
+    // Regression: previous implementation called the lossy listOverrides
+    // which collapses non-2xx into {overrides:[], count:0}. An agent
+    // reading that during an outage would conclude "no active overrides"
+    // and possibly retry a previously-blocked tool call. The strict
+    // variant must surface it as isError.
+    const ref = makeClientRef();
+    jest
+      .spyOn(ref.current, "listOverridesStrict")
+      .mockRejectedValue(
+        new AxonFlowHttpError(503, "Service Unavailable", { error: "down" }, "list overrides"),
+      );
+    const tool = buildListOverridesTool(ref);
+    const result = await tool.execute("call-1", {});
+    expect(result.isError).toBe(true);
+    expect((result.details as { status: number }).status).toBe(503);
+  });
+
   it("ignores unknown arg types (numeric policy_id, string include_revoked)", async () => {
     const ref = makeClientRef();
     const spy = jest
-      .spyOn(ref.current, "listOverrides")
+      .spyOn(ref.current, "listOverridesStrict")
       .mockResolvedValue({ overrides: [], count: 0 });
     const tool = buildListOverridesTool(ref);
     await tool.execute("call-1", { policy_id: 42, include_revoked: "true" });
