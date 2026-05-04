@@ -98,6 +98,47 @@ Plugin Pro is the paid tier on top of free Community SaaS — it unlocks longer 
 
 If you lose the token (laptop reinstall, never archived the email), use the recovery CLI below to issue a fresh one against the same email.
 
+### Check status
+
+When you need to know your `tenant_id` (for example to paste it into the Stripe checkout custom field when buying Pro), or you want to confirm which AxonFlow endpoint the plugin is pointed at and whether a Pro license token is wired through:
+
+```bash
+# Installed via OpenClaw plugin install:
+npx @axonflow/openclaw axonflow-openclaw-status
+
+# Or directly from a clone:
+node bin/axonflow-openclaw-status.mjs
+
+# Machine-readable JSON, suitable for piping into jq:
+axonflow-openclaw-status --json
+```
+
+Sample output (free tier, registered):
+
+```
+AxonFlow OpenClaw plugin status
+
+  tenant_id:  cs_demo_tenant_abc123
+              (paste this into the Stripe checkout custom field when buying Pro)
+  endpoint:   https://try.getaxonflow.com
+  tier:       Free
+  upgrade:    https://getaxonflow.com/pro
+```
+
+Sample output (Pro tier active):
+
+```
+AxonFlow OpenClaw plugin status
+
+  tenant_id:  cs_demo_tenant_abc123
+              (paste this into the Stripe checkout custom field when buying Pro)
+  endpoint:   https://try.getaxonflow.com
+  tier:       Pro (license token configured)
+  license:    …XYZ9 (redacted — last 4 chars only)
+```
+
+The license token is **never** printed in full — only the last four characters are shown so you can confirm the token is the one you expect without exposing it via screen-share, copy-paste, or shell history. If `tenant_id` is missing, the CLI points you at `axonflow-openclaw-recover` to re-issue credentials against your registered email.
+
 ### Recover lost Community-SaaS credentials
 
 If you registered with Community SaaS, lost the auto-bootstrapped credential file (`$AXONFLOW_CONFIG_DIR/try-registration.json`), and want your tenant + audit history back:

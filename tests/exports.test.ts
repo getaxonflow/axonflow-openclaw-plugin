@@ -16,6 +16,16 @@ import {
   extractRecoveryToken,
   persistRecoveredCredentials,
   RECOVERY_DEFAULT_ENDPOINT,
+  // W4 status surface — bin/axonflow-openclaw-status.mjs imports these
+  // from dist/. The package-entry re-export keeps them callable for
+  // any downstream integration that wants tier / tenant_id state.
+  buildStatusReport,
+  formatStatusReport,
+  resolveStatusInputs,
+  redactLicenseToken,
+  readPersistedTenantId,
+  STATUS_DEFAULT_ENDPOINT,
+  STATUS_DEFAULT_UPGRADE_URL,
 } from "../src/index.js";
 
 describe("package exports", () => {
@@ -75,5 +85,17 @@ describe("package exports", () => {
     expect(typeof persistRecoveredCredentials).toBe("function");
     expect(typeof RECOVERY_DEFAULT_ENDPOINT).toBe("string");
     expect(RECOVERY_DEFAULT_ENDPOINT).toMatch(/^https?:\/\//);
+  });
+
+  it("exports W4 status surface", () => {
+    expect(typeof buildStatusReport).toBe("function");
+    expect(typeof formatStatusReport).toBe("function");
+    expect(typeof resolveStatusInputs).toBe("function");
+    expect(typeof redactLicenseToken).toBe("function");
+    expect(typeof readPersistedTenantId).toBe("function");
+    expect(typeof STATUS_DEFAULT_ENDPOINT).toBe("string");
+    expect(STATUS_DEFAULT_ENDPOINT).toMatch(/^https?:\/\//);
+    expect(typeof STATUS_DEFAULT_UPGRADE_URL).toBe("string");
+    expect(STATUS_DEFAULT_UPGRADE_URL).toMatch(/^https?:\/\//);
   });
 });
