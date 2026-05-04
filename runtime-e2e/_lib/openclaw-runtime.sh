@@ -17,7 +17,7 @@ set -uo pipefail
 : "${AXONFLOW_ENDPOINT:=http://localhost:8080}"
 : "${AXONFLOW_CLIENT_ID:=demo-client}"
 : "${AXONFLOW_CLIENT_SECRET:=demo-secret}"
-: "${OPENCLAW_E2E_MODEL:=openai-codex/gpt-5.5}"
+: "${OPENCLAW_E2E_MODEL:=anthropic/claude-haiku-4-5}"
 
 runtime_e2e_skip_if_unavailable() {
   if ! command -v openclaw >/dev/null 2>&1; then
@@ -58,6 +58,12 @@ openclaw_install_local_plugin() {
   openclaw config set "plugins.entries.axonflow-governance.config.endpoint" "$AXONFLOW_ENDPOINT" >/dev/null
   openclaw config set "plugins.entries.axonflow-governance.config.clientId" "$AXONFLOW_CLIENT_ID" >/dev/null
   openclaw config set "plugins.entries.axonflow-governance.config.clientSecret" "$AXONFLOW_CLIENT_SECRET" >/dev/null
+  # The override lifecycle endpoints (create_override / revoke_override) require
+  # an X-User-Email header server-side per ADR-044. Without it the orchestrator
+  # returns 401. Set a deterministic test identity so the lifecycle tests can
+  # actually exercise revoke against state seeded with the same identity.
+  openclaw config set "plugins.entries.axonflow-governance.config.userEmail" \
+    "${AXONFLOW_TEST_USER_EMAIL:-dev@getaxonflow.com}" >/dev/null
 }
 
 # Run a single agent turn against the local OpenClaw runtime.
@@ -89,11 +95,20 @@ assert_tool_in_summary() {
 
 assert_smoke_result() {
   local output_file="$1"
-  jq -r '.payloads[0].text // empty' "$output_file" 2>/dev/null | grep -q "SMOKE_RESULT:"
+  # OpenClaw can emit progress text + final reply across multiple payloads,
+  # so we have to scan all of them rather than just .payloads[0].
+  jq -r '.payloads[]?.text // empty' "$output_file" 2>/dev/null | grep -q "SMOKE_RESULT:"
 }
 
 assert_reply_contains() {
   local output_file="$1"
   local needle="$2"
-  jq -r '.payloads[0].text // empty' "$output_file" 2>/dev/null | grep -q "$needle"
+  jq -r '.payloads[]?.text // empty' "$output_file" 2>/dev/null | grep -q "$needle"
+}
+
+# Returns the SMOKE_RESULT JSON text (post-prefix) from any payload.
+extract_smoke_line() {
+  local output_file="$1"
+  jq -r '.payloads[]?.text // empty' "$output_file" 2>/dev/null \
+    | grep -E "SMOKE_RESULT:" | tail -1 | sed 's/.*SMOKE_RESULT: *//'
 }

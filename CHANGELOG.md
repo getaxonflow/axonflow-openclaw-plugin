@@ -2,18 +2,22 @@
 
 ## [Unreleased]
 
-## [2.1.0] - 2026-05-03 — 5 agent-callable governance tools
+## [2.1.0] - 2026-05-04 — 5 agent-callable governance tools
 
 ### Added
 
-- **5 agent-callable governance tools.** OpenClaw agents can now invoke
+- **5 agent-callable governance tools.** OpenClaw agents can invoke
   AxonFlow's read-side governance surface directly through tool-calling:
-  `axonflow_audit_search` (search audit trail), `axonflow_explain_decision`
-  (fetch the full reasoning behind a previous decision), `axonflow_list_overrides`,
-  `axonflow_create_override`, and `axonflow_revoke_override`. Tools are
-  registered when OpenClaw exposes `registerTool` (2026.3.22+); on older
-  runtimes the plugin logs a one-line warning and continues with hooks
-  only.
+  `axonflow_audit_search`, `axonflow_explain_decision`,
+  `axonflow_list_overrides`, `axonflow_create_override`, and
+  `axonflow_revoke_override`. Tools register when OpenClaw exposes
+  `registerTool` (2026.3.22+); older runtimes log a one-line warning
+  and continue with hooks only.
+- **`userEmail` config field.** Required for `axonflow_create_override`
+  and `axonflow_revoke_override` so the platform can scope overrides to
+  the actual user. When absent, the override-write tools fail with a
+  clear authentication error from the platform; read-side tools and the
+  hook path continue to work.
 
 ### Fixed
 

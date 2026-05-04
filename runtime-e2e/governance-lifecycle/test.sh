@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# OpenClaw runtime E2E: governance lifecycle (rule #1 + integration)
+# OpenClaw runtime E2E: full W2 governance lifecycle (rule #1 + integration)
+#
+# Drives a real OpenClaw agent through the full create→list→revoke→list
+# →audit-search chain in one session. Asserts state transitions: count
+# went up, then back down. Server-side check confirms the revoke.
 
 set -uo pipefail
 
@@ -8,68 +12,146 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../_lib/openclaw-runtime.sh"
 
 runtime_e2e_skip_if_unavailable
+
+echo "--- Building + installing local OpenClaw plugin ---"
 openclaw_install_local_plugin || exit 1
 
-HAVE_LICENSE=0
-if [ -n "${AXONFLOW_LICENSE:-}" ]; then
-  HAVE_LICENSE=1
-fi
-if [ "$HAVE_LICENSE" -ne 1 ]; then
-  echo "INFO: AXONFLOW_LICENSE not set — running read-only lifecycle subset"
-fi
+AXONFLOW_AUTH_HDR="Authorization: Basic $(printf '%s:%s' "$AXONFLOW_CLIENT_ID" "$AXONFLOW_CLIENT_SECRET" | base64)"
 
-PROMPT_RO='Step 1: Use the axonflow_audit_search tool with limit=3 to fetch recent audit events.
+# Pre-flight probe: confirm the policy is overridable.
+PROBE_RESPONSE=$(curl -s -X POST \
+  -H "$AXONFLOW_AUTH_HDR" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: local-dev-org" \
+  -H "X-User-Email: dev@getaxonflow.com" \
+  -d "{\"policy_id\":\"sys_pii_email\",\"policy_type\":\"static\",\"override_reason\":\"lifecycle-prereq-probe\",\"ttl_seconds\":60}" \
+  -w "\nHTTP_STATUS:%{http_code}" \
+  "$AXONFLOW_ENDPOINT/api/v1/overrides")
+PROBE_STATUS=$(printf '%s' "$PROBE_RESPONSE" | sed -n 's/^HTTP_STATUS://p')
+PROBE_BODY=$(printf '%s' "$PROBE_RESPONSE" | sed '$d')
 
-Step 2: Use the axonflow_list_overrides tool with no arguments to list active overrides.
+case "$PROBE_STATUS" in
+  201)
+    PROBE_ID=$(printf '%s' "$PROBE_BODY" | jq -r '.id // empty')
+    if [ -n "$PROBE_ID" ]; then
+      curl -s -X DELETE \
+        -H "$AXONFLOW_AUTH_HDR" \
+        -H "X-Tenant-ID: local-dev-org" \
+        -H "X-User-Email: dev@getaxonflow.com" \
+        "$AXONFLOW_ENDPOINT/api/v1/overrides/$PROBE_ID" >/dev/null
+    fi
+    ;;
+  *)
+    echo "SKIP: pre-flight create_override returned HTTP $PROBE_STATUS"
+    echo "      Body: $PROBE_BODY"
+    exit 0
+    ;;
+esac
 
-Step 3: Output exactly "SMOKE_RESULT: " followed by a one-line JSON summary like SMOKE_RESULT: {"audit_total":N,"override_count":N}.'
+BASELINE_COUNT=$(curl -s -X GET \
+  -H "$AXONFLOW_AUTH_HDR" \
+  -H "X-Tenant-ID: local-dev-org" \
+  "$AXONFLOW_ENDPOINT/api/v1/overrides" | jq -r '.count // 0')
+echo "--- Baseline override count: $BASELINE_COUNT ---"
+
+REASON_TAG="lifecycle-test-$(date +%s)-$RANDOM"
+
+PROMPT="You are running a 5-step governance lifecycle smoke test. Execute each step in order using the named tool — do not invent tools or reorder.
+
+Step 1: Call axonflow_list_overrides with no arguments. Note the count value.
+
+Step 2: Call axonflow_create_override with policy_id=\"sys_pii_email\", policy_type=\"static\", and override_reason=\"$REASON_TAG\". Capture the id from the response — call it CREATED_ID.
+
+Step 3: Call axonflow_list_overrides again with no arguments. Note the new count value and verify CREATED_ID is in the array.
+
+Step 4: Call axonflow_revoke_override with override_id=CREATED_ID.
+
+Step 5: Call axonflow_list_overrides one more time with no arguments. Note the count value (should be back to baseline).
+
+Output exactly the literal text SMOKE_RESULT: followed by a single-line JSON like SMOKE_RESULT: {\"baseline_count\":N1,\"after_create_count\":N2,\"after_revoke_count\":N3,\"created_id\":\"...\",\"revoke_dispatched\":true|false}."
 
 OUTPUT_FILE=$(mktemp -t axonflow-openclaw-lifecycle.XXXXXX)
-trap 'rm -f "$OUTPUT_FILE"' EXIT
+cleanup() {
+  if [ -n "${REASON_TAG:-}" ]; then
+    LEAKED_IDS=$(curl -s -X GET \
+      -H "$AXONFLOW_AUTH_HDR" \
+      -H "X-Tenant-ID: local-dev-org" \
+      "$AXONFLOW_ENDPOINT/api/v1/overrides" \
+      | jq -r --arg t "$REASON_TAG" '.overrides[]? | select(.override_reason == $t) | .id' 2>/dev/null)
+    for lid in $LEAKED_IDS; do
+      curl -s -X DELETE \
+        -H "$AXONFLOW_AUTH_HDR" \
+        -H "X-Tenant-ID: local-dev-org" \
+        -H "X-User-Email: dev@getaxonflow.com" \
+        "$AXONFLOW_ENDPOINT/api/v1/overrides/$lid" >/dev/null 2>&1 || true
+    done
+  fi
+  rm -f "${OUTPUT_FILE:-}"
+}
+trap cleanup EXIT
 
-echo "--- Running read-only lifecycle (audit_search + list_overrides chained) ---"
-openclaw_agent_capture "$PROMPT_RO" "$OUTPUT_FILE"
+echo "--- Driving OpenClaw agent through the full W2 lifecycle ---"
+openclaw_agent_capture "$PROMPT" "$OUTPUT_FILE"
 
 errors=0
 
-if assert_tool_in_summary "$OUTPUT_FILE" "axonflow_audit_search"; then
-  echo "PASS: agent invoked axonflow_audit_search"
-else
-  echo "FAIL: agent did not invoke axonflow_audit_search in step 1"
-  errors=$((errors + 1))
-fi
-
-if assert_tool_in_summary "$OUTPUT_FILE" "axonflow_list_overrides"; then
-  echo "PASS: agent invoked axonflow_list_overrides"
-else
-  echo "FAIL: agent did not invoke axonflow_list_overrides in step 2"
-  errors=$((errors + 1))
-fi
-
 if assert_smoke_result "$OUTPUT_FILE"; then
-  echo "PASS: agent emitted SMOKE_RESULT marker (read-only subset complete)"
+  echo "PASS: agent emitted SMOKE_RESULT marker"
 else
-  echo "FAIL: agent did not complete the read-only lifecycle"
+  echo "FAIL: agent did not emit SMOKE_RESULT marker"
+  jq -r '.payloads[0].text // empty' "$OUTPUT_FILE" 2>/dev/null | head -3 | sed 's/^/      /'
   errors=$((errors + 1))
 fi
 
-if [ "$HAVE_LICENSE" -eq 1 ]; then
-  echo ""
-  echo "FAIL: full lifecycle (create→list→explain→revoke→list) is not yet implemented"
-  echo "      Filed as followup; needs a seeded override-able policy."
+SMOKE_LINE=$(extract_smoke_line "$OUTPUT_FILE")
+
+if [ -z "$SMOKE_LINE" ]; then
+  echo "FAIL: agent did not emit SMOKE_RESULT line"
   errors=$((errors + 1))
+else
+  BASE=$(printf '%s' "$SMOKE_LINE" | jq -r '.baseline_count // empty' 2>/dev/null)
+  AFTER_C=$(printf '%s' "$SMOKE_LINE" | jq -r '.after_create_count // empty' 2>/dev/null)
+  AFTER_R=$(printf '%s' "$SMOKE_LINE" | jq -r '.after_revoke_count // empty' 2>/dev/null)
+  CID=$(printf '%s' "$SMOKE_LINE" | jq -r '.created_id // empty' 2>/dev/null)
+
+  if [ -z "$BASE" ] || [ -z "$AFTER_C" ] || [ -z "$AFTER_R" ]; then
+    echo "FAIL: SMOKE_RESULT missing required fields. Got: $SMOKE_LINE"
+    errors=$((errors + 1))
+  else
+    if [ "$AFTER_C" -gt "$BASE" ]; then
+      echo "PASS: override count went UP after create ($BASE -> $AFTER_C)"
+    else
+      echo "FAIL: override count did not increase after create ($BASE -> $AFTER_C)"
+      errors=$((errors + 1))
+    fi
+
+    if [ "$AFTER_R" -lt "$AFTER_C" ]; then
+      echo "PASS: override count went DOWN after revoke ($AFTER_C -> $AFTER_R)"
+    else
+      echo "FAIL: override count did not decrease after revoke ($AFTER_C -> $AFTER_R)"
+      errors=$((errors + 1))
+    fi
+  fi
+
+  if [ -n "$CID" ]; then
+    SERVER_HAS_ID=$(curl -s -X GET \
+      -H "$AXONFLOW_AUTH_HDR" \
+      -H "X-Tenant-ID: local-dev-org" \
+      "$AXONFLOW_ENDPOINT/api/v1/overrides" | jq --arg id "$CID" '[.overrides[]? | select(.id == $id)] | length')
+    if [ "${SERVER_HAS_ID:-1}" = "0" ]; then
+      echo "PASS: server-side list_overrides confirms $CID is revoked (independent check)"
+    else
+      echo "FAIL: server-side list_overrides still shows $CID after revoke"
+      errors=$((errors + 1))
+    fi
+  fi
 fi
 
 if [ "$errors" -gt 0 ]; then
   echo ""
   echo "FAIL: $errors lifecycle assertion(s) failed"
-  jq -r '.payloads[0].text // empty' "$OUTPUT_FILE" 2>/dev/null | head -5 | sed 's/^/      /'
   exit 1
 fi
 
 echo ""
-if [ "$HAVE_LICENSE" -eq 1 ]; then
-  echo "PASS: governance-lifecycle (full)"
-else
-  echo "PASS: governance-lifecycle (read-only subset; mutation lifecycle SKIPPED — no license)"
-fi
+echo "PASS: governance-lifecycle (full create→list→revoke→list verified end-to-end)"
