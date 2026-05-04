@@ -37,9 +37,11 @@ import { bootstrapCommunitySaas } from "./community-saas-bootstrap.js";
 import { resetMetrics } from "./metrics.js";
 import { runPluginVersionCheck } from "./plugin-version-check.js";
 import { buildAgentTools, type AgentToolDef } from "./agent-tools.js";
+import { VERSION } from "./version.js";
 
-/** Plugin version — update before each release. */
-export const VERSION = "2.1.0";
+/** Plugin version — re-exported from version.ts so non-index consumers
+ * (axonflow-client.ts, etc.) can read it without circular-dep risk. */
+export { VERSION } from "./version.js";
 
 // Re-export for external consumers
 export { AxonFlowClient } from "./axonflow-client.js";
