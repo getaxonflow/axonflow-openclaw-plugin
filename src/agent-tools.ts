@@ -124,7 +124,10 @@ export function buildAuditSearchTool(clientRef: ClientRef): AgentToolDef {
     },
     execute: async (_id, args) => {
       try {
-        const result = await clientRef.current.searchAuditEvents({
+        // Strict variant — throws on transport / non-2xx so a platform
+        // outage or auth failure does not silently look like "no audit
+        // events" to the calling agent.
+        const result = await clientRef.current.searchAuditEventsStrict({
           startTime: readString(args, "start_time"),
           endTime: readString(args, "end_time"),
           requestType: readString(args, "request_type"),
@@ -164,13 +167,18 @@ export function buildExplainDecisionTool(clientRef: ClientRef): AgentToolDef {
       const decisionId = readString(args, "decision_id");
       if (!decisionId) return fail("decision_id is required");
       try {
-        const explanation = await clientRef.current.explainDecision(decisionId);
-        if (!explanation) {
-          return fail(`No explanation available for decision_id=${decisionId}`, {
+        // Strict variant distinguishes 404 (decision genuinely not found)
+        // from any other non-2xx (transport / auth / 5xx). Without this
+        // the agent could see the same null on both paths and report
+        // "no explanation available" during a platform outage.
+        const result = await clientRef.current.explainDecisionStrict(decisionId);
+        if (result.kind === "not_found") {
+          return fail(`No explanation found for decision_id=${decisionId}`, {
             decision_id: decisionId,
+            not_found: true,
           });
         }
-        return ok(explanation);
+        return ok(result.explanation);
       } catch (e) {
         const { message, details } = describeError(e);
         return fail(message, details);
@@ -204,7 +212,10 @@ export function buildListOverridesTool(clientRef: ClientRef): AgentToolDef {
     },
     execute: async (_id, args) => {
       try {
-        const result = await clientRef.current.listOverrides({
+        // Strict variant — throws on transport / non-2xx so a platform
+        // outage does not silently look like "no overrides exist" to
+        // the calling agent.
+        const result = await clientRef.current.listOverridesStrict({
           policyId: readString(args, "policy_id"),
           includeRevoked: readBoolean(args, "include_revoked"),
         });

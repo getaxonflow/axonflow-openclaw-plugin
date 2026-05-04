@@ -648,4 +648,148 @@ export class AxonFlowClient {
       count: number;
     };
   }
+
+  // ============================================================================
+  // Strict variants — used by agent-callable tools so transport failures are
+  // surfaced as errors instead of being collapsed into empty success results.
+  //
+  // Existing methods above keep their swallow-on-error behavior because they
+  // serve CLI / governance-hook UX paths where a network blip should not
+  // crash the agent's main flow. The strict variants below throw
+  // AxonFlowHttpError on non-2xx and re-throw the underlying Error on
+  // network failures, so callers can decide policy.
+  //
+  // Adding new methods (not changing existing signatures) keeps the W4
+  // tier-aware retention work in the other session unblocked.
+  // ============================================================================
+
+  /**
+   * Search audit events; throws on transport / non-2xx failures instead of
+   * returning a misleading `{entries: [], total: 0, error: "..."}` shape.
+   * Empty result sets remain a successful return with `entries: []`.
+   */
+  async searchAuditEventsStrict(options?: {
+    startTime?: string;
+    endTime?: string;
+    requestType?: string;
+    limit?: number;
+  }): Promise<{ entries: unknown[]; total: number }> {
+    const url = `${this.endpoint}/api/v1/audit/search`;
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+    const body = {
+      start_time: options?.startTime ?? oneHourAgo.toISOString(),
+      end_time: options?.endTime ?? now.toISOString(),
+      limit: Math.min(options?.limit ?? 20, 100),
+      ...(options?.requestType && { request_type: options.requestType }),
+    };
+
+    const response = await this.fetchWithTimeout(url, {
+      method: "POST",
+      headers: this.baseHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: text },
+        "audit search",
+      );
+    }
+    const data = (await response.json()) as {
+      entries: unknown[] | null;
+      total: number;
+    };
+    // Defensive: even after axonflow-enterprise#1834 lands and the server
+    // returns `entries: []`, older deployments still in the field will
+    // serve `entries: null`. Coerce so agent callers never see null.
+    return {
+      entries: Array.isArray(data.entries) ? data.entries : [],
+      total: typeof data.total === "number" ? data.total : 0,
+    };
+  }
+
+  /**
+   * List active overrides; throws on transport / non-2xx failures instead
+   * of returning an empty list that an agent could mistake for "no
+   * overrides". Empty result sets remain a successful return.
+   */
+  async listOverridesStrict(options?: {
+    policyId?: string;
+    includeRevoked?: boolean;
+  }): Promise<{
+    overrides: Array<Record<string, unknown>>;
+    count: number;
+  }> {
+    const params = new URLSearchParams();
+    if (options?.policyId) params.set("policy_id", options.policyId);
+    if (options?.includeRevoked) params.set("include_revoked", "true");
+    const qs = params.toString();
+    const url = `${this.endpoint}/api/v1/overrides${qs ? "?" + qs : ""}`;
+
+    const response = await this.fetchWithTimeout(url, {
+      method: "GET",
+      headers: this.baseHeaders(),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: text },
+        "list overrides",
+      );
+    }
+    return (await response.json()) as {
+      overrides: Array<Record<string, unknown>>;
+      count: number;
+    };
+  }
+
+  /**
+   * Fetch the full explanation for a decision; surfaces three distinct
+   * outcomes that the lossy `explainDecision` cannot:
+   *   - { kind: "ok", explanation }   when 2xx
+   *   - { kind: "not_found" }         when 404 (decision really doesn't exist)
+   *   - throws AxonFlowHttpError      on any other non-2xx
+   *   - throws underlying Error       on network/timeout failures
+   *
+   * Without this, an agent calling a CLI-flavored `explainDecision` cannot
+   * tell "no such decision" apart from "platform unreachable" — both come
+   * back as `null`.
+   */
+  async explainDecisionStrict(
+    decisionId: string,
+  ): Promise<
+    | { kind: "ok"; explanation: DecisionExplanation }
+    | { kind: "not_found" }
+  > {
+    if (!decisionId) {
+      throw new Error("decisionId is required");
+    }
+    const encoded = encodeURIComponent(decisionId);
+    const url = `${this.endpoint}/api/v1/decisions/${encoded}/explain`;
+
+    const response = await this.fetchWithTimeout(url, {
+      method: "GET",
+      headers: this.baseHeaders(),
+    });
+    if (response.status === 404) {
+      return { kind: "not_found" };
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: text },
+        "explain decision",
+      );
+    }
+    const explanation = (await response.json()) as DecisionExplanation;
+    return { kind: "ok", explanation };
+  }
 }

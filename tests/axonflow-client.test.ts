@@ -365,6 +365,145 @@ describe("AxonFlowClient", () => {
     });
   });
 
+  // ─── Strict variants used by agent-callable tools ────────────────────
+  // These methods MUST throw on transport / non-2xx so the agent tool
+  // wrappers can surface the failure as isError. The CLI-flavored
+  // counterparts (searchAuditEvents / listOverrides / explainDecision)
+  // intentionally swallow errors and stay on this codebase.
+
+  describe("searchAuditEventsStrict", () => {
+    it("returns the parsed body on 200", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(200, { entries: [{ id: "e1" }], total: 1 }),
+      );
+      const client = makeClient();
+      const result = await client.searchAuditEventsStrict({});
+      expect(result.total).toBe(1);
+      expect(Array.isArray(result.entries)).toBe(true);
+    });
+
+    it("coerces server-returned entries:null to []", async () => {
+      // Defensive against older platform deployments still serving
+      // `entries: null` before the axonflow-enterprise#1834 fix lands.
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(200, { entries: null, total: 0 }),
+      );
+      const client = makeClient();
+      const result = await client.searchAuditEventsStrict({});
+      expect(result.entries).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it("throws AxonFlowHttpError on non-2xx", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable",
+        text: () => Promise.resolve("down"),
+      });
+      const client = makeClient();
+      await expect(client.searchAuditEventsStrict({})).rejects.toThrow(
+        /HTTP 503/,
+      );
+    });
+
+    it("propagates network errors", async () => {
+      mockFetch.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+      const client = makeClient();
+      await expect(client.searchAuditEventsStrict({})).rejects.toThrow(
+        "ECONNREFUSED",
+      );
+    });
+  });
+
+  describe("listOverridesStrict", () => {
+    it("returns the parsed body on 200", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(200, { overrides: [], count: 0 }),
+      );
+      const client = makeClient();
+      const result = await client.listOverridesStrict();
+      expect(result.count).toBe(0);
+    });
+
+    it("throws AxonFlowHttpError on non-2xx", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: () => Promise.resolve("invalid auth"),
+      });
+      const client = makeClient();
+      await expect(client.listOverridesStrict()).rejects.toThrow(/HTTP 401/);
+    });
+
+    it("forwards optional filters in the query string", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(200, { overrides: [], count: 0 }),
+      );
+      const client = makeClient();
+      await client.listOverridesStrict({ policyId: "P", includeRevoked: true });
+      const url = mockFetch.mock.calls[0]?.[0] as string;
+      expect(url).toContain("policy_id=P");
+      expect(url).toContain("include_revoked=true");
+    });
+  });
+
+  describe("explainDecisionStrict", () => {
+    it("returns kind:ok with the explanation on 200", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(200, {
+          decision_id: "dec-42",
+          timestamp: "2026-05-03T00:00:00Z",
+          policy_matches: [],
+          decision: "deny",
+          reason: "blocked",
+          override_available: false,
+          historical_hit_count_session: 0,
+        }),
+      );
+      const client = makeClient();
+      const result = await client.explainDecisionStrict("dec-42");
+      expect(result.kind).toBe("ok");
+      if (result.kind === "ok") {
+        expect(result.explanation.decision_id).toBe("dec-42");
+      }
+    });
+
+    it("returns kind:not_found on 404 (not the same as a transport error)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        text: () => Promise.resolve(""),
+      });
+      const client = makeClient();
+      const result = await client.explainDecisionStrict("missing");
+      expect(result.kind).toBe("not_found");
+    });
+
+    it("throws AxonFlowHttpError on 5xx (distinct from 404)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable",
+        text: () => Promise.resolve("down"),
+      });
+      const client = makeClient();
+      await expect(client.explainDecisionStrict("dec-42")).rejects.toThrow(
+        /HTTP 503/,
+      );
+    });
+
+    it("throws Error on missing decisionId without hitting the network", async () => {
+      const client = makeClient();
+      await expect(client.explainDecisionStrict("")).rejects.toThrow(
+        "decisionId is required",
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
   describe("healthCheck", () => {
     it("returns true when healthy", async () => {
       mockFetch.mockResolvedValueOnce({ ok: true });

@@ -2,16 +2,34 @@
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-05-04 — 5 agent-callable governance tools
+
 ### Added
 
-- **5 agent-callable governance tools.** OpenClaw agents can now invoke
+- **5 agent-callable governance tools.** OpenClaw agents can invoke
   AxonFlow's read-side governance surface directly through tool-calling:
-  `axonflow_audit_search` (search audit trail), `axonflow_explain_decision`
-  (fetch the full reasoning behind a previous decision), `axonflow_list_overrides`,
-  `axonflow_create_override`, and `axonflow_revoke_override`. Tools are
-  registered when OpenClaw exposes `registerTool` (2026.3.22+); on older
-  runtimes the plugin logs a one-line warning and continues with hooks
-  only.
+  `axonflow_audit_search`, `axonflow_explain_decision`,
+  `axonflow_list_overrides`, `axonflow_create_override`, and
+  `axonflow_revoke_override`. Tools register when OpenClaw exposes
+  `registerTool` (2026.3.22+); older runtimes log a one-line warning
+  and continue with hooks only.
+- **`userEmail` config field.** Required for `axonflow_create_override`
+  and `axonflow_revoke_override` so the platform can scope overrides to
+  the actual user. When absent, the override-write tools fail with a
+  clear authentication error from the platform; read-side tools and the
+  hook path continue to work.
+
+### Fixed
+
+- **Agent tools now surface platform outages as errors instead of empty
+  results.** Previously, a 5xx, network failure, or auth error on
+  `axonflow_audit_search`, `axonflow_list_overrides`, or
+  `axonflow_explain_decision` could be silently collapsed into "no audit
+  events" / "no overrides" / "no explanation available" because the
+  underlying client methods were written for CLI UX and swallow HTTP
+  failures. The agent tools now use strict client variants that throw
+  on transport / non-2xx, so a calling agent sees `isError: true` with
+  the HTTP status instead of a misleading success.
 
 ## [2.0.8] - 2026-05-02 — Drop tarball arg; v0.12.0 only supports folder upload
 
