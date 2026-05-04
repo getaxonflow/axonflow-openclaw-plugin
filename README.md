@@ -229,10 +229,18 @@ Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/)
 Requires OpenClaw **2026.4.15 or later** (CVE floor). Upgrade with `npm install -g openclaw@latest` if needed.
 
 ```bash
-openclaw plugins install @axonflow/openclaw
+openclaw plugins install @axonflow/openclaw@latest
 ```
 
-Available on [ClawHub](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw) and [npm](https://www.npmjs.com/package/@axonflow/openclaw). The `clawhub:@axonflow/openclaw` form works if you prefer to be explicit about the source.
+We recommend the npm-spec form as our primary install path. npm is our source-of-truth registry — every release is published there first, with the long track record and stability you'd expect from a mature package registry. The CLI resolves the npm spec and downloads the latest tarball directly.
+
+To pin a specific version (recommended in production / CI):
+
+```bash
+openclaw plugins install @axonflow/openclaw@2.1.0
+```
+
+The `clawhub:@axonflow/openclaw` form is also supported and pulls from the [ClawHub](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw) mirror, which we publish to alongside [npm](https://www.npmjs.com/package/@axonflow/openclaw) on each release.
 
 <details>
 <summary>On an older OpenClaw CLI? The ENOENT workaround still applies.</summary>

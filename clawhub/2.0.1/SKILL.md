@@ -55,10 +55,10 @@ Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/)
 ### Step 2: install the plugin
 
 ```bash
-openclaw plugins install @axonflow/openclaw
+openclaw plugins install @axonflow/openclaw@latest
 ```
 
-The `clawhub:@axonflow/openclaw` form also works.
+We recommend the npm-spec form as the primary install path — npm is our source-of-truth registry, and the CLI resolves the spec and downloads the latest tarball directly. The `clawhub:@axonflow/openclaw` form is also supported and pulls from the ClawHub mirror.
 
 Requires OpenClaw **2026.4.15 or later** (CVE floor) and `@axonflow/openclaw` **2.0.4 or later** — the recommended stable floor for the v2.x line. Upgrade the CLI with `npm install -g openclaw@latest` and the plugin with `openclaw plugins install @axonflow/openclaw@latest`. Staying on the latest plugin patch is recommended — security and quality fixes ship monthly under the v2.x line.
 
