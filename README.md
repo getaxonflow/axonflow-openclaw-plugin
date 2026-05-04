@@ -86,6 +86,37 @@ export AXONFLOW_TELEMETRY=off      # disable 7-day heartbeat
 | `AXONFLOW_COMMUNITY_SAAS=0` | Disables auto-registration with `try.getaxonflow.com`. You must then set `pluginConfig.endpoint` for the plugin to enforce policy. Accepted off-values: `0`, `false`, `off`, `no`. |
 | `AXONFLOW_CACHE_DIR` | Overrides the per-user cache dir (telemetry stamp, rate-limit backoff). Defaults to `$XDG_CACHE_HOME/axonflow` (Linux), `~/Library/Caches/axonflow` (macOS), `%LOCALAPPDATA%\axonflow` (Windows). |
 | `AXONFLOW_CONFIG_DIR` | Overrides the per-user config dir (Community-SaaS registration file, disclosure stamp). Defaults to OS conventions. |
+| `AXONFLOW_LICENSE_TOKEN` | AxonFlow Pro plugin-claim license token (begins with `AXON-`). Forwarded on every governed request via the `X-License-Token` header so the agent applies Pro-tier entitlements. Wins over `pluginConfig.licenseToken`. |
+
+### Activate Pro tier
+
+Plugin Pro is the paid tier on top of free Community SaaS — it unlocks longer audit retention, higher per-tenant quotas, and license-gated capabilities listed at [getaxonflow.com/plugins/pro](https://getaxonflow.com/plugins/pro). To activate:
+
+1. Buy through Stripe Checkout. The agent issues an `AXON-…` token and emails it to the address you used at checkout.
+2. Either set `AXONFLOW_LICENSE_TOKEN=<the token>` in the environment OpenClaw runs in, or set `pluginConfig.licenseToken` in your OpenClaw config.
+3. Reload OpenClaw. The plugin will emit `[AxonFlow] Pro tier active …` on every init alongside the connection canary, and forward `X-License-Token` on every governed request automatically.
+
+If you lose the token (laptop reinstall, never archived the email), use the recovery CLI below to issue a fresh one against the same email.
+
+### Recover lost Community-SaaS credentials
+
+If you registered with Community SaaS, lost the auto-bootstrapped credential file (`$AXONFLOW_CONFIG_DIR/try-registration.json`), and want your tenant + audit history back:
+
+```bash
+# Installed via OpenClaw plugin install:
+npx @axonflow/openclaw axonflow-openclaw-recover you@example.com
+
+# Or directly from a clone:
+node bin/axonflow-openclaw-recover.mjs you@example.com
+```
+
+The CLI:
+1. Posts your email to `/api/v1/recover` (the platform always returns 202 — anti-enumeration, no signal whether the email is bound or not).
+2. Prompts you to paste the magic-link token (or the full magic-link URL) from the email you receive.
+3. Posts the token to `/api/v1/recover/verify`, which returns a freshly-issued tenant_id + secret bound to the original email.
+4. Persists the new credentials at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0o600`).
+
+Reload OpenClaw and the plugin picks up the recovered registration on the next init — no other config change required. Magic-link tokens are one-shot and short-lived; replays return 401.
 
 ---
 
@@ -281,6 +312,7 @@ See [Configure](#configure) below for the full pluginConfig schema (`highRiskToo
 | `endpoint` | No | `https://try.getaxonflow.com` (Community SaaS) when unset; `http://localhost:8080` when self-hosted with no endpoint specified | AxonFlow agent gateway URL |
 | `clientId` | No | `"community"` (self-hosted) or auto-bootstrapped `cs_<uuid>` (Community SaaS) | Tenant identity for data isolation. Override for Evaluation License or Enterprise tenants. |
 | `clientSecret` | No | `""` (self-hosted) or auto-bootstrapped (Community SaaS) | Basic-auth secret paired with `clientId`. Required for self-hosted Community Edition with an Evaluation License or AxonFlow Enterprise; auto-populated for Community SaaS; can be left unset for self-hosted Community Edition without a license. |
+| `licenseToken` | No | `process.env.AXONFLOW_LICENSE_TOKEN` if set | AxonFlow Pro plugin-claim license token (begins with `AXON-`). When set, the plugin sends `X-License-Token` on every governed request and the agent applies Pro-tier entitlements (extended retention, higher quotas, license-gated capabilities). Get one at [getaxonflow.com/plugins/pro](https://getaxonflow.com/plugins/pro) — buy through Stripe Checkout, the token arrives by email. Env var wins over `pluginConfig.licenseToken`. |
 | `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |

@@ -16,6 +16,28 @@ export interface AxonFlowPluginConfig {
   clientSecret: string;
 
   /**
+   * Plugin-claim license token (W4 paid Pro v1 tier, ADR-049).
+   *
+   * AXON-prefixed Ed25519-signed JWT issued by axonflow-billing on a
+   * successful Stripe checkout. When present, the plugin forwards it on
+   * every governed HTTP request via the `X-License-Token` header so the
+   * agent's PluginClaimMiddleware can validate it and enrich the request
+   * context with Pro-tier entitlements (retention, quotas, capabilities).
+   *
+   * Resolution order (matches the W4 launch spec):
+   *   1. process.env.AXONFLOW_LICENSE_TOKEN
+   *   2. pluginConfig.licenseToken
+   *   3. unset → free tier (no header sent)
+   *
+   * Empty / whitespace values are treated as unset. The plugin does NOT
+   * validate the token client-side — validation is the agent middleware's
+   * job. A malformed token sent here will be rejected with 401 by the
+   * platform on the first governed request, and the existing onError
+   * fail-closed/open path applies.
+   */
+  licenseToken?: string;
+
+  /**
    * Per-user identity forwarded on every request via X-User-Email.
    *
    * Required (and only required) when you want user-scoped AxonFlow
@@ -149,11 +171,24 @@ export function resolveConfig(
     clientSecret = "";
   }
 
+  // License token resolution — env wins over pluginConfig per ADR-049 + the
+  // W4 spec, matching how every other AxonFlow surface resolves credentials
+  // (env > config > unset). Tolerates "AXON-" prefix or any other shape;
+  // validation lives server-side in the agent's PluginClaimMiddleware.
+  const envToken = typeof process.env["AXONFLOW_LICENSE_TOKEN"] === "string"
+    ? (process.env["AXONFLOW_LICENSE_TOKEN"] as string).trim()
+    : "";
+  const cfgToken = typeof safe["licenseToken"] === "string"
+    ? (safe["licenseToken"] as string).trim()
+    : "";
+  const licenseToken = envToken || cfgToken || undefined;
+
   return {
     endpoint,
     clientId,
     clientSecret,
     mode,
+    licenseToken,
     userEmail:
       typeof safe["userEmail"] === "string" && (safe["userEmail"] as string).trim()
         ? (safe["userEmail"] as string).trim()

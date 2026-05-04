@@ -223,6 +223,7 @@ export class AxonFlowClient {
   private readonly authHeader: string;
   private readonly requestTimeoutMs: number;
   private readonly userEmail: string | undefined;
+  private readonly licenseToken: string | undefined;
   constructor(config: AxonFlowPluginConfig) {
     // Strip trailing slashes without regex (avoids ReDoS on polynomial patterns)
     let ep = config.endpoint;
@@ -239,6 +240,18 @@ export class AxonFlowClient {
     this.userEmail = config.userEmail && config.userEmail.trim()
       ? config.userEmail.trim()
       : undefined;
+    // W4 paid Pro v1: when a plugin-claim license token is configured, the
+    // plugin forwards it on every governed request via X-License-Token. The
+    // agent's PluginClaimMiddleware (PR #1847) validates it, looks up the
+    // row in plugin_user_licenses, and enriches the request context with
+    // Pro-tier entitlements (retention, quotas, capabilities). Plugin does
+    // no client-side validation — a malformed token surfaces as the agent's
+    // normal 401 / 503 path. Free-tier installs leave this unset and the
+    // header is omitted entirely so the middleware short-circuits to
+    // "absent" with zero added cost.
+    this.licenseToken = config.licenseToken && config.licenseToken.trim()
+      ? config.licenseToken.trim()
+      : undefined;
   }
 
   private baseHeaders(): Record<string, string> {
@@ -248,12 +261,20 @@ export class AxonFlowClient {
     // Plugin Batch 1 (ADR-044): forward X-User-Email when configured so the
     // orchestrator can scope override ownership and explain access control
     // by real caller rather than by a synthetic client-wide identity.
+    //
+    // W4 paid Pro v1 (ADR-049): forward X-License-Token when a plugin-claim
+    // token is configured so the agent middleware can apply tier-aware
+    // entitlements (retention, quotas, capabilities). Header is omitted on
+    // free-tier installs.
     const h: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: this.authHeader,
     };
     if (this.userEmail) {
       h["X-User-Email"] = this.userEmail;
+    }
+    if (this.licenseToken) {
+      h["X-License-Token"] = this.licenseToken;
     }
     return h;
   }

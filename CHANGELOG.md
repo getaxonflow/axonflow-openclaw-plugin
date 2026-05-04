@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Pro tier activation via `X-License-Token`.** New `licenseToken` pluginConfig field (and `AXONFLOW_LICENSE_TOKEN` env var, env wins) carries the AXON-prefixed plugin-claim token issued by AxonFlow Pro Stripe Checkout. When set, the plugin forwards it on every governed request via the `X-License-Token` header so the agent's plugin-claim middleware can apply Pro-tier entitlements (extended audit retention, higher quotas, license-gated capabilities). On every plugin init the canary log emits `[AxonFlow] Pro tier active …` alongside the existing connection canary so users always know the token is wired through. Free-tier installs are unaffected — when no token is configured the header is omitted entirely.
+- **`axonflow-openclaw-recover` CLI for Community-SaaS credential recovery.** New bin script (`npx @axonflow/openclaw axonflow-openclaw-recover <email>`, also exported as `requestRecovery` / `verifyRecovery` / `extractRecoveryToken` / `persistRecoveredCredentials` from the package entry point) drives the platform's email-based recovery flow when `try-registration.json` is lost: posts to `/api/v1/recover`, prompts for the magic-link token (or accepts the full magic-link URL), posts to `/api/v1/recover/verify`, and persists the freshly-issued tenant_id + secret at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode 0o600) so the next plugin reload picks them up automatically. Magic-link tokens are one-shot and short-lived; replays return 401.
+- **`runtime-e2e/v1_paid_tier/`** — runtime-path test that drives both new features end-to-end against a live community-saas stack: confirms the `Pro tier active` canary fires, the agent's plugin-claim middleware counter increments after a governed call (proving `X-License-Token` reached the wire), and the recovery CLI completes the email → magic link → verify → persist → authenticate cycle with a fresh tenant_id.
+
 ## [2.1.0] - 2026-05-04 — 5 agent-callable governance tools
 
 ### Added

@@ -9,6 +9,13 @@ import {
   deriveConnectorType,
   getMetrics,
   VERSION,
+  // W3 recovery surface — must remain accessible from the package entry
+  // so the bin/ runner and external integrations can drive the flow.
+  requestRecovery,
+  verifyRecovery,
+  extractRecoveryToken,
+  persistRecoveredCredentials,
+  RECOVERY_DEFAULT_ENDPOINT,
 } from "../src/index.js";
 
 describe("package exports", () => {
@@ -59,5 +66,14 @@ describe("package exports", () => {
     expect(VERSION).toBeDefined();
     expect(typeof VERSION).toBe("string");
     expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("exports W3 recovery surface", () => {
+    expect(typeof requestRecovery).toBe("function");
+    expect(typeof verifyRecovery).toBe("function");
+    expect(typeof extractRecoveryToken).toBe("function");
+    expect(typeof persistRecoveredCredentials).toBe("function");
+    expect(typeof RECOVERY_DEFAULT_ENDPOINT).toBe("string");
+    expect(RECOVERY_DEFAULT_ENDPOINT).toMatch(/^https?:\/\//);
   });
 });

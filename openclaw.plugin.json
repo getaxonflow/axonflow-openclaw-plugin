@@ -20,6 +20,10 @@
     "AXONFLOW_CONFIG_DIR": {
       "required": false,
       "description": "Override the per-user config directory used for the Community-SaaS registration file (mode 0o600). Defaults to OS conventions: $XDG_CONFIG_HOME/axonflow on Linux, ~/Library/Application Support/axonflow on macOS, %APPDATA%\\axonflow on Windows."
+    },
+    "AXONFLOW_LICENSE_TOKEN": {
+      "required": false,
+      "description": "AxonFlow Pro plugin-claim license token (begins with 'AXON-'). When set, the plugin forwards this token on every governed request via the X-License-Token header so the agent applies Pro-tier entitlements (extended audit retention, higher quotas, license-gated capabilities). Wins over pluginConfig.licenseToken when both are set. Get one from getaxonflow.com/plugins/pro — the token is emailed to the address used at Stripe Checkout."
     }
   },
   "runtimeBehavior": {
@@ -81,6 +85,12 @@
       "placeholder": "alice@example.com",
       "help": "Per-user identity forwarded as the X-User-Email header. Required for the override lifecycle endpoints (createOverride, revokeOverride, listOverrides) and for correct per-user scoping on explainDecision. Block-path features still work without it."
     },
+    "licenseToken": {
+      "label": "Pro License Token",
+      "sensitive": true,
+      "placeholder": "AXON-...",
+      "help": "AxonFlow Pro plugin-claim license token. When set, the plugin forwards this on every governed request via X-License-Token so the agent applies Pro-tier entitlements (longer audit retention, higher quotas, license-gated capabilities). AXONFLOW_LICENSE_TOKEN env var wins over this value."
+    },
     "highRiskTools": {
       "label": "High-Risk Tools",
       "placeholder": "web_fetch, message",
@@ -125,6 +135,9 @@
         "type": "string"
       },
       "userEmail": {
+        "type": "string"
+      },
+      "licenseToken": {
         "type": "string"
       },
       "highRiskTools": {
