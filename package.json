@@ -12,7 +12,8 @@
     }
   },
   "bin": {
-    "axonflow-openclaw-recover": "./bin/axonflow-openclaw-recover.mjs"
+    "axonflow-openclaw-recover": "./bin/axonflow-openclaw-recover.mjs",
+    "axonflow-openclaw-status": "./bin/axonflow-openclaw-status.mjs"
   },
   "files": [
     "dist",

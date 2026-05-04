@@ -72,6 +72,24 @@ export type {
   VerifyRecoveryResult,
   RecoveryHttpOptions,
 } from "./recover.js";
+// Status surface — read-only introspection used by the bin/status CLI
+// and any external integration that wants to read tenant_id / tier
+// state without poking at try-registration.json directly. Pure stdlib;
+// safe to call at any time from any context.
+export {
+  buildStatusReport,
+  formatStatusReport,
+  resolveStatusInputs,
+  redactLicenseToken,
+  readPersistedTenantId,
+  STATUS_DEFAULT_ENDPOINT,
+  STATUS_DEFAULT_UPGRADE_URL,
+} from "./status.js";
+export type {
+  StatusInputs,
+  StatusReport,
+  StatusTier,
+} from "./status.js";
 
 /**
  * Plugin registration function.
