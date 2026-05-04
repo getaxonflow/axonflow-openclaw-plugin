@@ -52,6 +52,17 @@ runtime_e2e_skip_if_unavailable
 CAPTURE_FILE="${AXONFLOW_RECOVERY_TEST_CAPTURE_FILE:-/tmp/axonflow-recovery-captures.txt}"
 TEST_EMAIL="${TEST_EMAIL:-w3-w4-runtime-test-$$-$(date +%s)@axonflow-test.invalid}"
 
+# Per-run synthetic source IP for X-Forwarded-For. The agent's
+# /api/v1/register and /api/v1/recover share an in-memory per-IP rate
+# limiter (5 calls per IP per hour). On a long-running stack the test
+# host's real IP often hits that cap quickly, which silently turns the
+# recover step into a no-op (the recovery handler returns generic 202
+# even when rate-limited, by design, to prevent enumeration). Driving
+# each test run from a unique synthetic source-IP keeps the rate-limit
+# bucket fresh per run. Safe: extractClientIP() honors XFF unconditionally
+# in the local stack, and this header has no effect on routing.
+RUNTIME_E2E_XFF="${RUNTIME_E2E_XFF:-10.99.$((RANDOM % 250)).$((RANDOM % 250))}"
+
 # The license token: either the user supplied a real one (full happy path)
 # or we mint a deliberately-invalid sentinel (header-forwarding happy path).
 # The sentinel must be parseable by the agent middleware (so it reaches the
@@ -87,6 +98,7 @@ echo "Capture file:    $CAPTURE_FILE"
 echo "Config dir:      $CONFIG_DIR_OVERRIDE"
 echo "Test email:      $TEST_EMAIL"
 echo "License token:   ${LICENSE_TOKEN_FOR_TEST:0:24}… (length=${#LICENSE_TOKEN_FOR_TEST})"
+echo "Synthetic XFF:   $RUNTIME_E2E_XFF (per-IP rate-limit dodge for /api/v1/register + /api/v1/recover)"
 echo "Expect:          $([ "$EXPECT_VALID" = 1 ] && echo "result=valid (real token supplied)" || echo "result=invalid_token (test sentinel)")"
 echo ""
 
@@ -263,14 +275,28 @@ echo "  ✓ capture file ready"
 # 2b. Register a fresh tenant with email so /api/v1/recover has something to
 #     bind the magic link to. Skip silently if the agent doesn't expose the
 #     register endpoint (older platform or non-community-saas mode).
-echo "Step 2b: register fresh community-saas tenant with email"
+echo "Step 2b: register fresh community-saas tenant with email (XFF=$RUNTIME_E2E_XFF)"
 REGISTER_RESP=$(curl -sS -X POST "$AXONFLOW_ENDPOINT/api/v1/register" \
     -H "Content-Type: application/json" \
+    -H "X-Forwarded-For: $RUNTIME_E2E_XFF" \
     -d "{\"label\":\"openclaw-runtime-e2e\",\"email\":\"$TEST_EMAIL\"}" \
     -w "\n%{http_code}")
 REG_CODE=$(echo "$REGISTER_RESP" | tail -n1)
 REG_BODY=$(echo "$REGISTER_RESP" | sed '$d')
 if [ "$REG_CODE" != "201" ] && [ "$REG_CODE" != "200" ]; then
+    # Distinguish rate-limit (test-driver problem) from "endpoint not present"
+    # (community-saas not enabled) so the user knows whether to retry from a
+    # different source IP or check the stack mode.
+    if [ "$REG_CODE" = "429" ]; then
+        echo "  ✗ FAIL: /api/v1/register returned HTTP 429 — per-IP rate limit hit"
+        echo "    body: $REG_BODY"
+        echo "    The agent enforces 5 registrations per source-IP per hour and the"
+        echo "    test driver is dodging it with X-Forwarded-For: $RUNTIME_E2E_XFF."
+        echo "    Either an upstream proxy is stripping XFF, or this synthetic IP has"
+        echo "    already been used 5+ times in this hour. Re-run with a different"
+        echo "    RUNTIME_E2E_XFF=10.x.y.z to pick a fresh bucket."
+        exit 1
+    fi
     echo "  ⚠ SKIP: /api/v1/register returned HTTP $REG_CODE — agent not in community-saas mode?"
     echo "    body: $REG_BODY"
     echo ""
@@ -289,9 +315,19 @@ fi
 echo "  ✓ original tenant_id=$ORIGINAL_TENANT_ID (bound to $TEST_EMAIL)"
 
 # 2c. Invoke bin/axonflow-openclaw-recover <email> to fire the request step.
-#     Use --token-file=/dev/null so the CLI exits at the prompt step (we
+#     Use --token-file=<empty> so the CLI exits at the verify step (we
 #     handle the verify step separately so we can pass the captured token).
-echo "Step 2c: invoke recover CLI to fire /api/v1/recover"
+#
+#     The CLI cannot inject X-Forwarded-For (it's a user-facing CLI for real
+#     users on real networks, not a test-driver), so the CLI's HTTP request
+#     uses the test host's real source-IP and will be silently rate-limited
+#     after 5 calls per hour (recovery handler returns generic 202 by design).
+#     That's fine for proving the CLI's HTTP pipeline works (parses 202, logs
+#     it, hands control back) — but it means the CLI alone can't reliably
+#     produce a magic-link in the capture file. Step 2c-bis re-fires the same
+#     request via curl with our synthetic XFF source-IP to guarantee the
+#     magic link is emitted regardless of the test host's rate-limit budget.
+echo "Step 2c: invoke recover CLI to verify the CLI's request pipeline against the live agent"
 RECOVER_REQ_LOG=$(mktemp -t axonflow-recover-req.XXXXXX)
 EMPTY_TOKEN_FILE=$(mktemp -t axonflow-empty.XXXXXX)
 > "$EMPTY_TOKEN_FILE"
@@ -312,6 +348,28 @@ else
     tail -10 "$RECOVER_REQ_LOG" | sed 's/^/      /'
     exit 1
 fi
+
+# 2c-bis. Fire the request again via curl with our synthetic XFF so the
+#         agent's per-IP rate-limit bucket is fresh and the magic link is
+#         actually emitted to the capture file. The CLI's call above MAY
+#         have done this if the test host's real IP is under the hourly
+#         cap; if it isn't (long-running stack, repeated runs), the CLI
+#         got a generic 202 with no email sent. Re-firing with curl is
+#         idempotent on the agent side: the per-email rate limit allows
+#         5 recovery requests per hour for a single email address.
+echo "Step 2c-bis: re-fire /api/v1/recover via curl with X-Forwarded-For to guarantee email emit"
+CURL_RECOVER_RESP=$(curl -sS -X POST "$AXONFLOW_ENDPOINT/api/v1/recover" \
+    -H "Content-Type: application/json" \
+    -H "X-Forwarded-For: $RUNTIME_E2E_XFF" \
+    -d "{\"email\":\"$TEST_EMAIL\"}" \
+    -w "\n%{http_code}")
+CURL_RECOVER_CODE=$(echo "$CURL_RECOVER_RESP" | tail -n1)
+if [ "$CURL_RECOVER_CODE" != "202" ]; then
+    echo "  ✗ FAIL: curl re-fire of /api/v1/recover returned HTTP $CURL_RECOVER_CODE (expected 202)"
+    echo "    body: $(echo "$CURL_RECOVER_RESP" | sed '$d')"
+    exit 1
+fi
+echo "  ✓ curl re-fire returned 202"
 
 # 2d. Wait for the magic link to land in the capture file, then extract.
 echo "Step 2d: extract magic-link token from $CAPTURE_FILE"
@@ -412,20 +470,42 @@ echo "  ✓ persisted file shape + 0o600 mode confirmed"
 #     This is the "did recovery actually recover" assertion — if the
 #     persisted secret doesn't authenticate, the recovery flow shipped a
 #     library that compiled but didn't work end-to-end.
-echo "Step 2g: use recovered credentials to call /api/v1/audit/tool-call"
+#
+#     We deliberately use $AXONFLOW_ENDPOINT (the agent under test), NOT
+#     $PERSISTED_ENDPOINT. The persisted endpoint is the platform's static
+#     "where users in production should send credentials" string —
+#     hardcoded to https://try.getaxonflow.com — which is correct for real
+#     users but useless for a runtime-e2e test pointing at a local stack
+#     (the local-DB credentials wouldn't authenticate against prod). The
+#     persisted endpoint shape + value is asserted in Step 2f above.
+#
+#     We probe /api/request rather than /api/v1/audit/tool-call because
+#     /api/request goes through the agent's apiAuthMiddleware (Basic auth)
+#     end-to-end, which is exactly the auth surface recovered creds need
+#     to pass. /api/v1/audit/tool-call is reverse-proxied to the
+#     orchestrator and additionally requires the operator to set
+#     AXONFLOW_INTERNAL_SERVICE_SECRET in non-Community deployments —
+#     a stack-config detail unrelated to whether recovery worked.
+echo "Step 2g: use recovered credentials to call $AXONFLOW_ENDPOINT/api/request"
 NEW_AUTH=$(printf '%s:%s' "$NEW_TENANT_ID" "$NEW_SECRET" | base64 | tr -d '\n')
-AUDIT_RESP=$(curl -sS -X POST "$PERSISTED_ENDPOINT/api/v1/audit/tool-call" \
+PROBE_RESP=$(curl -sS -X POST "$AXONFLOW_ENDPOINT/api/request" \
     -H "Content-Type: application/json" \
     -H "Authorization: Basic $NEW_AUTH" \
-    -d '{"tool_name":"openclaw-runtime-recovery-probe","blocked":false,"redacted":false,"exfil":false}' \
+    -d '{"prompt":"openclaw-runtime-recovery-probe","model":"local-test"}' \
     -w "\n%{http_code}")
-AUDIT_CODE=$(echo "$AUDIT_RESP" | tail -n1)
-if [ "$AUDIT_CODE" != "200" ] && [ "$AUDIT_CODE" != "201" ]; then
-    echo "  ✗ FAIL: recovered credentials did not authenticate (HTTP $AUDIT_CODE)"
-    echo "    body: $(echo "$AUDIT_RESP" | sed '$d')"
+PROBE_CODE=$(echo "$PROBE_RESP" | tail -n1)
+if [ "$PROBE_CODE" != "200" ] && [ "$PROBE_CODE" != "201" ]; then
+    echo "  ✗ FAIL: recovered credentials did not authenticate (HTTP $PROBE_CODE)"
+    echo "    body: $(echo "$PROBE_RESP" | sed '$d')"
     exit 1
 fi
-echo "  ✓ PASS: recovered credentials authenticate end-to-end (HTTP $AUDIT_CODE)"
+PROBE_BODY=$(echo "$PROBE_RESP" | sed '$d')
+PROBE_TID=$(echo "$PROBE_BODY" | jq -r '.policy_info.tenant_id // empty' 2>/dev/null)
+if [ -n "$PROBE_TID" ] && [ "$PROBE_TID" != "$NEW_TENANT_ID" ]; then
+    echo "  ✗ FAIL: probe response identified a different tenant ($PROBE_TID) than recovered tenant ($NEW_TENANT_ID)"
+    exit 1
+fi
+echo "  ✓ PASS: recovered credentials authenticate end-to-end (HTTP $PROBE_CODE${PROBE_TID:+, tenant=$PROBE_TID})"
 
 echo ""
 echo "--- Feature 2: PASS ---"
