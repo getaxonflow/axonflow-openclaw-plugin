@@ -11,8 +11,12 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "bin": {
+    "axonflow-openclaw-recover": "./bin/axonflow-openclaw-recover.mjs"
+  },
   "files": [
     "dist",
+    "bin",
     "policies",
     "README.md",
     "CHANGELOG.md",

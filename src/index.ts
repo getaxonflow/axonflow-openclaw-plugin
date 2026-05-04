@@ -56,6 +56,22 @@ export {
   buildRevokeOverrideTool,
 } from "./agent-tools.js";
 export type { AgentToolDef } from "./agent-tools.js";
+// W3 free-tier email-based credential recovery (ADR-049 section 6) —
+// exported so the bin/ CLI and any external integrations can drive the
+// flow programmatically. The runner under bin/axonflow-openclaw-recover.mjs
+// is the blessed user-facing surface.
+export {
+  requestRecovery,
+  verifyRecovery,
+  extractRecoveryToken,
+  persistRecoveredCredentials,
+  RECOVERY_DEFAULT_ENDPOINT,
+} from "./recover.js";
+export type {
+  RequestRecoveryResult,
+  VerifyRecoveryResult,
+  RecoveryHttpOptions,
+} from "./recover.js";
 
 /**
  * Plugin registration function.
@@ -90,6 +106,17 @@ export function registerAxonFlowGovernance(api: {
   api.logger.info(
     `[AxonFlow] Connected to AxonFlow at ${config.endpoint} (mode=${config.mode})`,
   );
+
+  // W4 paid Pro v1 tier-active canary — emitted only when a plugin-claim
+  // license token is configured. Mirrors the mode canary's "always know
+  // your state" posture: a user who paid for Pro should see one line on
+  // every plugin init confirming the token is wired through. Free-tier
+  // installs see no extra line. The token itself is never logged.
+  if (config.licenseToken) {
+    api.logger.info(
+      "[AxonFlow] Pro tier active — license token configured, X-License-Token will be forwarded on every governed request",
+    );
+  }
 
   // In community-saas mode, register asynchronously against try.getaxonflow.com
   // and override the client credentials with the bootstrapped values once
