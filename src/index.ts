@@ -39,7 +39,7 @@ import { runPluginVersionCheck } from "./plugin-version-check.js";
 import { buildAgentTools, type AgentToolDef } from "./agent-tools.js";
 
 /** Plugin version — update before each release. */
-export const VERSION = "2.1.0";
+export const VERSION = "2.1.1";
 
 // Re-export for external consumers
 export { AxonFlowClient } from "./axonflow-client.js";
