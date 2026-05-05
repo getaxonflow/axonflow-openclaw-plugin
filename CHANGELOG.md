@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-05-05 — exclude runtime-e2e/ from published artifact
+
+### Fixed
+
+- **`runtime-e2e/` now excluded from the ClawHub publish.** The runtime
+  E2E test harnesses are CI fixtures that drive a real OpenClaw agent
+  against a live AxonFlow stack — they're not consumed by the plugin
+  runtime. They were inadvertently shipped with the v2.1.0 artifact and
+  the static-analysis scanner flagged five of them on a false-positive
+  exfiltration heuristic that matched their HTTP Basic-auth header
+  setup. Removing the surface area entirely is more durable than
+  appealing the heuristic.
+
 ## [2.1.0] - 2026-05-04 — 5 agent-callable governance tools
 
 ### Added
