@@ -13,6 +13,19 @@
 
 - **`runtime-e2e/v1_paid_tier/`: pass when stack is long-running.** Previously the test silently exited as `PARTIAL PASS` after Feature 1 whenever `/api/v1/register` returned 429, mislabeling the cause as "agent not in community-saas mode". The agent's per-IP rate limiter (5 calls per source-IP per hour, shared between `/api/v1/register` and `/api/v1/recover`) trips quickly when the test runs against a stack that has already absorbed any traffic in the current hour, which silently turns the recovery handler into a no-op (handler returns generic 202 to prevent enumeration). The test now sends a per-run synthetic source-IP via `X-Forwarded-For` (override with `RUNTIME_E2E_XFF`) so each run gets a fresh rate-limit bucket, and surfaces a real failure with a remediation hint when the bucket is somehow still saturated. Step 2g also now probes `$AXONFLOW_ENDPOINT/api/request` (the agent's primary Basic-auth surface) instead of `$PERSISTED_ENDPOINT/api/v1/audit/tool-call` — the persisted endpoint is hardcoded by the platform to `https://try.getaxonflow.com` and is correct for production users but useless for a runtime test pointing at a local stack, and the audit/tool-call route additionally requires the operator to have set `AXONFLOW_INTERNAL_SERVICE_SECRET` in non-Community deployments. Feature 1 PASSED, Feature 2 PASSED end-to-end on local docker-compose with v7.7.0.
 
+## [2.1.1] - 2026-05-05 — exclude runtime-e2e/ from published artifact
+
+### Fixed
+
+- **`runtime-e2e/` now excluded from the ClawHub publish.** The runtime
+  E2E test harnesses are CI fixtures that drive a real OpenClaw agent
+  against a live AxonFlow stack — they're not consumed by the plugin
+  runtime. They were inadvertently shipped with the v2.1.0 artifact and
+  the static-analysis scanner flagged five of them on a false-positive
+  exfiltration heuristic that matched their HTTP Basic-auth header
+  setup. Removing the surface area entirely is more durable than
+  appealing the heuristic.
+
 ## [2.1.0] - 2026-05-04 — 5 agent-callable governance tools
 
 ### Added
