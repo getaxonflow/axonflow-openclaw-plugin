@@ -6,6 +6,7 @@
  */
 
 import type { AxonFlowPluginConfig } from "./config.js";
+import { VERSION } from "./version.js";
 
 /**
  * Typed error thrown by the AxonFlow client on non-2xx HTTP responses
@@ -224,6 +225,7 @@ export class AxonFlowClient {
   private readonly requestTimeoutMs: number;
   private readonly userEmail: string | undefined;
   private readonly licenseToken: string | undefined;
+  private readonly clientHeader: string;
   constructor(config: AxonFlowPluginConfig) {
     // Strip trailing slashes without regex (avoids ReDoS on polynomial patterns)
     let ep = config.endpoint;
@@ -252,6 +254,12 @@ export class AxonFlowClient {
     this.licenseToken = config.licenseToken && config.licenseToken.trim()
       ? config.licenseToken.trim()
       : undefined;
+    // ADR-050 §4: every governed request carries X-Axonflow-Client so the
+    // agent can derive request scope (plugin/sdk/full) and validate it
+    // against the token's aud.scope. Computed once at construction; never
+    // sourced from config or env (the consumer doesn't get to spoof its
+    // own client identity to the agent).
+    this.clientHeader = `openclaw/${VERSION}`;
   }
 
   private baseHeaders(): Record<string, string> {
@@ -269,6 +277,7 @@ export class AxonFlowClient {
     const h: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: this.authHeader,
+      "X-Axonflow-Client": this.clientHeader,
     };
     if (this.userEmail) {
       h["X-User-Email"] = this.userEmail;
