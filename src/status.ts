@@ -8,9 +8,20 @@
  * `try-registration.json` themselves. This module reads that same file
  * and reports the values back in a stable text shape the user can copy.
  *
- * Also reports tier state (Free vs Pro) and a redacted preview of the
- * configured Pro license token, so a user mid-rollout can confirm
- * whether `AXONFLOW_LICENSE_TOKEN` is wired through to this process.
+ * Also reports tier state (Free vs Pro vs Pro-expired) and a redacted
+ * preview of the configured Pro license token, so a user mid-rollout
+ * can confirm whether `AXONFLOW_LICENSE_TOKEN` is wired through to
+ * this process AND when their license expires.
+ *
+ * V1 SaaS Plugin Pro tier-line surface parity (codex / cursor / claude /
+ * openclaw): the `tier` line includes the JWT `exp` claim from the
+ * configured license token in three shapes:
+ *   - Pro (expires YYYY-MM-DD, N days remaining)             exp future
+ *   - Free (Pro expired YYYY-MM-DD — visit <url> to renew)   exp past
+ *   - Free (no Pro license configured)                       no token
+ * Plus a fallback "Pro (expires UNKNOWN — could not parse token)" for
+ * tokens whose JWT body does not parse. Signature is NEVER validated
+ * here — display only; the platform is the source of truth on validity.
  *
  * Security note (codex-plugin#41): we redact the license token to its
  * last 4 chars and never print the full value. The `cmd_status` handler
@@ -35,8 +46,20 @@ export const STATUS_DEFAULT_ENDPOINT = "https://try.getaxonflow.com";
 /** Default upgrade URL surfaced in status output for free-tier users. */
 export const STATUS_DEFAULT_UPGRADE_URL = "https://getaxonflow.com/pro";
 
-/** Tier the plugin is currently operating under. */
-export type StatusTier = "free" | "pro";
+/**
+ * Tier the plugin is currently operating under.
+ *
+ * - "free" — no license token loaded. Plugin sends no X-License-Token.
+ * - "pro" — token loaded AND its JWT `exp` is in the future (or could
+ *   not be parsed; we fall back to Pro for display when parsing fails
+ *   so a user with a corrupt-but-valid-looking token sees Pro and the
+ *   platform is the source of truth on whether it actually validates).
+ * - "pro_expired" — token loaded BUT its JWT `exp` is in the past.
+ *   Functionally Free for governance purposes (the agent will reject
+ *   an expired token's claims) but distinguished here so the status
+ *   surface can show a renew CTA rather than a generic "buy Pro" CTA.
+ */
+export type StatusTier = "free" | "pro" | "pro_expired";
 
 /** Inputs the status reader resolves up-front (testable). */
 export interface StatusInputs {
@@ -59,6 +82,13 @@ export interface StatusInputs {
 
   /** Override upgrade URL (for the AXONFLOW_UPGRADE_URL env knob). */
   upgradeUrl?: string;
+
+  /**
+   * Override "now" (unix epoch seconds) for tests asserting the
+   * exp-future / exp-past branches deterministically. Production
+   * callers leave this undefined; we use Date.now() / 1000.
+   */
+  nowEpochSeconds?: number;
 }
 
 /** Resolved status report — stable shape for both human + JSON consumers. */
@@ -67,7 +97,7 @@ export interface StatusReport {
   tenant_id: string | null;
   /** Endpoint the plugin would talk to. */
   endpoint: string;
-  /** Tier indicator — "pro" iff a non-empty license token is configured. */
+  /** Tier indicator — see {@link StatusTier} for the semantics of each value. */
   tier: StatusTier;
   /**
    * Redacted preview of the license token (e.g. `…AB12`), or null when
@@ -76,6 +106,23 @@ export interface StatusReport {
    * this guards against.
    */
   license_token_preview: string | null;
+  /**
+   * Pro license expiry date as `YYYY-MM-DD` (UTC). Set when a token is
+   * loaded AND its JWT `exp` claim parsed cleanly. Null when:
+   *   - no token loaded (tier="free"), OR
+   *   - token loaded but JWT body did not parse (tier="pro" with the
+   *     "could not parse" fallback line in formatStatusReport).
+   * Independent of whether the date is in the future or past — readers
+   * branch on `tier === "pro_expired"` for the past case.
+   */
+  expires_at: string | null;
+  /**
+   * Days remaining until `expires_at` (forward-rounded so 23h59m left
+   * shows as "1 days remaining"). Null when `expires_at` is null.
+   * Negative when `tier === "pro_expired"` — i.e. days SINCE expiry,
+   * encoded as a negative number so consumers can sort / threshold.
+   */
+  expires_in_days: number | null;
   /** Where to buy / manage a Pro license. */
   upgrade_url: string;
   /** Absolute path the registration file was read from (or attempted). */
@@ -139,6 +186,87 @@ export function readPersistedTenantId(file: string): string | null {
 }
 
 /**
+ * Parse the JWT `exp` claim out of an `AXON-`-prefixed license token.
+ * Returns the unix-epoch second value as an integer, or null on any
+ * parse failure (missing prefix, malformed segments, undecodable
+ * base64url, missing/non-numeric exp claim).
+ *
+ * Signature is NEVER validated here — we only extract `exp` for display.
+ * The platform is the source of truth on whether the token is actually
+ * valid (it re-validates the Ed25519 signature + DB row on every
+ * governed request).
+ *
+ * `Buffer.from(..., "base64url")` is supported on Node 16+; the openclaw
+ * plugin's package.json pins `>=18`, so this is safe.
+ */
+export function parseLicenseTokenExpiry(token: string | undefined | null): number | null {
+  if (typeof token !== "string") return null;
+  const trimmed = token.trim();
+  if (trimmed.length === 0) return null;
+  // Strip the AXON- prefix; rest is JWT (header.payload.signature).
+  const jwt = trimmed.startsWith("AXON-") ? trimmed.slice(5) : trimmed;
+  const parts = jwt.split(".");
+  if (parts.length < 2) return null;
+  const payloadSegment = parts[1];
+  if (typeof payloadSegment !== "string" || payloadSegment.length === 0) return null;
+  let decoded: string;
+  try {
+    decoded = Buffer.from(payloadSegment, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  if (decoded.length === 0) return null;
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(decoded) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const exp = payload["exp"];
+  if (typeof exp !== "number" || !Number.isFinite(exp) || !Number.isInteger(exp)) {
+    return null;
+  }
+  // Unix epoch seconds are positive integers; reject obvious garbage.
+  if (exp <= 0) return null;
+  return exp;
+}
+
+/**
+ * Format a unix epoch second value as `YYYY-MM-DD` in UTC. Returns null
+ * on any toISOString failure (Date constructor rejects truly enormous
+ * values). `Date` accepts ms so we multiply by 1000.
+ */
+export function formatExpiryDate(epochSeconds: number | null): string | null {
+  if (epochSeconds === null || !Number.isFinite(epochSeconds)) return null;
+  try {
+    const iso = new Date(epochSeconds * 1000).toISOString();
+    return iso.slice(0, 10);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compute days remaining until `epochSeconds`, given a "now". Forward-
+ * rounded (23h59m left → 1 day). Negative when `epochSeconds < now` —
+ * encoded as days SINCE expiry so consumers can sort / threshold.
+ *
+ * Returns null when either input is non-finite.
+ */
+export function daysUntil(epochSeconds: number | null, nowEpochSeconds: number): number | null {
+  if (epochSeconds === null || !Number.isFinite(epochSeconds) || !Number.isFinite(nowEpochSeconds)) {
+    return null;
+  }
+  const secondsDiff = epochSeconds - nowEpochSeconds;
+  if (secondsDiff >= 0) {
+    // Forward-round: 23h59m future → 1 day.
+    return Math.ceil(secondsDiff / 86400);
+  }
+  // Past: forward-round magnitude, return as negative.
+  return -Math.ceil((-secondsDiff) / 86400);
+}
+
+/**
  * Build a fully-resolved status report from `StatusInputs`. Pure
  * (modulo the single fs read for try-registration.json) and
  * deterministic given the same inputs + on-disk state.
@@ -157,13 +285,39 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
   const tenantId = configDir ? readPersistedTenantId(registrationFile) : null;
 
   const licensePreview = redactLicenseToken(inputs.licenseToken);
-  const tier: StatusTier = licensePreview ? "pro" : "free";
+
+  // Compute tier + expiry. Three branches:
+  //   1. No token → "free", expires_at null.
+  //   2. Token + exp parsed:
+  //      2a. exp future → "pro", expires_at = YYYY-MM-DD, days_left positive.
+  //      2b. exp past   → "pro_expired", expires_at = YYYY-MM-DD, days_left negative.
+  //   3. Token + exp NOT parsed → "pro", expires_at null (formatter
+  //      surfaces "could not parse token").
+  let tier: StatusTier = "free";
+  let expiresAt: string | null = null;
+  let expiresInDays: number | null = null;
+  if (licensePreview !== null) {
+    // A token was supplied (any non-whitespace string) — start from "pro"
+    // and downgrade to "pro_expired" only if exp is parseable AND past.
+    tier = "pro";
+    const expEpoch = parseLicenseTokenExpiry(inputs.licenseToken);
+    if (expEpoch !== null) {
+      expiresAt = formatExpiryDate(expEpoch);
+      const now = inputs.nowEpochSeconds ?? Math.floor(Date.now() / 1000);
+      expiresInDays = daysUntil(expEpoch, now);
+      if (expEpoch <= now) {
+        tier = "pro_expired";
+      }
+    }
+  }
 
   return {
     tenant_id: tenantId,
     endpoint,
     tier,
     license_token_preview: licensePreview,
+    expires_at: expiresAt,
+    expires_in_days: expiresInDays,
     upgrade_url: upgradeUrl,
     registration_file: registrationFile,
     registration_present: tenantId !== null,
@@ -243,13 +397,72 @@ export function formatStatusReport(report: StatusReport): string {
     lines.push("              Lost your registration? Run `axonflow-openclaw-recover <email>`");
   }
   lines.push(`  endpoint:   ${report.endpoint}`);
+
+  // V1 SaaS Plugin Pro tier-line surface parity (codex / cursor / claude /
+  // openclaw): four shapes, see StatusTier doc + parseLicenseTokenExpiry.
   if (report.tier === "pro") {
-    lines.push("  tier:       Pro (license token configured)");
+    if (report.expires_at !== null && report.expires_in_days !== null) {
+      lines.push(`  tier:       Pro (expires ${report.expires_at}, ${report.expires_in_days} days remaining)`);
+    } else {
+      // Token loaded but JWT body did not parse. Treat as Pro for
+      // display; platform is the source of truth on validity.
+      lines.push("  tier:       Pro (expires UNKNOWN — could not parse token)");
+    }
     lines.push(`  license:    ${report.license_token_preview} (redacted — last 4 chars only)`);
+  } else if (report.tier === "pro_expired") {
+    // Token still on disk but its exp is past — surface the renew CTA in
+    // the tier line itself so users notice it even if they only scan the
+    // first column. Don't print a generic "upgrade:" line on top — that
+    // would be redundant with the renew URL embedded in the tier line.
+    const expiresLabel = report.expires_at ?? "UNKNOWN";
+    lines.push(`  tier:       Free (Pro expired ${expiresLabel} — visit ${report.upgrade_url} to renew)`);
+    lines.push(`  license:    ${report.license_token_preview} (redacted — last 4 chars only)`);
+    lines.push("              The plugin will not forward an expired token.");
+    lines.push("              After buying a renewal, set AXONFLOW_LICENSE_TOKEN=<new> or restart with");
+    lines.push("              the new token in pluginConfig.licenseToken.");
   } else {
-    lines.push("  tier:       Free");
+    lines.push("  tier:       Free (no Pro license configured)");
     lines.push(`  upgrade:    ${report.upgrade_url}`);
   }
   lines.push("");
   return lines.join("\n");
+}
+
+/**
+ * Build the one-line init log canary for the OpenClaw plugin's
+ * `registerAxonFlowGovernance` registration path. Three shapes:
+ *   - Pro active   → "[AxonFlow] Pro tier — expires YYYY-MM-DD (N days remaining); X-License-Token forwarded on every governed request"
+ *   - Pro expired  → "[AxonFlow] Free tier — Pro expired YYYY-MM-DD; visit <url> to renew"
+ *   - Pro (could not parse) → "[AxonFlow] Pro tier active — license token configured, X-License-Token will be forwarded on every governed request" (preserves the legacy line for unparseable tokens — a noisy regression of the canary on every malformed token would be worse than silent fallback).
+ *
+ * Returns `null` when `licenseToken` is empty / null — Free-tier installs
+ * see no extra log line (matches the existing convention; only Pro state
+ * gets a canary).
+ */
+export function buildProTierInitLogLine(
+  licenseToken: string | undefined | null,
+  upgradeUrl: string = STATUS_DEFAULT_UPGRADE_URL,
+  nowEpochSeconds?: number,
+): string | null {
+  if (typeof licenseToken !== "string" || licenseToken.trim().length === 0) {
+    return null;
+  }
+  const expEpoch = parseLicenseTokenExpiry(licenseToken);
+  if (expEpoch === null) {
+    // Legacy fallback — preserves byte-exact compat with the v2.1.x line
+    // for unparseable tokens. Mode-clarity test (tests/mode-clarity.test.ts)
+    // and any external grep on this string keep working.
+    return "[AxonFlow] Pro tier active — license token configured, X-License-Token will be forwarded on every governed request";
+  }
+  const now = nowEpochSeconds ?? Math.floor(Date.now() / 1000);
+  const expDate = formatExpiryDate(expEpoch);
+  const daysLeft = daysUntil(expEpoch, now);
+  if (expEpoch > now && expDate !== null && daysLeft !== null) {
+    return `[AxonFlow] Pro tier — expires ${expDate} (${daysLeft} days remaining); X-License-Token forwarded on every governed request`;
+  }
+  // exp is past — surface the renew CTA on init even though the token is
+  // still in config. Users notice this on the next plugin reload rather
+  // than discovering it on a 401 from a governed call.
+  const expLabel = expDate ?? "UNKNOWN";
+  return `[AxonFlow] Free tier — Pro expired ${expLabel}; visit ${upgradeUrl} to renew`;
 }

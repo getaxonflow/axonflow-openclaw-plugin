@@ -179,10 +179,16 @@ timeout 90 openclaw agent \
     --thinking off \
     >"$TURN_LOG" 2>&1 || true
 
-if grep -q "\[AxonFlow\] Pro tier active" "$TURN_LOG" "$INSTALL_LOG"; then
-    echo "  ✓ PASS: 'Pro tier active' canary observed in plugin output"
+# V1 SaaS Plugin Pro tier-line surface parity (codex / cursor / claude /
+# openclaw): the canary now has three shapes depending on the token's JWT
+# `exp` claim. Match either the parseable-Pro shape ("Pro tier — expires
+# YYYY-MM-DD") or the legacy unparseable-Pro shape ("Pro tier active").
+# A synthesized non-JWT token (the LICENSE_TOKEN_FOR_TEST fallback) hits
+# the legacy branch; a real JWT-shaped token hits the new branch.
+if grep -qE "\[AxonFlow\] Pro tier (active|— expires [0-9]{4}-[0-9]{2}-[0-9]{2})" "$TURN_LOG" "$INSTALL_LOG"; then
+    echo "  ✓ PASS: Pro tier canary observed in plugin output (active OR expires YYYY-MM-DD shape)"
 else
-    echo "  ✗ FAIL: Pro tier active canary not found in turn log or install log"
+    echo "  ✗ FAIL: Pro tier canary not found in turn log or install log"
     echo "    (either pluginConfig.licenseToken did not stick, or the canary line changed)"
     echo "    install log tail:"
     tail -20 "$INSTALL_LOG" | sed 's/^/      /'

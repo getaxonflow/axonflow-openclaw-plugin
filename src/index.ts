@@ -37,6 +37,7 @@ import { bootstrapCommunitySaas } from "./community-saas-bootstrap.js";
 import { resetMetrics } from "./metrics.js";
 import { runPluginVersionCheck } from "./plugin-version-check.js";
 import { buildAgentTools, type AgentToolDef } from "./agent-tools.js";
+import { buildProTierInitLogLine } from "./status.js";
 import { VERSION } from "./version.js";
 
 /** Plugin version — re-exported from version.ts so non-index consumers
@@ -79,8 +80,12 @@ export type {
 // state without poking at try-registration.json directly. Pure stdlib;
 // safe to call at any time from any context.
 export {
+  buildProTierInitLogLine,
   buildStatusReport,
+  daysUntil,
+  formatExpiryDate,
   formatStatusReport,
+  parseLicenseTokenExpiry,
   resolveStatusInputs,
   redactLicenseToken,
   readPersistedTenantId,
@@ -132,10 +137,22 @@ export function registerAxonFlowGovernance(api: {
   // your state" posture: a user who paid for Pro should see one line on
   // every plugin init confirming the token is wired through. Free-tier
   // installs see no extra line. The token itself is never logged.
+  //
+  // V1 SaaS Plugin Pro tier-line surface parity (codex / cursor / claude
+  // / openclaw): the canary now includes the JWT exp date so users notice
+  // their renewal window on every plugin reload, and surfaces a Pro-
+  // expired state on init rather than waiting for the platform to reject
+  // the token on the next governed call. Three shapes:
+  //   - Pro active   → "[AxonFlow] Pro tier — expires YYYY-MM-DD (N days remaining); X-License-Token forwarded on every governed request"
+  //   - Pro expired  → "[AxonFlow] Free tier — Pro expired YYYY-MM-DD; visit <url> to renew"
+  //   - Could not parse JWT → legacy "Pro tier active — license token configured, X-License-Token will be forwarded on every governed request" (preserves pre-v2.2 byte-exact compat for unparseable tokens; mode-clarity test + any external grep on this string keep working)
+  // Falls back silently for free-tier (no token) — buildProTierInitLogLine
+  // returns null and we skip the log call.
   if (config.licenseToken) {
-    api.logger.info(
-      "[AxonFlow] Pro tier active — license token configured, X-License-Token will be forwarded on every governed request",
-    );
+    const tierLine = buildProTierInitLogLine(config.licenseToken);
+    if (tierLine !== null) {
+      api.logger.info(tierLine);
+    }
   }
 
   // In community-saas mode, register asynchronously against try.getaxonflow.com

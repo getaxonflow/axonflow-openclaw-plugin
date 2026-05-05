@@ -8,11 +8,18 @@
  *     happy path, type mismatch.
  *   - resolveStatusInputs: env precedence over pluginConfig, whitespace
  *     trimming, env-only resolution, pluginConfig fallback.
- *   - buildStatusReport: free vs Pro tier, registered vs unregistered,
- *     endpoint default, upgrade URL default, registration_present flag.
+ *   - buildStatusReport: free vs Pro vs Pro-expired tier, registered vs
+ *     unregistered, endpoint default, upgrade URL default,
+ *     registration_present flag, expires_at + expires_in_days population.
  *   - formatStatusReport: includes tenant_id when present, includes
  *     recovery hint when missing, NEVER prints the full license token,
- *     prints redacted preview only.
+ *     prints redacted preview only, surfaces expiry date in tier line.
+ *   - parseLicenseTokenExpiry: well-formed JWT, malformed JWT, missing
+ *     exp claim, non-numeric exp, AXON-prefixed and non-prefixed tokens.
+ *   - daysUntil: future, past, zero, non-finite inputs.
+ *   - formatExpiryDate: well-formed epoch, null input.
+ *   - buildProTierInitLogLine: Pro active, Pro expired, unparseable token
+ *     (legacy fallback), free tier (returns null).
  */
 
 import * as fs from "fs";
@@ -20,14 +27,30 @@ import * as os from "os";
 import * as path from "path";
 
 import {
+  buildProTierInitLogLine,
   buildStatusReport,
+  daysUntil,
+  formatExpiryDate,
   formatStatusReport,
+  parseLicenseTokenExpiry,
   readPersistedTenantId,
   redactLicenseToken,
   resolveStatusInputs,
   STATUS_DEFAULT_ENDPOINT,
   STATUS_DEFAULT_UPGRADE_URL,
 } from "../src/status.js";
+
+/**
+ * Mint a structurally-valid AXON- token whose JWT payload contains a
+ * given exp (unix epoch seconds). Signature is a placeholder — status
+ * code only parses, never validates.
+ */
+function mintAxonJwt(expEpoch: number): string {
+  const hdr = Buffer.from(JSON.stringify({ alg: "EdDSA", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ sub: "test", exp: expEpoch })).toString("base64url");
+  const sig = "placeholder-signature-padding-padding-padding-padding-padding-pa";
+  return `AXON-${hdr}.${payload}.${sig}`;
+}
 
 describe("redactLicenseToken", () => {
   it("returns null for undefined", () => {
@@ -215,15 +238,48 @@ describe("buildStatusReport", () => {
     const report = buildStatusReport({ configDirOverride: tmpDir });
     expect(report.tier).toBe("free");
     expect(report.license_token_preview).toBeNull();
+    expect(report.expires_at).toBeNull();
+    expect(report.expires_in_days).toBeNull();
   });
 
-  it("reports Pro tier with redacted preview when license token is set", () => {
+  it("reports Pro tier with redacted preview when license token is set (unparseable)", () => {
+    // A non-JWT-shaped token still flips tier to "pro" (token presence is
+    // sufficient — platform is the source of truth on validity); the
+    // expires_at fields stay null because exp couldn't be extracted.
     const report = buildStatusReport({
       configDirOverride: tmpDir,
       licenseToken: "AXON-very-long-license-token-7890",
     });
     expect(report.tier).toBe("pro");
     expect(report.license_token_preview).toBe("…7890");
+    expect(report.expires_at).toBeNull();
+    expect(report.expires_in_days).toBeNull();
+  });
+
+  it("reports Pro tier with expiry date + days remaining for a future exp", () => {
+    const now = 1_700_000_000;            // fixed epoch for determinism
+    const exp = now + 30 * 86400;         // 30 days in the future
+    const report = buildStatusReport({
+      configDirOverride: tmpDir,
+      licenseToken: mintAxonJwt(exp),
+      nowEpochSeconds: now,
+    });
+    expect(report.tier).toBe("pro");
+    expect(report.expires_at).toBe(formatExpiryDate(exp));
+    expect(report.expires_in_days).toBe(30);
+  });
+
+  it("reports Pro-expired tier for a past exp + negative days_remaining", () => {
+    const now = 1_700_000_000;
+    const exp = now - 7 * 86400;          // 7 days in the past
+    const report = buildStatusReport({
+      configDirOverride: tmpDir,
+      licenseToken: mintAxonJwt(exp),
+      nowEpochSeconds: now,
+    });
+    expect(report.tier).toBe("pro_expired");
+    expect(report.expires_at).toBe(formatExpiryDate(exp));
+    expect(report.expires_in_days).toBe(-7);
   });
 
   it("defaults endpoint to STATUS_DEFAULT_ENDPOINT when none supplied", () => {
@@ -281,28 +337,32 @@ describe("formatStatusReport", () => {
       endpoint: "https://try.getaxonflow.com",
       tier: "free",
       license_token_preview: null,
+      expires_at: null,
+      expires_in_days: null,
       upgrade_url: "https://getaxonflow.com/pro",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
     });
     expect(out).toContain("tenant_id:  cs_t1");
     expect(out).toContain("Stripe checkout custom field");
-    expect(out).toContain("tier:       Free");
+    expect(out).toContain("tier:       Free (no Pro license configured)");
     expect(out).toContain("upgrade:    https://getaxonflow.com/pro");
     expect(out).not.toContain("license:");
   });
 
-  it("renders Pro tier with the redacted preview only — never the full token", () => {
+  it("renders Pro tier with expiry date + days remaining when exp is parseable", () => {
     const out = formatStatusReport({
       tenant_id: "cs_t2",
       endpoint: "https://try.getaxonflow.com",
       tier: "pro",
       license_token_preview: "…ABCD",
+      expires_at: "2026-08-03",
+      expires_in_days: 90,
       upgrade_url: "https://getaxonflow.com/pro",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
     });
-    expect(out).toContain("tier:       Pro");
+    expect(out).toContain("tier:       Pro (expires 2026-08-03, 90 days remaining)");
     expect(out).toContain("license:    …ABCD");
     expect(out).toContain("redacted");
     // codex-plugin#41 regression guard: a representative full-token shape
@@ -312,12 +372,54 @@ describe("formatStatusReport", () => {
     expect(out).not.toContain("upgrade:");
   });
 
+  it("renders Pro tier with 'could not parse token' fallback when exp is missing", () => {
+    const out = formatStatusReport({
+      tenant_id: "cs_t2",
+      endpoint: "https://try.getaxonflow.com",
+      tier: "pro",
+      license_token_preview: "…ABCD",
+      expires_at: null,                // exp could not be parsed
+      expires_in_days: null,
+      upgrade_url: "https://getaxonflow.com/pro",
+      registration_file: "/tmp/x/try-registration.json",
+      registration_present: true,
+    });
+    expect(out).toContain("tier:       Pro (expires UNKNOWN — could not parse token)");
+    expect(out).toContain("license:    …ABCD");
+    expect(out).not.toMatch(/AXON-[A-Za-z0-9._-]{8,}/);
+  });
+
+  it("renders Pro-expired tier with renew CTA embedded in the tier line", () => {
+    const out = formatStatusReport({
+      tenant_id: "cs_t3",
+      endpoint: "https://try.getaxonflow.com",
+      tier: "pro_expired",
+      license_token_preview: "…ZZZZ",
+      expires_at: "2026-02-04",
+      expires_in_days: -90,
+      upgrade_url: "https://getaxonflow.com/pro",
+      registration_file: "/tmp/x/try-registration.json",
+      registration_present: true,
+    });
+    expect(out).toContain("tier:       Free (Pro expired 2026-02-04 — visit https://getaxonflow.com/pro to renew)");
+    expect(out).toContain("license:    …ZZZZ");
+    expect(out).toContain("will not forward an expired token");
+    // The expired-token state must NOT print the standalone "upgrade:"
+    // line (the renew URL is already in the tier line — duplicating it
+    // creates noise and risks the user clicking the wrong one).
+    expect(out).not.toContain("upgrade:");
+    // Bearer-credential leak guard.
+    expect(out).not.toMatch(/AXON-[A-Za-z0-9._-]{8,}/);
+  });
+
   it("renders an unregistered tenant_id with the recovery hint", () => {
     const out = formatStatusReport({
       tenant_id: null,
       endpoint: "https://try.getaxonflow.com",
       tier: "free",
       license_token_preview: null,
+      expires_at: null,
+      expires_in_days: null,
       upgrade_url: "https://getaxonflow.com/pro",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: false,
@@ -325,5 +427,139 @@ describe("formatStatusReport", () => {
     expect(out).toContain("(not registered)");
     expect(out).toContain("axonflow-openclaw-recover");
     expect(out).toContain("/tmp/x/try-registration.json");
+  });
+});
+
+describe("parseLicenseTokenExpiry", () => {
+  it("returns null for undefined / null / empty / whitespace", () => {
+    expect(parseLicenseTokenExpiry(undefined)).toBeNull();
+    expect(parseLicenseTokenExpiry(null)).toBeNull();
+    expect(parseLicenseTokenExpiry("")).toBeNull();
+    expect(parseLicenseTokenExpiry("    ")).toBeNull();
+  });
+
+  it("returns null for a token with fewer than 2 segments", () => {
+    expect(parseLicenseTokenExpiry("AXON-justonesegment")).toBeNull();
+  });
+
+  it("returns null for a token whose payload segment is undecodable", () => {
+    // base64url accepts a wide range of inputs but JSON.parse will fail
+    // on raw garbage.
+    expect(parseLicenseTokenExpiry("AXON-aGVhZGVy.bm90anNvbg.signature")).toBeNull();
+  });
+
+  it("returns null when the JWT payload has no exp claim", () => {
+    const payload = Buffer.from(JSON.stringify({ sub: "x" })).toString("base64url");
+    expect(parseLicenseTokenExpiry(`AXON-hdr.${payload}.sig`)).toBeNull();
+  });
+
+  it("returns null when exp is a string instead of a number", () => {
+    const payload = Buffer.from(JSON.stringify({ exp: "1700000000" })).toString("base64url");
+    expect(parseLicenseTokenExpiry(`AXON-hdr.${payload}.sig`)).toBeNull();
+  });
+
+  it("returns null when exp is non-finite or non-integer", () => {
+    const inf = Buffer.from('{"exp":1e500}').toString("base64url");      // Infinity
+    expect(parseLicenseTokenExpiry(`AXON-hdr.${inf}.sig`)).toBeNull();
+    const float = Buffer.from('{"exp":1.5}').toString("base64url");
+    expect(parseLicenseTokenExpiry(`AXON-hdr.${float}.sig`)).toBeNull();
+    const negative = Buffer.from('{"exp":-1}').toString("base64url");
+    expect(parseLicenseTokenExpiry(`AXON-hdr.${negative}.sig`)).toBeNull();
+  });
+
+  it("extracts a valid exp from a well-formed JWT", () => {
+    const exp = 1_800_000_000;
+    expect(parseLicenseTokenExpiry(mintAxonJwt(exp))).toBe(exp);
+  });
+
+  it("works without the AXON- prefix (pure JWT)", () => {
+    const exp = 1_800_000_001;
+    const minted = mintAxonJwt(exp);
+    const bareJwt = minted.startsWith("AXON-") ? minted.slice(5) : minted;
+    expect(parseLicenseTokenExpiry(bareJwt)).toBe(exp);
+  });
+});
+
+describe("formatExpiryDate", () => {
+  it("formats a unix epoch as YYYY-MM-DD UTC", () => {
+    // 2026-08-03T00:00:00Z = 1785715200
+    expect(formatExpiryDate(1_785_715_200)).toBe("2026-08-03");
+  });
+
+  it("returns null for null input", () => {
+    expect(formatExpiryDate(null)).toBeNull();
+  });
+
+  it("returns null for non-finite input", () => {
+    expect(formatExpiryDate(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(formatExpiryDate(Number.NaN)).toBeNull();
+  });
+});
+
+describe("daysUntil", () => {
+  const now = 1_700_000_000;
+
+  it("returns null when either input is non-finite", () => {
+    expect(daysUntil(null, now)).toBeNull();
+    expect(daysUntil(now, Number.NaN)).toBeNull();
+  });
+
+  it("forward-rounds 23h59m future to 1 day", () => {
+    expect(daysUntil(now + 86399, now)).toBe(1);
+  });
+
+  it("returns N for exactly N days in the future", () => {
+    expect(daysUntil(now + 7 * 86400, now)).toBe(7);
+  });
+
+  it("returns -N for exactly N days in the past", () => {
+    expect(daysUntil(now - 30 * 86400, now)).toBe(-30);
+  });
+
+  it("returns 0 when exp == now", () => {
+    expect(daysUntil(now, now)).toBe(0);
+  });
+});
+
+describe("buildProTierInitLogLine", () => {
+  const now = 1_700_000_000;
+
+  it("returns null for missing / empty / whitespace token", () => {
+    expect(buildProTierInitLogLine(undefined)).toBeNull();
+    expect(buildProTierInitLogLine(null)).toBeNull();
+    expect(buildProTierInitLogLine("")).toBeNull();
+    expect(buildProTierInitLogLine("   ")).toBeNull();
+  });
+
+  it("emits 'Pro tier — expires DATE' canary for a future exp", () => {
+    const exp = now + 90 * 86400;
+    const line = buildProTierInitLogLine(mintAxonJwt(exp), STATUS_DEFAULT_UPGRADE_URL, now);
+    expect(line).toBe(
+      `[AxonFlow] Pro tier — expires ${formatExpiryDate(exp)} (90 days remaining); X-License-Token forwarded on every governed request`,
+    );
+  });
+
+  it("emits 'Free tier — Pro expired DATE; visit URL to renew' canary for a past exp", () => {
+    const exp = now - 30 * 86400;
+    const line = buildProTierInitLogLine(mintAxonJwt(exp), "https://corp.example/buy", now);
+    expect(line).toBe(
+      `[AxonFlow] Free tier — Pro expired ${formatExpiryDate(exp)}; visit https://corp.example/buy to renew`,
+    );
+  });
+
+  it("falls back to legacy 'Pro tier active' canary for an unparseable token", () => {
+    // Pre-existing assertion contract on the canary line — runtime-e2e
+    // greps for "Pro tier active" with a synthesized non-JWT test token.
+    const line = buildProTierInitLogLine("AXON-not-a-real-jwt", STATUS_DEFAULT_UPGRADE_URL, now);
+    expect(line).toBe(
+      "[AxonFlow] Pro tier active — license token configured, X-License-Token will be forwarded on every governed request",
+    );
+  });
+
+  it("uses the supplied upgrade URL only on the expired-tier branch", () => {
+    // For Pro-active the URL is irrelevant — assert it's not present.
+    const exp = now + 1 * 86400;
+    const proLine = buildProTierInitLogLine(mintAxonJwt(exp), "https://CTA-NOT-PRINTED.example", now);
+    expect(proLine).not.toContain("CTA-NOT-PRINTED");
   });
 });

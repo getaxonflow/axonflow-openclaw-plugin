@@ -26,6 +26,15 @@ import {
   readPersistedTenantId,
   STATUS_DEFAULT_ENDPOINT,
   STATUS_DEFAULT_UPGRADE_URL,
+  // V1 SaaS Plugin Pro tier-line expiry surface — JWT exp parsing +
+  // canary-line builder used by registerAxonFlowGovernance for the
+  // plugin-init log line. Re-exported so any downstream integration
+  // that wants to surface its own expiry UI can reuse the same
+  // primitives without re-implementing JWT decoding.
+  buildProTierInitLogLine,
+  parseLicenseTokenExpiry,
+  formatExpiryDate,
+  daysUntil,
 } from "../src/index.js";
 
 describe("package exports", () => {
@@ -97,5 +106,12 @@ describe("package exports", () => {
     expect(STATUS_DEFAULT_ENDPOINT).toMatch(/^https?:\/\//);
     expect(typeof STATUS_DEFAULT_UPGRADE_URL).toBe("string");
     expect(STATUS_DEFAULT_UPGRADE_URL).toMatch(/^https?:\/\//);
+  });
+
+  it("exports V1 SaaS Plugin Pro tier-expiry surface", () => {
+    expect(typeof buildProTierInitLogLine).toBe("function");
+    expect(typeof parseLicenseTokenExpiry).toBe("function");
+    expect(typeof formatExpiryDate).toBe("function");
+    expect(typeof daysUntil).toBe("function");
   });
 });
