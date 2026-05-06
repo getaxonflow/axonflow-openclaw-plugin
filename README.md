@@ -90,7 +90,7 @@ export AXONFLOW_TELEMETRY=off      # disable 7-day heartbeat
 
 ### Activate Pro tier
 
-Plugin Pro is the paid tier on top of free Community SaaS — it unlocks longer audit retention, higher per-tenant quotas, and license-gated capabilities listed at [getaxonflow.com/plugins/pro](https://getaxonflow.com/plugins/pro). To activate:
+Plugin Pro is the paid tier on top of free Community SaaS — it unlocks longer audit retention, higher per-tenant quotas, and license-gated capabilities listed at [www.getaxonflow.com/pricing/](https://www.getaxonflow.com/pricing/). To activate:
 
 1. Buy through Stripe Checkout. The agent issues an `AXON-…` token and emails it to the address you used at checkout.
 2. Either set `AXONFLOW_LICENSE_TOKEN=<the token>` in the environment OpenClaw runs in, or set `pluginConfig.licenseToken` in your OpenClaw config.
@@ -122,7 +122,7 @@ AxonFlow OpenClaw plugin status
               (paste this into the Stripe checkout custom field when buying Pro)
   endpoint:   https://try.getaxonflow.com
   tier:       Free
-  upgrade:    https://getaxonflow.com/pro
+  upgrade:    https://www.getaxonflow.com/pricing/
 ```
 
 Sample output (Pro tier active):
@@ -361,7 +361,7 @@ See [Configure](#configure) below for the full pluginConfig schema (`highRiskToo
 | `endpoint` | No | `https://try.getaxonflow.com` (Community SaaS) when unset; `http://localhost:8080` when self-hosted with no endpoint specified | AxonFlow agent gateway URL |
 | `clientId` | No | `"community"` (self-hosted) or auto-bootstrapped `cs_<uuid>` (Community SaaS) | Tenant identity for data isolation. Override for Evaluation License or Enterprise tenants. |
 | `clientSecret` | No | `""` (self-hosted) or auto-bootstrapped (Community SaaS) | Basic-auth secret paired with `clientId`. Required for self-hosted Community Edition with an Evaluation License or AxonFlow Enterprise; auto-populated for Community SaaS; can be left unset for self-hosted Community Edition without a license. |
-| `licenseToken` | No | `process.env.AXONFLOW_LICENSE_TOKEN` if set | AxonFlow Pro plugin-claim license token (begins with `AXON-`). When set, the plugin sends `X-License-Token` on every governed request and the agent applies Pro-tier entitlements (extended retention, higher quotas, license-gated capabilities). Get one at [getaxonflow.com/plugins/pro](https://getaxonflow.com/plugins/pro) — buy through Stripe Checkout, the token arrives by email. Env var wins over `pluginConfig.licenseToken`. |
+| `licenseToken` | No | `process.env.AXONFLOW_LICENSE_TOKEN` if set | AxonFlow Pro plugin-claim license token (begins with `AXON-`). When set, the plugin sends `X-License-Token` on every governed request and the agent applies Pro-tier entitlements (extended retention, higher quotas, license-gated capabilities). Get one at [www.getaxonflow.com/pricing/](https://www.getaxonflow.com/pricing/) — buy through Stripe Checkout, the token arrives by email. Env var wins over `pluginConfig.licenseToken`. |
 | `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |

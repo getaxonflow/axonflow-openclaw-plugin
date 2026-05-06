@@ -44,7 +44,7 @@ const REGISTRATION_FILE_NAME = "try-registration.json";
 export const STATUS_DEFAULT_ENDPOINT = "https://try.getaxonflow.com";
 
 /** Default upgrade URL surfaced in status output for free-tier users. */
-export const STATUS_DEFAULT_UPGRADE_URL = "https://getaxonflow.com/pro";
+export const STATUS_DEFAULT_UPGRADE_URL = "https://www.getaxonflow.com/pricing/";
 
 /**
  * Tier the plugin is currently operating under.

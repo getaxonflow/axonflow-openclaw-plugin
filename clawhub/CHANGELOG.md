@@ -2,6 +2,18 @@
 
 ## @axonflow/governance-policies
 
+### 2.2.0 (2026-05-06)
+
+Companion skill release to plugin v2.2.0 — the V1 paid Plugin Pro tier wire-up.
+
+**Adds a "Plugin Pro tier" section** between Configure and Environment variables. Covers what Pro extends on the Community SaaS endpoint (3-day audit retention → 30 days, 200 events/day → 1,000 events/day, 90-day window, no auto-renewal), how to find the tenant ID before checkout (`axonflow-openclaw-status`), how to activate the issued license token (`AXONFLOW_LICENSE_TOKEN` env var or `pluginConfig.licenseToken`), and how to recover lost Community-SaaS credentials with the bundled `axonflow-openclaw-recover` CLI.
+
+**Adds two new env vars to the Environment variables table:** `AXONFLOW_LICENSE_TOKEN` (Pro license token, sets `X-License-Token` header on every governed request) and `AXONFLOW_UPGRADE_URL` (override for the upgrade URL surfaced by `axonflow-openclaw-status`). Defaults documented inline.
+
+**Bumps minimum-version reference** from `@axonflow/openclaw` 2.1.0 to 2.2.0 — the v2.2.0 release adds the Pro-tier `X-License-Token` plumbing, the `X-Axonflow-Client` header injection per platform v7.7.0's scope-validation gate, and the new `axonflow-openclaw-status` / `axonflow-openclaw-recover` bin commands.
+
+Base: copied verbatim from skill v2.1.1 to preserve all ClawScan-tuned phrasing in the Deployment recommendation, Install, and Mode-specific reference sections — only additive changes.
+
 ### 2.0.2 (2026-05-01)
 
 Two changes in this patch:
