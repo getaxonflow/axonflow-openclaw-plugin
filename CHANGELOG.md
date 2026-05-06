@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-05-06 — V1 paid Pro tier wire-up + X-Axonflow-Client header
+
+Companion plugin release to platform v7.7.0. Surfaces the V1 SaaS Plugin
+Pro tier — `clawhub config set license-token <AXON-token>` activates Pro
+features immediately, plus the agent-side scope-validation header on
+every governed request.
+
+### Added
+
+- **`X-Axonflow-Client: openclaw/<version>` header** on every governed
+  agent request. Set automatically by the `axonflow-client.ts` HTTP
+  layer using the canonical `VERSION` constant from `src/version.ts`;
+  not configurable. Agents at v7.7.0+ derive request scope from this
+  header and reject cross-quadrant token misuse (e.g. a SaaS Plugin Pro
+  token paired with an SDK request) at the validator boundary. Older
+  agents (pre-v7.7.0) ignore the header and continue to work unchanged.
+
 ### Added
 
 - **Status surface tier line + plugin-init canary now surface Pro license expiry date.** The `tier` field in `buildStatusReport()` / `formatStatusReport()` / the `axonflow-openclaw-status` CLI parses the JWT `exp` claim from the configured Pro license token and renders one of three shapes: `Pro (expires YYYY-MM-DD, N days remaining)` when active, `Free (Pro expired YYYY-MM-DD — visit https://getaxonflow.com/pro to renew)` when the token is on disk but its `exp` has passed (plugin will not forward an expired token), or `Free (no Pro license configured)` when no token is loaded. The plugin-init canary line emitted by `registerAxonFlowGovernance` matches the same three shapes so users notice their renewal window on every plugin reload. New exports: `buildProTierInitLogLine`, `parseLicenseTokenExpiry`, `formatExpiryDate`, `daysUntil`. New `StatusReport` fields: `expires_at` (YYYY-MM-DD UTC, nullable) and `expires_in_days` (integer, negative when expired, nullable). New `StatusTier` value `"pro_expired"` distinguishes a configured-but-lapsed token from `"free"` for renew-CTA rendering. Display only — JWT signature validation remains the platform's job. Tokens whose JWT body fails to parse fall back to the legacy `Pro tier active — license token configured, X-License-Token will be forwarded on every governed request` canary so byte-exact compat with mode-clarity assertions and any external grep on the v2.1.x string is preserved.
