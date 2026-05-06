@@ -339,14 +339,14 @@ describe("formatStatusReport", () => {
       license_token_preview: null,
       expires_at: null,
       expires_in_days: null,
-      upgrade_url: "https://www.getaxonflow.com/pricing/",
+      upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
     });
     expect(out).toContain("tenant_id:  cs_t1");
     expect(out).toContain("Stripe checkout custom field");
     expect(out).toContain("tier:       Free (no Pro license configured)");
-    expect(out).toContain("upgrade:    https://www.getaxonflow.com/pricing/");
+    expect(out).toContain("upgrade:    https://getaxonflow.com/pricing/");
     expect(out).not.toContain("license:");
   });
 
@@ -358,7 +358,7 @@ describe("formatStatusReport", () => {
       license_token_preview: "…ABCD",
       expires_at: "2026-08-03",
       expires_in_days: 90,
-      upgrade_url: "https://www.getaxonflow.com/pricing/",
+      upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
     });
@@ -380,7 +380,7 @@ describe("formatStatusReport", () => {
       license_token_preview: "…ABCD",
       expires_at: null,                // exp could not be parsed
       expires_in_days: null,
-      upgrade_url: "https://www.getaxonflow.com/pricing/",
+      upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
     });
@@ -397,11 +397,11 @@ describe("formatStatusReport", () => {
       license_token_preview: "…ZZZZ",
       expires_at: "2026-02-04",
       expires_in_days: -90,
-      upgrade_url: "https://www.getaxonflow.com/pricing/",
+      upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
     });
-    expect(out).toContain("tier:       Free (Pro expired 2026-02-04 — visit https://www.getaxonflow.com/pricing/ to renew)");
+    expect(out).toContain("tier:       Free (Pro expired 2026-02-04 — visit https://getaxonflow.com/pricing/ to renew)");
     expect(out).toContain("license:    …ZZZZ");
     expect(out).toContain("will not forward an expired token");
     // The expired-token state must NOT print the standalone "upgrade:"
@@ -420,7 +420,7 @@ describe("formatStatusReport", () => {
       license_token_preview: null,
       expires_at: null,
       expires_in_days: null,
-      upgrade_url: "https://www.getaxonflow.com/pricing/",
+      upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: false,
     });

@@ -124,7 +124,7 @@ Full configuration reference: [OpenClaw Integration Guide](https://docs.getaxonf
 
 Plugin Pro is the paid tier for the Community SaaS endpoint. It extends the Free baseline (3-day audit retention, 200 governed events / day) to 30-day retention and 1,000 events / day for a 90-day window. One-time payment, no auto-renewal, 14-day refund window. Self-hosted deployments don't need Plugin Pro â€” their tier and limits are governed by their own license.
 
-Pricing and the buy flow are documented at [www.getaxonflow.com/pricing](https://www.getaxonflow.com/pricing/). Per-plugin install instructions for the issued license token are at [docs.getaxonflow.com/pro](https://docs.getaxonflow.com/pro/).
+Pricing and the buy flow are documented at [getaxonflow.com/pricing](https://getaxonflow.com/pricing/). Per-plugin install instructions for the issued license token are at [docs.getaxonflow.com/pro](https://docs.getaxonflow.com/pro/).
 
 ### Find the tenant ID before checkout
 
@@ -164,7 +164,7 @@ The CLI posts the email to `/api/v1/recover` (the platform always returns 202 â€
 | `AXONFLOW_CACHE_DIR` | Overrides the per-user cache directory used for telemetry stamps and rate-limit backoffs. Defaults to OS conventions: `$XDG_CACHE_HOME/axonflow` on Linux, `~/Library/Caches/axonflow` on macOS, `%LOCALAPPDATA%\axonflow` on Windows. |
 | `AXONFLOW_CONFIG_DIR` | Overrides the per-user config directory used for the Community-SaaS registration file (mode `0600`). Defaults to OS conventions: `$XDG_CONFIG_HOME/axonflow` on Linux, `~/Library/Application Support/axonflow` on macOS, `%APPDATA%\axonflow` on Windows. |
 | `AXONFLOW_LICENSE_TOKEN` | Plugin Pro license token (begins with `AXON-`). When set, the plugin sends `X-License-Token` on every governed request and the agent applies Pro-tier entitlements. Wins over `pluginConfig.licenseToken`. Empty / whitespace-only values are treated as unset. |
-| `AXONFLOW_UPGRADE_URL` | Overrides the upgrade URL surfaced by `axonflow-openclaw-status` to free-tier users. Defaults to `https://www.getaxonflow.com/pricing/`. |
+| `AXONFLOW_UPGRADE_URL` | Overrides the upgrade URL surfaced by `axonflow-openclaw-status` to free-tier users. Defaults to `https://getaxonflow.com/pricing/`. |
 
 The legacy `DO_NOT_TRACK=1` opt-out was removed in plugin v2.0.0; `AXONFLOW_TELEMETRY=off` is the canonical and only telemetry opt-out.
 
