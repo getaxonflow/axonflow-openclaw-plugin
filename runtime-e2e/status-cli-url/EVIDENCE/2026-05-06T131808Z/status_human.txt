@@ -1,0 +1,9 @@
+AxonFlow OpenClaw plugin status
+
+  tenant_id:  (not registered)
+              No registration file at /var/folders/1j/k8zxr75912v4rkh3cwctxpph0000gn/T/tmp.zIbLqc2OB3/try-registration.json
+              The plugin auto-registers with Community SaaS on first init.
+              Lost your registration? Run `axonflow-openclaw-recover <email>`
+  endpoint:   https://try.getaxonflow.com
+  tier:       Free (no Pro license configured)
+  upgrade:    https://www.getaxonflow.com/pricing/

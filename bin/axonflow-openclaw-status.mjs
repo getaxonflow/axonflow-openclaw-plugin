@@ -26,7 +26,7 @@
  *                               https://try.getaxonflow.com.
  *     AXONFLOW_UPGRADE_URL    — override for the upgrade URL surfaced
  *                               to free-tier users. Defaults to
- *                               https://getaxonflow.com/pro.
+ *                               https://getaxonflow.com/pricing/.
  *     AXONFLOW_CONFIG_DIR     — where try-registration.json is read
  *                               from. Defaults to per-OS convention
  *                               (see src/cache-dir.ts).

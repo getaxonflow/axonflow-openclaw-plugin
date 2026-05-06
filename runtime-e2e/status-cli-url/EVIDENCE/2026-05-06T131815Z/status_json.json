@@ -1,0 +1,11 @@
+{
+  "tenant_id": null,
+  "endpoint": "https://try.getaxonflow.com",
+  "tier": "free",
+  "license_token_preview": null,
+  "expires_at": null,
+  "expires_in_days": null,
+  "upgrade_url": "https://getaxonflow.com/pricing/",
+  "registration_file": "/var/folders/1j/k8zxr75912v4rkh3cwctxpph0000gn/T/tmp.nM9bm6Z9jY/try-registration.json",
+  "registration_present": false
+}
