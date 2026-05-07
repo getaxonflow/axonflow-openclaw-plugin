@@ -1,0 +1,27 @@
+OpenClaw V1 Plugin Pro proxy-tools runtime proof — 20260507T145103Z
+AGENT_URL=https://try.getaxonflow.com
+TENANT=cs_bfe55bf1-1e64-4264-966c-f162da7b85ae
+
+Tool 1 — axonflow_list_pro_features (Free pass):
+  differentiators: 5 (want 5)
+  price_usd: 9.99 (want 9.99)
+
+Tool 2 — axonflow_get_cost_estimate (Free → envelope):
+  callMCPTool kind: envelope (want envelope)
+  envelope.limit_type: feature_pro_only (want feature_pro_only)
+  envelope.buy_url: https://buy.stripe.com/bJe28qbztcdVchjdkw8k800 (want locked V1)
+  agent-tool throttle-gate honored: true (want true)
+  throttle stamp deadline: 1778165532 (want future epoch)
+
+Tool 3 — axonflow_request_approval (Free first call, expect ok):
+  callMCPTool kind: ok (want ok)
+  approval_id: 15 (want non-empty)
+
+Tool 4 — axonflow_create_tenant_policy (Free first call, expect ok):
+  callMCPTool kind: ok (want ok)
+  policy_id: tenant-cs_bfe55bf1--1a8a93dc-e588-4f76-9903-8e8956764534 (want non-empty)
+
+Tool 5 — axonflow_get_tenant_id (local resolve):
+  details.tenant_id: cs_4c5a4a25-dfff-41c7-b4cc-39188abd092f (want any non-empty OR upgrade_url present)
+
+Result: PASS

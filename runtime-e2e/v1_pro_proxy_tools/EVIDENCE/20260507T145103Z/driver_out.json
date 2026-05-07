@@ -1,0 +1,130 @@
+{
+  "list_pro_features": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"buy_url\": \"https://buy.stripe.com/bJe28qbztcdVchjdkw8k800\",\n  \"current_tier\": \"Free\",\n  \"differentiators\": [\n    {\n      \"capability\": \"Daily quota\",\n      \"free\": \"200 events/day\",\n      \"id\": \"daily_quota\",\n      \"pro\": \"2,000 events/day (10× Free)\"\n    },\n    {\n      \"capability\": \"Audit retention\",\n      \"free\": \"3 days\",\n      \"id\": \"audit_retention\",\n      \"pro\": \"30 days (10× Free)\"\n    },\n    {\n      \"capability\": \"Custom tenant policies\",\n      \"free\": \"2 active max\",\n      \"id\": \"active_policies\",\n      \"pro\": \"Unlimited\"\n    },\n    {\n      \"capability\": \"HITL approval gating\",\n      \"free\": \"1 per rolling 7 days\",\n      \"id\": \"hitl_approvals\",\n      \"pro\": \"Unlimited\"\n    },\n    {\n      \"capability\": \"LLM cost pre-flight\",\n      \"free\": \"Not available\",\n      \"id\": \"cost_preflight\",\n      \"pro\": \"Available\"\n    }\n  ],\n  \"pricing\": {\n    \"duration_days\": 90,\n    \"price_usd\": 9.99,\n    \"renewal\": \"one-time (re-purchase to extend; no auto-renewal)\"\n  },\n  \"success\": true,\n  \"tone\": \"Free validates the workflow. Pro removes the caps when AxonFlow becomes part of your real workflow.\",\n  \"upgrade_url\": \"https://getaxonflow.com/pricing/\"\n}"
+      }
+    ],
+    "details": {
+      "buy_url": "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
+      "current_tier": "Free",
+      "differentiators": [
+        {
+          "capability": "Daily quota",
+          "free": "200 events/day",
+          "id": "daily_quota",
+          "pro": "2,000 events/day (10× Free)"
+        },
+        {
+          "capability": "Audit retention",
+          "free": "3 days",
+          "id": "audit_retention",
+          "pro": "30 days (10× Free)"
+        },
+        {
+          "capability": "Custom tenant policies",
+          "free": "2 active max",
+          "id": "active_policies",
+          "pro": "Unlimited"
+        },
+        {
+          "capability": "HITL approval gating",
+          "free": "1 per rolling 7 days",
+          "id": "hitl_approvals",
+          "pro": "Unlimited"
+        },
+        {
+          "capability": "LLM cost pre-flight",
+          "free": "Not available",
+          "id": "cost_preflight",
+          "pro": "Available"
+        }
+      ],
+      "pricing": {
+        "duration_days": 90,
+        "price_usd": 9.99,
+        "renewal": "one-time (re-purchase to extend; no auto-renewal)"
+      },
+      "success": true,
+      "tone": "Free validates the workflow. Pro removes the caps when AxonFlow becomes part of your real workflow.",
+      "upgrade_url": "https://getaxonflow.com/pricing/"
+    }
+  },
+  "get_cost_estimate_raw": {
+    "kind": "envelope",
+    "envelope": {
+      "error": "LLM cost pre-flight is a Pro feature — see what a multi-step plan will cost before it runs.",
+      "limit_type": "feature_pro_only",
+      "tier": "Free",
+      "limit": 0,
+      "remaining": 0,
+      "upgrade": {
+        "tier": "Pro",
+        "wording": "LLM cost pre-flight is a Pro feature — see what a multi-step plan will cost before it runs.",
+        "compare_url": "https://getaxonflow.com/pricing/",
+        "buy_url": "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800"
+      }
+    }
+  },
+  "get_cost_estimate": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Error: AxonFlow Free-tier cap is active — back-off in effect from a previous V1 envelope. Try again after the deadline."
+      }
+    ],
+    "details": {
+      "error": "AxonFlow Free-tier cap is active — back-off in effect from a previous V1 envelope. Try again after the deadline.",
+      "throttled": true
+    },
+    "isError": true
+  },
+  "throttle_stamp_after_test2": "1778165532 feature_pro_only",
+  "request_approval_raw": {
+    "kind": "ok",
+    "result": {
+      "approval_id": "15",
+      "awaiting_review": true,
+      "message": "Approval request submitted successfully. A reviewer must approve this request via the AxonFlow customer portal before the operation can proceed.",
+      "original_query": "delete production-east database — runtime-e2e probe",
+      "request_type": "shell_command",
+      "severity": "high",
+      "status": "pending",
+      "submitted": true,
+      "success": true
+    }
+  },
+  "create_tenant_policy_raw": {
+    "kind": "ok",
+    "result": {
+      "action": "block",
+      "connector_type": "openclaw.Bash",
+      "created": true,
+      "enabled": true,
+      "id": "0469e4ad-0910-42aa-91c3-101ff193af19",
+      "message": "Successfully created tenant-scoped policy \"runtime-e2e-policy-1778165472941\". It will apply to subsequent governed calls.",
+      "name": "runtime-e2e-policy-1778165472941",
+      "pattern": "rm -rf /",
+      "policy_id": "tenant-cs_bfe55bf1--1a8a93dc-e588-4f76-9903-8e8956764534",
+      "success": true
+    }
+  },
+  "get_tenant_id": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"tenant_id\": \"cs_4c5a4a25-dfff-41c7-b4cc-39188abd092f\",\n  \"tier\": \"free\",\n  \"endpoint\": \"https://try.getaxonflow.com\",\n  \"upgrade_url\": \"https://getaxonflow.com/pricing/\",\n  \"buy_url\": \"https://buy.stripe.com/bJe28qbztcdVchjdkw8k800\",\n  \"expires_at\": null,\n  \"expires_in_days\": null\n}"
+      }
+    ],
+    "details": {
+      "tenant_id": "cs_4c5a4a25-dfff-41c7-b4cc-39188abd092f",
+      "tier": "free",
+      "endpoint": "https://try.getaxonflow.com",
+      "upgrade_url": "https://getaxonflow.com/pricing/",
+      "buy_url": "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
+      "expires_at": null,
+      "expires_in_days": null
+    }
+  }
+}
