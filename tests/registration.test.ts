@@ -95,7 +95,7 @@ describe("registerAxonFlowGovernance", () => {
     );
   });
 
-  it("registers all 5 agent-callable tools when registerTool API is present", () => {
+  it("registers all 10 agent-callable tools when registerTool API is present", () => {
     const registered: Array<{ name: string; description: string }> = [];
     const logger = { info: jest.fn(), error: jest.fn() };
     const api = {
@@ -115,17 +115,21 @@ describe("registerAxonFlowGovernance", () => {
 
     registerAxonFlowGovernance(api);
 
-    expect(api.registerTool).toHaveBeenCalledTimes(6);
+    expect(api.registerTool).toHaveBeenCalledTimes(10);
     expect(registered.map((t) => t.name).sort()).toEqual([
       "axonflow_audit_search",
       "axonflow_create_override",
+      "axonflow_create_tenant_policy",
       "axonflow_explain_decision",
+      "axonflow_get_cost_estimate",
       "axonflow_get_tenant_id",
       "axonflow_list_overrides",
+      "axonflow_list_pro_features",
+      "axonflow_request_approval",
       "axonflow_revoke_override",
     ]);
     expect(logger.info).toHaveBeenCalledWith(
-      "[AxonFlow] Registered 6 agent-callable tools",
+      "[AxonFlow] Registered 10 agent-callable tools",
     );
   });
 
