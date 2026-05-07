@@ -1,0 +1,8 @@
+# EVIDENCE/<utc-ts>/register.json captures a real registered tenant's
+# basic-auth secret. Even though these are short-lived synthetic
+# tenants on community-saas, the credential is valid until the row is
+# revoked. Never commit register.json into the public-mirrored repo.
+# Test logic falls back to the env-vars path (TENANT/SECRET) when
+# present, so re-running the test from cached creds is the canonical
+# iterative-dev path.
+EVIDENCE/*/register.json

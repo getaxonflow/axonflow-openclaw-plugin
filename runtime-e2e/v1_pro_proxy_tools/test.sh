@@ -53,34 +53,56 @@ fi
 
 # Register a fresh Free-tier tenant via /api/v1/register. The proxy
 # tools authenticate with these credentials.
+#
+# CREDENTIAL HANDLING:
+# - The full register response (which contains the bcrypt-validated
+#   `secret` Basic-auth credential) is captured to a TEMP file outside
+#   EVIDENCE/, never inside it. EVIDENCE/<ts>/register.json holds a
+#   REDACTED copy: tenant_id + a `secret_redacted` field, no live
+#   credential. This avoids leaking a working credential into the
+#   public-mirrored repo's git history.
+# - The .gitignore in this directory also excludes
+#   `EVIDENCE/*/register.json` as a belt-and-braces guard against
+#   future test-author drift.
+RAW_REG_BODY=$(mktemp)
 REG_BODY="$EVIDENCE/register.json"
+trap 'rm -f "$RAW_REG_BODY" 2>/dev/null || true' EXIT
 # Allow caller to pass an already-registered TENANT/SECRET via env to
 # bypass /api/v1/register's per-IP 5/hr rate limit. CI uses a fresh
 # registration per run; manual / iterative dev re-uses a cached tenant.
 TENANT="${TENANT:-}"
 SECRET="${SECRET:-}"
+TENANT_SOURCE=""
 if [ -z "$TENANT" ] || [ -z "$SECRET" ]; then
   EMAIL_TAG=$(date -u +%s)
-  REG_HTTP=$(curl -sS -o "$REG_BODY" -w '%{http_code}' \
+  REG_HTTP=$(curl -sS -o "$RAW_REG_BODY" -w '%{http_code}' \
     -X POST "${AGENT_URL}/api/v1/register" \
     -H 'Content-Type: application/json' \
     -d "{\"label\":\"v1-pro-proxy-tools-e2e\",\"email\":\"e2e+openclaw-proxy-${EMAIL_TAG}@getaxonflow.com\"}" 2>/dev/null) || REG_HTTP="000"
   if [ "$REG_HTTP" != "200" ] && [ "$REG_HTTP" != "201" ]; then
     echo "SKIP: tenant registration HTTP=$REG_HTTP (per-IP rate limit / per-email cap / connectivity). Pass TENANT=... SECRET=... env to reuse an existing tenant."
-    cat "$REG_BODY" 2>/dev/null
+    cat "$RAW_REG_BODY" 2>/dev/null
     exit 0
   fi
-  TENANT=$(jq -r '.tenant_id' "$REG_BODY")
-  SECRET=$(jq -r '.secret' "$REG_BODY")
+  TENANT=$(jq -r '.tenant_id' "$RAW_REG_BODY")
+  SECRET=$(jq -r '.secret' "$RAW_REG_BODY")
   if [ -z "$TENANT" ] || [ "$TENANT" = "null" ] || [ -z "$SECRET" ] || [ "$SECRET" = "null" ]; then
     echo "FAIL: register response missing tenant_id or secret"
     exit 1
   fi
+  TENANT_SOURCE="registered"
   echo "Registered: $TENANT"
 else
-  echo "Reusing tenant: $TENANT"
-  jq -n --arg t "$TENANT" --arg s "$SECRET" '{tenant_id: $t, secret: $s, source: "env"}' >"$REG_BODY"
+  TENANT_SOURCE="env"
+  echo "Reusing tenant: $TENANT (from env)"
 fi
+# Redacted copy lands in EVIDENCE — preserves the breadcrumb (we know
+# WHICH tenant the run used) without committing a live credential.
+jq -n --arg t "$TENANT" \
+      --arg s_prefix "${SECRET:0:8}" \
+      --arg src "$TENANT_SOURCE" \
+      '{tenant_id: $t, secret_prefix: $s_prefix, secret_redacted: "<redacted-32-chars>", source: $src}' \
+  >"$REG_BODY"
 
 # Hermetic cache so the throttle file lands in tmp.
 TEST_CACHE=$(mktemp -d -t axonflow-openclaw-proxy.XXXXXX)
