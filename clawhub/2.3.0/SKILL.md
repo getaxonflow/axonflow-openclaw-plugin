@@ -60,7 +60,7 @@ openclaw plugins install @axonflow/openclaw@latest
 
 We recommend the npm-spec form as the primary install path. npm is our source-of-truth registry; the `clawhub:@axonflow/openclaw` form also works.
 
-Requires OpenClaw **2026.4.15 or later** (CVE floor) and `@axonflow/openclaw` **2.2.0 or later** — the recommended stable floor for the v2.x line. Upgrade the CLI with `npm install -g openclaw@latest` and the plugin with `openclaw plugins install @axonflow/openclaw@latest`. Staying on the latest plugin patch is recommended — security and quality fixes ship monthly under the v2.x line.
+Requires OpenClaw **2026.4.15 or later** (CVE floor) and `@axonflow/openclaw` **2.3.0 or later** — the recommended stable floor for the v2.x line. Upgrade the CLI with `npm install -g openclaw@latest` and the plugin with `openclaw plugins install @axonflow/openclaw@latest`. Staying on the latest plugin patch is recommended — security and quality fixes ship monthly under the v2.x line.
 
 > **Note on the package name:** the npm package is `@axonflow/openclaw`, not `@axonflow/openclaw-plugin`. The repo name differs from the package name.
 
@@ -122,7 +122,7 @@ Full configuration reference: [OpenClaw Integration Guide](https://docs.getaxonf
 
 ## Plugin Pro tier — extended retention and quota on Community SaaS
 
-Plugin Pro is the paid tier for the Community SaaS endpoint. It extends the Free baseline (3-day audit retention, 200 governed events / day) to 30-day retention and 1,000 events / day for a 90-day window. One-time payment, no auto-renewal, 14-day refund window. Self-hosted deployments don't need Plugin Pro — their tier and limits are governed by their own license.
+Plugin Pro is the paid tier for the Community SaaS endpoint. It extends the Free baseline (3-day audit retention, 200 governed events / day, 2 active custom policies, 1 HITL approval per rolling 7d) to 30-day retention, 2,000 events / day, unlimited active custom policies, unlimited HITL approvals, and adds the LLM cost pre-flight tool (estimate token cost for a multi-step plan before it runs). 90-day window, one-time payment, no auto-renewal, 14-day refund window. Self-hosted deployments don't need Plugin Pro — their tier and limits are governed by their own license.
 
 Pricing and the buy flow are documented at [getaxonflow.com/pricing](https://getaxonflow.com/pricing/). Per-plugin install instructions for the issued license token are at [docs.getaxonflow.com/pro](https://docs.getaxonflow.com/pro/).
 
