@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-05-08 — ClawPack format migration
+
+Patch release. No runtime behaviour change. Single substantive improvement: artifact format migration that closes the visible "Legacy ZIP" badge on the ClawHub listing.
+
+### Fixed
+
+- **ClawHub publish migrated from Legacy ZIP → ClawPack via `clawhub@0.12.3`.** `.github/workflows/publish.yml` `Install ClawHub CLI` step pinned from `clawhub@0.12.0` to `clawhub@0.12.3`. v0.12.2 (2026-05-02 21:45 UTC) shipped the CLI fix for v0.12.1's tarball-bytes-mismatch regression ("publish code plugins as clawpacks and allow legacy package downloads"); v0.12.3 (2026-05-06) added monorepo support + `dry-run --metadata-only` + scope-owner inference. Verified working locally via `clawhub package pack` + `clawhub package publish . --dry-run` against this repo at v2.3.2 — clean ClawPack tarball with correct sha256/integrity. Closes the "Legacy ZIP — may have compatibility issues" artifact badge on the ClawHub listing and lifts the verification tier from `source-linked` (lowest) to the modern plugin architecture.
+
+  Safety net unchanged: existing `verify-clawhub-install` job runs `openclaw plugins install clawhub:@axonflow/openclaw@<version>` on every publish and fails fast on any bytes-mismatch — same gate that broke v2.0.5/v2.0.6 visibly during the v0.12.1 regression. If broken, revert path is documented in `feedback_plugin_manifest_envvars_hygiene.md` and `feedback_clawhub_cli_v0_12_1_tarball_regression.md` (clawhub@0.12.0 + folder upload).
+
+### Internal
+
+- **ClawScan `Credentials` review concern remains open** and is upstream-blocked. Architectural research (memory: `feedback_plugin_manifest_envvars_hygiene.md`) confirmed that the env-vars schema landed in `clawhub@0.7.0` (2026-02-16) is **skill-side only**: parsed from SKILL.md frontmatter into the registry capabilities block for skills. Code plugins (this artifact) have no analogous `envVars` schema slot in their `capabilities` indexing today — the registry stores `bundledSkills`, `capabilityTags`, `commandNames`, `configSchema`, `executesCode`, `hooks`, `providers`, etc., but no `envVars`. The earlier v2.3.1 / v2.3.2 / v2.3.3-WIP attempts to close this client-side via `openclaw.plugin.json envVars`, README.md table, and a SKILL.md frontmatter file at the package root were all wrong-layer fixes — adding a SKILL.md to a code plugin's root would either be inert (right) or cause OpenClaw runtime to inject our governance prose into the agent's system prompt (wrong, since we're a code plugin that registers hooks, not a skill that injects prompts).
+
+  Path forward: the actual fix is upstream in ClawHub (analog of openclaw/clawhub#350 for skills, but for code-plugin `capabilities.envVars`). Until that ships, the "Review" verdict on the Credentials dimension is acceptable — plugin remains installable; reviewer text is balanced ("These variables are related to AxonFlow, not unrelated services"). Static Analysis verdict stays Benign; ClawPack format moves the visible badge.
+
 ## [2.3.2] - 2026-05-07 — README env-vars completeness + cumulative-release-notes automation + manifest-envvars CI gate
 
 Patch release. No runtime behaviour change. Three durable improvements landing in lockstep:

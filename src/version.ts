@@ -8,4 +8,4 @@
  * matches the package.json version on tag.
  */
 
-export const VERSION = "2.3.2";
+export const VERSION = "2.3.3";
