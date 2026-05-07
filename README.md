@@ -90,7 +90,7 @@ export AXONFLOW_TELEMETRY=off      # disable 7-day heartbeat
 
 ### Activate Pro tier
 
-Plugin Pro is the paid tier on top of free Community SaaS — it unlocks longer audit retention, higher per-tenant quotas, and license-gated capabilities. **$9.99 USD for 90 days**, one-time payment, no auto-renewal, 14-day no-questions refund. See [getaxonflow.com/pricing/](https://getaxonflow.com/pricing/) for the full breakdown and the Stripe buy button.
+Plugin Pro is the paid tier on top of free Community SaaS. The Free baseline supports 3-day audit retention, 200 governed events / day, 2 active custom policies, and 1 HITL approval per rolling 7d. Pro extends that to **30-day retention**, **2,000 events / day**, **unlimited active custom policies**, **unlimited HITL approvals**, and adds the **LLM cost pre-flight** tool (estimate token cost for a multi-step plan before it runs). 90-day window, **$9.99 USD** one-time payment, no auto-renewal, 14-day no-questions refund. See [getaxonflow.com/pricing/](https://getaxonflow.com/pricing/) for the full breakdown and the Stripe buy button.
 
 To activate Pro on an installed plugin:
 
@@ -433,15 +433,38 @@ More examples — content/social agents, data analysts, RAG pipelines — in the
 
 ## MCP tools available to your agent
 
-Beyond the lifecycle hooks, OpenClaw agents can call **10 MCP tools** via the agent's MCP server at `/api/v1/mcp-server`. These are served by the platform (not the plugin), so new tools become available to every plugin without a code change.
+Beyond the lifecycle hooks, OpenClaw agents can call **15 MCP tools** via the agent's MCP server at `/api/v1/mcp-server`. These are served by the platform (not the plugin), so new tools become available to every plugin without a code change.
 
 **Governance (6):** `check_policy`, `check_output`, `audit_tool_call`, `list_policies`, `get_policy_stats`, `search_audit_events`
 
 **Explainability & overrides (4):** `explain_decision`, `create_override`, `delete_override`, `list_overrides`
 
+**Tenant identity & tier capability (5 — V1 Plugin Pro):**
+
+| Tool | Free access | Pro access |
+|------|-------------|------------|
+| `axonflow_get_tenant_id` | Visible + callable — returns tenant_id, server-resolved tier, upgrade URL | Same |
+| `axonflow_list_pro_features` | Visible + callable — locked Pro feature list (5 differentiators + $9.99 / 90-day pricing) | Same |
+| `axonflow_request_approval` | Visible + 1 per rolling 7d | Unlimited |
+| `axonflow_create_tenant_policy` | Visible + 2 active max | Unlimited |
+| `axonflow_get_cost_estimate` | Filtered out of `tools/list` — Pro-only | Visible + callable |
+
+OpenClaw also registers `axonflow_get_tenant_id` locally as a plugin agent tool so it works without the agent proxying the platform's MCP server. The local tool returns the same shape (`tenant_id`, `tier`, `upgrade_url`, `buy_url`, `expires_at`) — agents can answer "what's my tenant ID?" or "am I on Pro?" inline either way.
+
 When a tool call is blocked, the agent can surface the `decision_id` to the operator, call `explain_decision` to reveal the triggering policy family, and — if the decision is overridable — call `create_override` with mandatory justification for a short-lived, audit-logged exception. Operators never leave the OpenClaw session.
 
 See [Decision Explainability](https://docs.getaxonflow.com/docs/governance/explainability/) and [Session Overrides](https://docs.getaxonflow.com/docs/governance/overrides/).
+
+### Free-tier limits and upgrade prompts
+
+When the plugin's hooks hit a Free-tier cap (200 events/day, 2 active custom policies, 1 HITL approval per rolling 7d, or a Pro-only feature), the agent returns a structured upgrade envelope. The plugin parses it and forwards a single-line nudge through the host plugin logger — visible in the OpenClaw plugin log:
+
+```
+[AxonFlow] Daily limit reached on Free tier (200 events). Pro raises this to 2,000/day. Resets at midnight UTC.
+[AxonFlow] Upgrade: https://buy.stripe.com/bJe28qbztcdVchjdkw8k800
+```
+
+The plugin also stamps a local back-off file from the response's `Retry-After` header so subsequent governed calls fall through immediately (no thundering herd against the agent) until the cap clears. The upgrade nudge is shown at most once per UTC day.
 
 ---
 

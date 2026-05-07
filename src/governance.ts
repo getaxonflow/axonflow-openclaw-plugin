@@ -158,6 +158,23 @@ export function createBeforeToolCallHandler(
     }
 
     recordToolCallEvaluated();
+
+    // V1 Plugin Pro back-off gate. When a recent governed call returned
+    // a 429 / 403 envelope, the throttle stamp suppresses outbound
+    // traffic until the envelope's resets_at deadline. Fall open
+    // immediately so the user's tool isn't held up while we wait the
+    // cap out (the upgrade prompt was already surfaced when the
+    // throttle landed).
+    //
+    // The optional-chaining call accommodates tests that pass a mock
+    // client without the V1 helper — the gate degrades to "no
+    // throttle in effect" rather than throwing.
+    if (typeof clientRef.current.isV1ThrottleActive === "function"
+        && clientRef.current.isV1ThrottleActive()) {
+      recordToolCallAllowed();
+      return undefined;
+    }
+
     const connectorType = deriveConnectorType(event.toolName);
     const statement = JSON.stringify(event.params);
 

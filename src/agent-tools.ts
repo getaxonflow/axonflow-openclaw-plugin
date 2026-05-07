@@ -326,6 +326,65 @@ export function buildRevokeOverrideTool(clientRef: ClientRef): AgentToolDef {
   };
 }
 
+// ─── axonflow_get_tenant_id ────────────────────────────────────────────
+//
+// Cross-plugin parity tool (S3 lane of axonflow-enterprise#1958). The
+// other three plugin hosts (claude-code / cursor / codex) consume this
+// from the agent's MCP server via auto-discovery. OpenClaw doesn't
+// proxy that MCP server, so we register a local equivalent that builds
+// the same shape from the resolved plugin config — tenant_id, the
+// caller's tier (resolved from the locally-loaded license token, same
+// shape `buildStatusReport` already emits), and the locked V1 upgrade
+// URLs. Keeps cross-plugin behaviour consistent: any host that has the
+// AxonFlow plugin loaded can answer "what's my tenant ID?" inline
+// without spawning a shell.
+
+export function buildGetTenantIdTool(): AgentToolDef {
+  return {
+    name: "axonflow_get_tenant_id",
+    label: "AxonFlow: Get Tenant ID + Tier",
+    description:
+      "Return this AxonFlow plugin install's tenant_id, current tier (Free / Pro / pro_expired), " +
+      "and the canonical upgrade URLs. Use when the user asks how to upgrade, what tier they're on, " +
+      "or for the tenant_id they need to paste into Stripe Checkout. Available in every tier.",
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+    execute: async () => {
+      // Lazy import keeps the tool table cheap to build at registration
+      // time — the status module pulls in fs + path which we don't want
+      // to run unless the tool is actually invoked.
+      const { buildStatusReport, resolveStatusInputs } = await import("./status.js");
+      try {
+        const inputs = resolveStatusInputs();
+        const report = buildStatusReport(inputs);
+        return ok({
+          tenant_id: report.tenant_id,
+          tier: report.tier,
+          endpoint: report.endpoint,
+          upgrade_url: report.upgrade_url,
+          // Locked V1 buy URL — duplicates community_saas_ratelimit_response.go's
+          // v1ProUpgradeBuyURL constant. Tracked in the cross-surface drift
+          // checklist (feedback_cross_surface_drift_check_categorized.md):
+          // any change to the buy URL needs a matching update in:
+          //   - axonflow-enterprise/platform/agent/community_saas_ratelimit_response.go
+          //   - axonflow-enterprise/platform/agent/billing/email.go
+          //   - axonflow-landing/content/pricing.html (hardcoded button href)
+          //   - the 4 plugin repos' upgrade-prompt helpers + status surfaces.
+          buy_url: "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
+          expires_at: report.expires_at,
+          expires_in_days: report.expires_in_days,
+        });
+      } catch (e) {
+        const { message, details } = describeError(e);
+        return fail(message, details);
+      }
+    },
+  };
+}
+
 /**
  * Build the full set of agent-callable tools. Order is irrelevant — the
  * registration order is preserved by OpenClaw but tool dispatch is by
@@ -338,5 +397,6 @@ export function buildAgentTools(clientRef: ClientRef): AgentToolDef[] {
     buildListOverridesTool(clientRef),
     buildCreateOverrideTool(clientRef),
     buildRevokeOverrideTool(clientRef),
+    buildGetTenantIdTool(),
   ];
 }
