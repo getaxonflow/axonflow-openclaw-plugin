@@ -78,5 +78,47 @@
       "throttled": true
     },
     "isError": true
+  },
+  "throttle_stamp_after_test2": "1778153206 feature_pro_only",
+  "request_approval_raw": {
+    "kind": "ok",
+    "result": {
+      "approval_id": "3",
+      "message": "Approval request created. The user must approve via the AxonFlow customer portal before the operation can proceed.",
+      "original_query": "delete production-east database — runtime-e2e probe",
+      "request_type": "shell_command",
+      "severity": "high",
+      "status": "pending"
+    }
+  },
+  "create_tenant_policy_raw": {
+    "kind": "ok",
+    "result": {
+      "action": "block",
+      "connector_type": "openclaw.Bash",
+      "enabled": true,
+      "id": "e73e858a-1b9d-4f02-ab85-1598e82d9133",
+      "message": "Created tenant-scoped policy \"runtime-e2e-policy-1778153146707\". It will apply to subsequent governed calls.",
+      "name": "runtime-e2e-policy-1778153146707",
+      "pattern": "rm -rf /",
+      "policy_id": "tenant-cs_4d6dab76--68bfa06e-1c30-4a7f-90ac-94357e27ced2"
+    }
+  },
+  "get_tenant_id": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"tenant_id\": \"cs_4c5a4a25-dfff-41c7-b4cc-39188abd092f\",\n  \"tier\": \"free\",\n  \"endpoint\": \"https://try.getaxonflow.com\",\n  \"upgrade_url\": \"https://getaxonflow.com/pricing/\",\n  \"buy_url\": \"https://buy.stripe.com/bJe28qbztcdVchjdkw8k800\",\n  \"expires_at\": null,\n  \"expires_in_days\": null\n}"
+      }
+    ],
+    "details": {
+      "tenant_id": "cs_4c5a4a25-dfff-41c7-b4cc-39188abd092f",
+      "tier": "free",
+      "endpoint": "https://try.getaxonflow.com",
+      "upgrade_url": "https://getaxonflow.com/pricing/",
+      "buy_url": "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
+      "expires_at": null,
+      "expires_in_days": null
+    }
   }
 }
