@@ -203,7 +203,12 @@ The hook stderr also carries a machine-readable suffix like `[decision: <id>, ri
 
 ## Explain a Decision
 
-> **Plugin v2.3.0+:** the operations below are also exposed to the OpenClaw agent as registered tools — `axonflow_explain_decision`, `axonflow_list_overrides`, `axonflow_create_override`, `axonflow_revoke_override`, `axonflow_audit_search`, and `axonflow_get_tenant_id` (returns the install's tenant_id, current tier, and upgrade URLs — the agent can answer "what's my tenant ID?" or "am I on Pro?" inline without spawning a shell). The agent can invoke these directly during a conversation; the same client methods documented in this section back them.
+> **Plugin v2.3.0+:** the operations below are also exposed to the OpenClaw agent as registered tools. Total of 10 agent-callable tools, split into two groups:
+>
+> - **Read-side governance** (5): `axonflow_explain_decision`, `axonflow_list_overrides`, `axonflow_create_override`, `axonflow_revoke_override`, `axonflow_audit_search`. The agent can answer "why was this blocked?", create / list / revoke session overrides, and search audit events.
+> - **V1 Plugin Pro toolset** (5, cross-plugin parity): `axonflow_get_tenant_id` (tenant_id + current tier + upgrade URLs — answers "what's my tenant ID?" or "am I on Pro?" inline without spawning a shell), `axonflow_list_pro_features` (locked Pro feature list — visible to all tiers), `axonflow_request_approval` (request human-in-the-loop approval before risky operations; Free tier 1 / rolling 7d, Pro unlimited), `axonflow_create_tenant_policy` (create a custom tenant-scoped policy; Free tier 2 active max, Pro unlimited), and `axonflow_get_cost_estimate` (LLM cost pre-flight for a multi-step plan; Pro-only — visible to Pro callers, returns the locked V1 Pro paywall envelope to Free callers).
+>
+> The agent invokes these directly during a conversation; the read-side methods are also available as client methods documented below.
 
 Fetch the full explanation for any previously-made decision:
 
