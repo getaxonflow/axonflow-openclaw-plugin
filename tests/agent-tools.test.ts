@@ -32,15 +32,16 @@ function makeClientRef(): ClientRef {
 }
 
 describe("agent-tools — buildAgentTools", () => {
-  it("returns 5 tools with axonflow_ prefixed names", () => {
+  it("returns 6 tools with axonflow_ prefixed names", () => {
     const ref = makeClientRef();
     const tools = buildAgentTools(ref);
-    expect(tools).toHaveLength(5);
+    expect(tools).toHaveLength(6);
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       "axonflow_audit_search",
       "axonflow_create_override",
       "axonflow_explain_decision",
+      "axonflow_get_tenant_id",
       "axonflow_list_overrides",
       "axonflow_revoke_override",
     ]);

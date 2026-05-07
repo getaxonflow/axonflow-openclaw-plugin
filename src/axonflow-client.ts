@@ -6,6 +6,12 @@
  */
 
 import type { AxonFlowPluginConfig } from "./config.js";
+import {
+  handleEnvelope as handleV1Envelope,
+  isThrottleActive,
+  type UpgradePromptLogger,
+  type V1RateLimitEnvelope,
+} from "./upgrade-prompt.js";
 import { VERSION } from "./version.js";
 
 /**
@@ -219,6 +225,17 @@ function extractPoliciesEvaluated(data: Record<string, unknown>): number {
   return 0;
 }
 
+/**
+ * Drop-on-the-floor logger used when the host hasn't wired its own.
+ * Keeps the envelope detection + throttle-stamp side effects firing
+ * regardless of whether the operator gets to see the upgrade wording.
+ */
+const noopUpgradePromptLogger: UpgradePromptLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
 export class AxonFlowClient {
   private readonly endpoint: string;
   private readonly authHeader: string;
@@ -226,6 +243,11 @@ export class AxonFlowClient {
   private readonly userEmail: string | undefined;
   private readonly licenseToken: string | undefined;
   private readonly clientHeader: string;
+  // V1 Plugin Pro upgrade-prompt sink — populated via setUpgradePromptLogger.
+  // When set, V1 envelope detections on 429 / 403 surface the locked
+  // wording + buy URL via this logger and stamp a throttle deadline so
+  // subsequent governed calls can short-circuit locally.
+  private upgradePromptLogger: UpgradePromptLogger | null = null;
   constructor(config: AxonFlowPluginConfig) {
     // Strip trailing slashes without regex (avoids ReDoS on polynomial patterns)
     let ep = config.endpoint;
@@ -260,6 +282,69 @@ export class AxonFlowClient {
     // sourced from config or env (the consumer doesn't get to spoof its
     // own client identity to the agent).
     this.clientHeader = `openclaw/${VERSION}`;
+  }
+
+  /**
+   * Configure the sink for V1 Plugin Pro upgrade-prompt envelopes.
+   * When the agent returns a 429 (daily-quota) or 403 (graduated /
+   * Pro-only) with a structured envelope, the wording + buy URL are
+   * forwarded to this logger (gated to once-per-UTC-day).
+   *
+   * Call from index.ts during plugin init:
+   *   client.setUpgradePromptLogger(api.logger).
+   *
+   * Optional — when unset, the client still detects + stamps the
+   * throttle so subsequent calls back off, but no wording is surfaced.
+   */
+  setUpgradePromptLogger(logger: UpgradePromptLogger | null): void {
+    this.upgradePromptLogger = logger;
+  }
+
+  /**
+   * Internal helper: detect + handle a V1 envelope on a non-2xx
+   * response. Returns the parsed envelope (so the caller can decide
+   * how to surface it through its existing return shape) or null if
+   * the response is not envelope-bearing.
+   *
+   * Runs whether or not a logger is wired — without a logger the
+   * envelope is still detected and the throttle deadline is still
+   * stamped (so subsequent calls short-circuit), the wording just
+   * drops on the floor instead of landing on the operator-visible
+   * channel.
+   */
+  private handleEnvelope(
+    status: number,
+    body: unknown,
+    response: Response,
+  ): V1RateLimitEnvelope | null {
+    // Only 429 + 403 carry the V1 envelope today; gating the
+    // headers.get() call here also makes the path safe against
+    // header-less mock Response objects in unit tests that don't
+    // exercise the envelope path.
+    if (status !== 429 && status !== 403) {
+      return null;
+    }
+    const retryAfterHeader = typeof response.headers?.get === "function"
+      ? response.headers.get("retry-after")
+      : null;
+    const result = handleV1Envelope({
+      status,
+      body,
+      retryAfterHeader,
+      logger: this.upgradePromptLogger ?? noopUpgradePromptLogger,
+    });
+    return result.envelope ?? null;
+  }
+
+  /**
+   * V1 Plugin Pro back-off gate. Callers (governance.ts) check this
+   * BEFORE issuing a governed call — when the throttle file is in
+   * effect, the call is short-circuited and the caller falls open
+   * (the upgrade prompt was already surfaced when the throttle
+   * landed; the cap clears at the deadline).
+   */
+  isV1ThrottleActive(): boolean {
+    return isThrottleActive();
   }
 
   private baseHeaders(): Record<string, string> {
@@ -310,6 +395,14 @@ export class AxonFlowClient {
     statement: string,
     operation: string = "execute",
   ): Promise<MCPCheckInputResponse> {
+    // V1 Plugin Pro back-off: when a recent governed call returned a
+    // 429 / 403 envelope, the throttle stamp suppresses outbound traffic
+    // until the deadline. Fall open immediately so the user's tool isn't
+    // held up while we wait the cap out (the upgrade prompt was already
+    // surfaced when the throttle landed).
+    if (isThrottleActive()) {
+      return { allowed: true, policies_evaluated: 0 };
+    }
     const url = `${this.endpoint}/api/v1/mcp/check-input`;
     const response = await this.fetchWithTimeout(url, {
       method: "POST",
@@ -322,6 +415,22 @@ export class AxonFlowClient {
     });
 
     const data = (await response.json()) as Record<string, unknown>;
+
+    // V1 Plugin Pro envelope detection runs BEFORE the policy-block
+    // branch — an envelope-bearing 403 (graduated cap, Pro-only feature)
+    // is structurally distinguishable from a policy-block 403 by its
+    // `limit_type` field, and the user-facing semantics differ:
+    // policy block = "this tool call hit a policy",
+    // envelope = "this account hit a tier cap; Pro removes it".
+    if (this.handleEnvelope(response.status, data, response)) {
+      // Cap reached — fall open (allowed=true). The wording was already
+      // surfaced via the upgrade-prompt logger and a throttle deadline
+      // was stamped so the next call short-circuits at the gate.
+      return {
+        allowed: true,
+        policies_evaluated: 0,
+      };
+    }
 
     if (response.status === 403) {
       return {
@@ -361,6 +470,10 @@ export class AxonFlowClient {
     connectorType: string,
     message: string,
   ): Promise<MCPCheckOutputResponse> {
+    // V1 Plugin Pro back-off — same rationale as mcpCheckInput.
+    if (isThrottleActive()) {
+      return { allowed: true, policies_evaluated: 0 };
+    }
     const url = `${this.endpoint}/api/v1/mcp/check-output`;
     const response = await this.fetchWithTimeout(url, {
       method: "POST",
@@ -372,6 +485,16 @@ export class AxonFlowClient {
     });
 
     const data = (await response.json()) as Record<string, unknown>;
+
+    // V1 Plugin Pro envelope detection — see mcpCheckInput for rationale.
+    // Output scan falls open on cap (no PII detection during back-off
+    // is acceptable — the upgrade prompt was already surfaced).
+    if (this.handleEnvelope(response.status, data, response)) {
+      return {
+        allowed: true,
+        policies_evaluated: 0,
+      };
+    }
 
     if (response.status === 403) {
       return {

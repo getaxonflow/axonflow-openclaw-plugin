@@ -2,6 +2,64 @@
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-05-07 — V1 Plugin Pro upgrade-prompt envelope + axonflow_get_tenant_id agent tool
+
+Companion plugin release to platform v7.7.0 + agent PRs #1966 / #1968.
+Surfaces the V1 Plugin Pro structured upgrade envelope to the operator
+and adds the `axonflow_get_tenant_id` agent-callable tool for cross-plugin
+parity (closing umbrella axonflow-enterprise#1958, sub-issue
+axonflow-enterprise#1965).
+
+### Added
+
+- **V1 Plugin Pro upgrade-prompt envelope handling** in
+  `src/upgrade-prompt.ts` — sourced into `axonflow-client.ts` so every
+  4xx response from `mcpCheckInput` / `mcpCheckOutput` runs through
+  envelope detection. When the agent returns a 429 (daily-quota) or
+  403 (graduated / Pro-only) with the structured envelope shape:
+  - Parses `upgrade.wording` + `upgrade.buy_url` and forwards it to the
+    host plugin logger (`api.logger.info`) at most once per UTC day.
+    Surfaced to OpenClaw operators via the standard plugin log channel.
+  - Honours `Retry-After` / `resets_at` by stamping a back-off file at
+    `${AXONFLOW_CACHE_DIR or platform default}/throttle-until`.
+    `governance.ts` checks the gate before each governed call and
+    short-circuits during the back-off window (no thundering-herd
+    retries against the agent).
+  - Handles both bare and JSON-RPC-wrapped envelope shapes (the latter
+    is what the new V1 Pro MCP tools deliver via `writeMCPGateError`).
+- **`axonflow_get_tenant_id` agent-callable tool** — returns the
+  install's tenant_id, current tier (Free / Pro / pro_expired),
+  endpoint, and the locked V1 upgrade URLs. The other three plugin
+  hosts (claude / cursor / codex) get this tool from the agent's MCP
+  server via auto-discovery; OpenClaw doesn't proxy that MCP server,
+  so we register a local equivalent built from the same status surface
+  `recover.sh status` exposes. Keeps cross-plugin behaviour consistent
+  for the "what's my tenant ID?" question. Total agent-callable tools:
+  6 (was 5).
+- **`clawhub/2.3.0/SKILL.md`** — frozen per-version skill record for the
+  v2.3.0 release. Documents the new `axonflow_get_tenant_id` tool
+  alongside the existing 5 agent-callable governance tools.
+
+### Internal
+
+- Added `tests/upgrade-prompt.test.ts` — 26 unit assertions across
+  `detectEnvelope`, `retryAfterMs`, `resolveDeadlineMs`,
+  `isThrottleActive`, `shouldShowPromptToday`, the full `handleEnvelope`
+  state machine, and the `V1_LIMIT_TYPES` locked enumeration.
+- Added `runtime-e2e/v1_pro_envelope_surface/` per HARD RULE #0 — drives
+  the compiled `dist/upgrade-prompt.js` against a live 429 envelope
+  captured from `try.getaxonflow.com` via the canonical `db_helpers.sh`
+  ECS-exec seed pattern.
+- Updated `tests/agent-tools.test.ts` + `tests/registration.test.ts`
+  for the new tool count (5 → 6).
+
+### Versions touched (per `feedback_openclaw_plugin_version_bump_surfaces.md`)
+
+- `package.json`: 2.2.0 → 2.3.0
+- `package-lock.json`: 2.2.0 → 2.3.0
+- `src/version.ts` (`VERSION` constant — Jest asserts parity): 2.2.0 → 2.3.0
+- This CHANGELOG entry
+
 ## [2.2.0] - 2026-05-06 — V1 paid Pro tier wire-up + X-Axonflow-Client header
 
 Companion plugin release to platform v7.7.0. Surfaces the V1 SaaS Plugin

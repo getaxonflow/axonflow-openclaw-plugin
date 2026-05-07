@@ -168,6 +168,11 @@ export function registerAxonFlowGovernance(api: {
   // Without this indirection the bootstrap would silently no-op for hooks
   // (they'd keep using the empty-credential client they were registered with).
   const clientRef: ClientRef = { current: new AxonFlowClient(config) };
+  // V1 Plugin Pro upgrade-prompt sink — when the agent returns a 429 /
+  // 403 with a structured upgrade envelope, the plugin surfaces the
+  // locked wording + buy URL through the host's standard logger.
+  // (umbrella axonflow-enterprise#1958, sub-issue #1965)
+  clientRef.current.setUpgradePromptLogger(api.logger);
   if (config.mode === "community-saas") {
     void bootstrapCommunitySaas({
       endpoint: config.endpoint,
