@@ -317,13 +317,13 @@ export class AxonFlowClient {
     body: unknown,
     response: Response,
   ): V1RateLimitEnvelope | null {
-    // Only 429 + 403 carry the V1 envelope today; gating the
-    // headers.get() call here also makes the path safe against
-    // header-less mock Response objects in unit tests that don't
-    // exercise the envelope path.
-    if (status !== 429 && status !== 403) {
-      return null;
-    }
+    // Three envelope-bearing paths today: 429 (apiAuthMiddleware
+    // daily-quota), 403 (REST graduated cap / Pro-only), and HTTP 200
+    // with JSON-RPC `result.isError = true` (the MCP tools/call gate
+    // path, exercised by the V1 Pro proxy tools — see callMCPTool).
+    // The full status-vs-shape decision lives in handleV1Envelope so
+    // we don't pre-filter here; this wrapper just resolves headers
+    // safely against header-less mock Response objects in unit tests.
     const retryAfterHeader = typeof response.headers?.get === "function"
       ? response.headers.get("retry-after")
       : null;
@@ -944,5 +944,138 @@ export class AxonFlowClient {
     }
     const explanation = (await response.json()) as DecisionExplanation;
     return { kind: "ok", explanation };
+  }
+
+  /**
+   * Generic MCP tool-call proxy — POST `tools/call` to the agent's MCP
+   * server and return the parsed result. Used by the four V1 Plugin Pro
+   * proxy tools (axonflow_request_approval, axonflow_create_tenant_policy,
+   * axonflow_get_cost_estimate, axonflow_list_pro_features) so an
+   * OpenClaw runtime gets the same toolset claude / cursor / codex
+   * auto-discover from the same MCP server.
+   *
+   * Two-step flow per the MCP HTTP transport contract:
+   *   1. POST `initialize` to get `mcp-session-id` from response headers.
+   *   2. POST `tools/call` with that session-id header.
+   *
+   * V1 Plugin Pro envelope detection runs on the call response — if the
+   * call hit a Free-tier gate (graduated cap or Pro-only feature), the
+   * envelope is detected, the upgrade prompt is surfaced via the host
+   * logger, and the throttle file is stamped. The proxy returns an
+   * `{ envelope }` shape so the agent-tool wrapper can render the locked
+   * V1 wording back to the user instead of a generic error.
+   *
+   * NOT a hot-path helper. Initializes a fresh MCP session per call —
+   * agent-tools are user-driven and rare; session caching would add
+   * complexity (TTL handling, cross-call lock) that's not worth it for
+   * this surface. Hot-path traffic uses the dedicated `mcpCheckInput`
+   * / `mcpCheckOutput` paths above which target `/api/v1/mcp/check-*`
+   * (no MCP session, no JSON-RPC framing).
+   */
+  async callMCPTool(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<
+    | { kind: "ok"; result: unknown }
+    | { kind: "envelope"; envelope: V1RateLimitEnvelope }
+    | { kind: "throttled" }
+    | { kind: "error"; message: string; status?: number }
+  > {
+    if (isThrottleActive()) {
+      return { kind: "throttled" };
+    }
+
+    const url = `${this.endpoint}/api/v1/mcp-server`;
+    // Step 1: initialize the MCP session.
+    const initResp = await this.fetchWithTimeout(url, {
+      method: "POST",
+      headers: this.baseHeaders(),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "init",
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          clientInfo: { name: "openclaw-axonflow", version: VERSION },
+        },
+      }),
+    });
+    const sessionId = initResp.headers.get("mcp-session-id");
+    if (!sessionId) {
+      // initialize didn't return a session — probably an envelope-bearing
+      // 4xx (auth path is gated) or a protocol-level error. Detect
+      // envelope first so the operator still sees the upgrade prompt.
+      let initBody: unknown = null;
+      try {
+        initBody = await initResp.json();
+      } catch {
+        /* non-JSON; leave body null */
+      }
+      const env = this.handleEnvelope(initResp.status, initBody, initResp);
+      if (env) {
+        return { kind: "envelope", envelope: env };
+      }
+      return {
+        kind: "error",
+        message: `MCP initialize returned no session-id (HTTP ${initResp.status})`,
+        status: initResp.status,
+      };
+    }
+
+    // Step 2: call the tool.
+    const callResp = await this.fetchWithTimeout(url, {
+      method: "POST",
+      headers: { ...this.baseHeaders(), "mcp-session-id": sessionId },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `call-${name}`,
+        method: "tools/call",
+        params: { name, arguments: args },
+      }),
+    });
+    let data: unknown;
+    try {
+      data = await callResp.json();
+    } catch {
+      return {
+        kind: "error",
+        message: `MCP tools/call returned non-JSON (HTTP ${callResp.status})`,
+        status: callResp.status,
+      };
+    }
+
+    // V1 envelope detection runs first — wrapped in a JSON-RPC result
+    // when the agent's mcp_v1_pro_tools.go gate fires.
+    const env = this.handleEnvelope(callResp.status, data, callResp);
+    if (env) {
+      return { kind: "envelope", envelope: env };
+    }
+
+    const obj = data as Record<string, unknown>;
+    if (obj["error"]) {
+      const err = obj["error"] as Record<string, unknown>;
+      const msg = typeof err["message"] === "string" ? err["message"] : "JSON-RPC error";
+      return { kind: "error", message: msg, status: callResp.status };
+    }
+
+    const result = obj["result"] as Record<string, unknown> | undefined;
+    const content = result?.["content"] as Array<{ type?: string; text?: string }> | undefined;
+    const text = content?.[0]?.text;
+    if (typeof text !== "string" || text.length === 0) {
+      return {
+        kind: "error",
+        message: "MCP tools/call result missing content[0].text",
+        status: callResp.status,
+      };
+    }
+
+    // The agent's V1 Pro tools return their result payload as a JSON
+    // string inside content[0].text. Try to parse it; if that fails,
+    // hand the plain text back so the caller can surface it raw.
+    try {
+      return { kind: "ok", result: JSON.parse(text) };
+    } catch {
+      return { kind: "ok", result: text };
+    }
   }
 }

@@ -32,17 +32,21 @@ function makeClientRef(): ClientRef {
 }
 
 describe("agent-tools — buildAgentTools", () => {
-  it("returns 6 tools with axonflow_ prefixed names", () => {
+  it("returns 10 tools with axonflow_ prefixed names (5 W2 governance + V1 Pro proxies)", () => {
     const ref = makeClientRef();
     const tools = buildAgentTools(ref);
-    expect(tools).toHaveLength(6);
+    expect(tools).toHaveLength(10);
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       "axonflow_audit_search",
       "axonflow_create_override",
+      "axonflow_create_tenant_policy",
       "axonflow_explain_decision",
+      "axonflow_get_cost_estimate",
       "axonflow_get_tenant_id",
       "axonflow_list_overrides",
+      "axonflow_list_pro_features",
+      "axonflow_request_approval",
       "axonflow_revoke_override",
     ]);
   });

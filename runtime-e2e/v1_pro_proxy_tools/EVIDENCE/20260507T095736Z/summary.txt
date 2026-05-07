@@ -1,0 +1,10 @@
+OpenClaw V1 Plugin Pro proxy-tools runtime proof — 20260507T095736Z
+AGENT_URL=https://try.getaxonflow.com
+TENANT=cs_f513e5e9-9342-4950-ab40-ba17a8cf523d
+list_pro_features differentiators: 5
+list_pro_features price_usd: 9.99
+callMCPTool kind: envelope
+envelope.limit_type: feature_pro_only
+envelope.buy_url: https://buy.stripe.com/bJe28qbztcdVchjdkw8k800
+agent-tool throttle-gate honored: true
+Result: PASS

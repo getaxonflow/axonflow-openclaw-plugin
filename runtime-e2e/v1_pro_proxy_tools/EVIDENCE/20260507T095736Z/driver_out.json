@@ -1,0 +1,82 @@
+{
+  "list_pro_features": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"buy_url\": \"https://buy.stripe.com/bJe28qbztcdVchjdkw8k800\",\n  \"current_tier\": \"Free\",\n  \"differentiators\": [\n    {\n      \"capability\": \"Daily quota\",\n      \"free\": \"200 events/day\",\n      \"id\": \"daily_quota\",\n      \"pro\": \"2,000 events/day (10× Free)\"\n    },\n    {\n      \"capability\": \"Audit retention\",\n      \"free\": \"3 days\",\n      \"id\": \"audit_retention\",\n      \"pro\": \"30 days (10× Free)\"\n    },\n    {\n      \"capability\": \"Custom tenant policies\",\n      \"free\": \"2 active max\",\n      \"id\": \"active_policies\",\n      \"pro\": \"Unlimited\"\n    },\n    {\n      \"capability\": \"HITL approval gating\",\n      \"free\": \"1 per rolling 7 days\",\n      \"id\": \"hitl_approvals\",\n      \"pro\": \"Unlimited\"\n    },\n    {\n      \"capability\": \"LLM cost pre-flight\",\n      \"free\": \"Not available\",\n      \"id\": \"cost_preflight\",\n      \"pro\": \"Available\"\n    }\n  ],\n  \"pricing\": {\n    \"duration_days\": 90,\n    \"price_usd\": 9.99,\n    \"renewal\": \"one-time (re-purchase to extend; no auto-renewal)\"\n  },\n  \"tone\": \"Free validates the workflow. Pro removes the caps when AxonFlow becomes part of your real workflow.\",\n  \"upgrade_url\": \"https://getaxonflow.com/pricing/\"\n}"
+      }
+    ],
+    "details": {
+      "buy_url": "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
+      "current_tier": "Free",
+      "differentiators": [
+        {
+          "capability": "Daily quota",
+          "free": "200 events/day",
+          "id": "daily_quota",
+          "pro": "2,000 events/day (10× Free)"
+        },
+        {
+          "capability": "Audit retention",
+          "free": "3 days",
+          "id": "audit_retention",
+          "pro": "30 days (10× Free)"
+        },
+        {
+          "capability": "Custom tenant policies",
+          "free": "2 active max",
+          "id": "active_policies",
+          "pro": "Unlimited"
+        },
+        {
+          "capability": "HITL approval gating",
+          "free": "1 per rolling 7 days",
+          "id": "hitl_approvals",
+          "pro": "Unlimited"
+        },
+        {
+          "capability": "LLM cost pre-flight",
+          "free": "Not available",
+          "id": "cost_preflight",
+          "pro": "Available"
+        }
+      ],
+      "pricing": {
+        "duration_days": 90,
+        "price_usd": 9.99,
+        "renewal": "one-time (re-purchase to extend; no auto-renewal)"
+      },
+      "tone": "Free validates the workflow. Pro removes the caps when AxonFlow becomes part of your real workflow.",
+      "upgrade_url": "https://getaxonflow.com/pricing/"
+    }
+  },
+  "get_cost_estimate_raw": {
+    "kind": "envelope",
+    "envelope": {
+      "error": "LLM cost pre-flight is a Pro feature — see what a multi-step plan will cost before it runs.",
+      "limit_type": "feature_pro_only",
+      "tier": "Free",
+      "limit": 0,
+      "remaining": 0,
+      "upgrade": {
+        "tier": "Pro",
+        "wording": "LLM cost pre-flight is a Pro feature — see what a multi-step plan will cost before it runs.",
+        "compare_url": "https://getaxonflow.com/pricing/",
+        "buy_url": "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800"
+      }
+    }
+  },
+  "get_cost_estimate": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Error: AxonFlow Free-tier cap is active — back-off in effect from a previous V1 envelope. Try again after the deadline."
+      }
+    ],
+    "details": {
+      "error": "AxonFlow Free-tier cap is active — back-off in effect from a previous V1 envelope. Try again after the deadline.",
+      "throttled": true
+    },
+    "isError": true
+  }
+}

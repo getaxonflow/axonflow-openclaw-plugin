@@ -284,9 +284,21 @@ export function handleEnvelope(opts: {
   const cacheDir = opts.cacheDir ?? axonflowCacheDir();
   const now = opts.now ?? new Date();
 
-  // Only 429 + 403 carry envelopes today. Other statuses fall through to
-  // the caller's existing logic.
-  if (status !== 429 && status !== 403) {
+  // Three envelope-bearing paths:
+  //   - HTTP 429 (daily-quota path on apiAuthMiddleware).
+  //   - HTTP 403 (graduated cap / Pro-only on REST endpoints).
+  //   - HTTP 200 + JSON-RPC `result.isError = true` (the MCP tools/call
+  //     gate path emits the envelope wrapped in JSON-RPC result; the
+  //     transport-level status stays 200 because the envelope is the
+  //     tool result, not a transport error).
+  // Other statuses fall through to the caller's existing logic.
+  const isJsonRpcGateError =
+    status === 200 &&
+    body !== null &&
+    typeof body === "object" &&
+    (body as Record<string, unknown>)["result"] !== undefined &&
+    ((body as Record<string, unknown>)["result"] as Record<string, unknown>)?.["isError"] === true;
+  if (status !== 429 && status !== 403 && !isJsonRpcGateError) {
     return { detected: false };
   }
 
