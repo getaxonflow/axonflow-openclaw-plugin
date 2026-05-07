@@ -223,10 +223,11 @@ jobs:
       # closes the "Legacy ZIP — may have compatibility issues" badge
       # on the ClawHub listing AND moves the verification tier from
       # `source-linked` (lowest) to a higher tier per the modern
-      # plugin architecture. ClawPack ingestion may also surface the
-      # plugin manifest's envVars block into the registry capabilities
-      # block (the SKILL.md frontmatter `requires.env` schema landed
-      # in clawhub@0.7.0 and may apply to plugins via ClawPack).
+      # plugin architecture. Note: ClawPack format does NOT close the
+      # ClawScan "Credentials" review concern — that's upstream-blocked
+      # because code plugins have no envVars schema slot in their
+      # capabilities indexing today (the clawhub@0.7.0 envVars schema
+      # is skill-side only). See feedback_plugin_manifest_envvars_hygiene.md.
       #
       # Safety net: existing `verify-clawhub-install` job runs
       # `openclaw plugins install clawhub:@axonflow/openclaw@<version>`
