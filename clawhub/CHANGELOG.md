@@ -2,6 +2,23 @@
 
 ## @axonflow/governance-policies
 
+### 2.3.0 (2026-05-08)
+
+Companion skill release to plugin v2.3.0+ — the V1 Plugin Pro graduated-freemium tier and the cross-plugin V1 Pro agent-callable toolset.
+
+**Expands the "Plugin Pro tier" section** with the full graduated-freemium tier matrix. Free baseline now documents 3-day audit retention, 200 governed events / day, **2 active custom policies**, and **1 HITL approval per rolling 7d** (the four limits surfaced via the locked V1 envelope on the agent's 429 / 403 responses). Pro now extends to 30-day retention, **2,000 events / day** (was 1,000), **unlimited active custom policies**, **unlimited HITL approvals**, and adds the **LLM cost pre-flight tool** (estimate token cost for a multi-step plan before it runs). 90-day window, one-time payment, no auto-renewal, 14-day refund window unchanged.
+
+**Expands the agent-callable tools callout from 5 → 10 tools.** The block under "Explain a Decision" / "Grant a Session Override" / "Audit a Session" sections now lists two distinct groups visible to the OpenClaw agent during a conversation:
+
+- **Read-side governance (5):** `axonflow_explain_decision`, `axonflow_list_overrides`, `axonflow_create_override`, `axonflow_revoke_override`, `axonflow_audit_search` — unchanged from skill v2.2.0.
+- **V1 Plugin Pro toolset (5, cross-plugin parity):** `axonflow_get_tenant_id` (tenant_id + current tier + upgrade URLs — answers "what's my tenant ID?" or "am I on Pro?" inline without spawning a shell), `axonflow_list_pro_features` (locked Pro feature list — visible to all tiers), `axonflow_request_approval` (request HITL approval before risky operations — Free 1 / rolling 7d, Pro unlimited), `axonflow_create_tenant_policy` (create a custom tenant-scoped policy — Free 2 active max, Pro unlimited), `axonflow_get_cost_estimate` (LLM cost pre-flight — Pro-only; Free callers receive the locked V1 paywall envelope).
+
+**Scopes the `AXONFLOW_TELEMETRY=off` env-var disclosure to its actual data layer.** The Environment-variables table row now clarifies that the heartbeat opt-out is meaningful on self-hosted / in-VPC deployments where the heartbeat is the only data the plugin sends; on Community SaaS (`try.getaxonflow.com`) the hosted service also processes operational data (registrations, audit logs, policy enforcement records, workflow state, plan data, request-header metadata aggregated for usage analytics) governed by the [Privacy Policy](https://getaxonflow.com/privacy/), not by this env var. Closes a gap where users could read the prior wording as "set this and no AxonFlow service will see anything" — accurate for self-hosted, misleading for Community SaaS.
+
+**Bumps minimum-version reference** from `@axonflow/openclaw` 2.2.0 to **2.3.3** — the recommended stable floor on the v2.3.x patch line. v2.3.0 added the V1 envelope handling + the 5 new agent-callable Pro tools; v2.3.1 closed the manifest envVars hygiene gap; v2.3.2 added the cumulative-release-notes preflight + 3-way `manifest-envvars-coverage.yml` CI gate; v2.3.3 migrated the publish flow from Legacy ZIP folder upload to ClawPack format via `clawhub@0.12.3`, which moved ClawScan from "Review" to "Benign" on the plugin's listing.
+
+Base: copied verbatim from skill v2.2.0 to preserve all ClawScan-tuned phrasing in the Deployment recommendation, Install, and Mode-specific reference sections — only additive changes (agent-tools expansion, Pro tier matrix, telemetry scope, plugin floor bump).
+
 ### 2.2.0 (2026-05-06)
 
 Companion skill release to plugin v2.2.0 — the V1 paid Plugin Pro tier wire-up.
