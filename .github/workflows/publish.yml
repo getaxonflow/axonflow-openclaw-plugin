@@ -209,15 +209,34 @@ jobs:
       - name: Install dependencies and build
         run: npm ci && npm run build
 
-      # Pin clawhub@0.12.0 — v0.12.1 (2026-05-02) regressed the publish
-      # path so that uploads (folder OR tarball) register as
-      # `npm-pack (tgz)` artifact format whose served bytes don't match
-      # ClawHub's recorded SHA-256, breaking `openclaw plugins install`
-      # with integrity errors. v2.0.5 + v2.0.6 hit this. v2.0.4 was
-      # published with v0.12.0 and installs cleanly. Hold the pin until
-      # ClawHub fixes the regression upstream.
+      # Pin clawhub@0.12.3 — v0.12.2 (2026-05-02 21:45 UTC) shipped the
+      # CLI fix for v0.12.1's tarball-bytes-mismatch regression
+      # ("publish code plugins as clawpacks and allow legacy package
+      # downloads"); v0.12.3 (2026-05-06) added monorepo support +
+      # dry-run-metadata-only + scope-owner inference. Confirmed working
+      # via local `clawhub package pack` + `clawhub package publish .
+      # --dry-run` against this repo at v2.3.2 — produced clean ClawPack
+      # tarball with correct sha256/integrity.
+      #
+      # Migration from v0.12.0 (Legacy ZIP folder upload) → v0.12.3
+      # (ClawPack folder upload, CLI auto-packs + uploads as ClawPack):
+      # closes the "Legacy ZIP — may have compatibility issues" badge
+      # on the ClawHub listing AND moves the verification tier from
+      # `source-linked` (lowest) to a higher tier per the modern
+      # plugin architecture. ClawPack ingestion may also surface the
+      # plugin manifest's envVars block into the registry capabilities
+      # block (the SKILL.md frontmatter `requires.env` schema landed
+      # in clawhub@0.7.0 and may apply to plugins via ClawPack).
+      #
+      # Safety net: existing `verify-clawhub-install` job runs
+      # `openclaw plugins install clawhub:@axonflow/openclaw@<version>`
+      # and would catch any bytes-mismatch immediately — same gate
+      # that broke v2.0.5/v2.0.6 visibly during the v0.12.1 regression.
+      # If broken, revert to clawhub@0.12.0 + folder upload (Legacy ZIP)
+      # — well-understood path per
+      # `feedback_clawhub_cli_v0_12_1_tarball_regression.md`.
       - name: Install ClawHub CLI
-        run: npm install -g clawhub@0.12.0
+        run: npm install -g clawhub@0.12.3
 
       - name: Extract version
         id: version
@@ -228,21 +247,19 @@ jobs:
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
 
-      # Folder upload (Legacy ZIP) is the only working combination right
-      # now. v2.0.7 attempted CLI pin v0.12.0 + tarball arg and got
-      # `Error: Path must be a folder` — tarball arg was a v0.12.1 feature.
-      # v2.0.5 + v2.0.6 (CLI v0.12.1, both upload modes) hit broken-install
-      # bytes-mismatch. v2.0.4 (CLI v0.12.0 + folder) is the last known-good
-      # combination and still installs cleanly. Holding here until ClawHub
-      # fixes the v0.12.1+ regression upstream.
+      # Folder argument with clawhub@0.12.3 — CLI auto-packs the source
+      # folder into a ClawPack npm-style tarball + uploads. No `npm pack`
+      # step needed; the CLI handles tarball generation internally. The
+      # `.clawhubignore` file controls what files end up in the ClawPack.
       #
       # --owner saurabhjain1592 works around openclaw/clawhub#2001 (server
-      # commit 2d2d791, 2026-05-03). The new scope-inference fallback maps
+      # commit 2d2d791, 2026-05-03). The scope-inference fallback maps
       # `@axonflow/openclaw` → publisher `axonflow`, which mismatches the
       # stored owner `saurabhjain1592` and rejects the publish. Passing
-      # --owner explicitly suppresses the inference branch and the
-      # existing-owner equality check passes. Remove once #2001 is fixed.
-      - name: Publish to ClawHub
+      # --owner explicitly suppresses the inference branch. v0.12.3
+      # adds owner-inference-from-scope but we keep the explicit flag
+      # for backward compatibility with stored owner mismatch.
+      - name: Publish to ClawHub (ClawPack format)
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |

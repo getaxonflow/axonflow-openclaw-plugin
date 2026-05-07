@@ -23,6 +23,7 @@ on:
       - 'bin/**'
       - 'openclaw.plugin.json'
       - 'README.md'
+      - 'SKILL.md'
       - '.github/workflows/manifest-envvars-coverage.yml'
   push:
     branches: [main]
@@ -69,6 +70,36 @@ jobs:
           cat /tmp/readme-decl.txt
           echo ""
 
+          # 4) SKILL.md frontmatter — extract every AXONFLOW_* under
+          # requires.env (top-level) AND metadata.openclaw.config.optionalEnv
+          # (nested). Both should declare the same set; we pull the union
+          # and dedupe. Frontmatter parsing via Python YAML for precision
+          # (avoids brittle regex on indented YAML lists).
+          python3 -c "
+          import sys, yaml, re
+          with open('SKILL.md') as f:
+              content = f.read()
+          # Extract frontmatter between leading --- and next ---
+          m = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+          if not m:
+              print('::error::SKILL.md has no YAML frontmatter')
+              sys.exit(1)
+          fm = yaml.safe_load(m.group(1))
+          requires_env = set(fm.get('requires', {}).get('env', []))
+          openclaw_optional = set(
+              fm.get('metadata', {}).get('openclaw', {}).get('config', {}).get('optionalEnv', [])
+          )
+          openclaw_required = set(
+              fm.get('metadata', {}).get('openclaw', {}).get('config', {}).get('requiredEnv', [])
+          )
+          all_declared = requires_env | openclaw_optional | openclaw_required
+          for v in sorted(all_declared):
+              print(v)
+          " > /tmp/skill-decl.txt
+          echo "SKILL.md frontmatter declarations (requires.env ∪ metadata.openclaw.config.{required,optional}Env):"
+          cat /tmp/skill-decl.txt
+          echo ""
+
           # Drift checks
           FAIL=0
           if ! diff -q /tmp/code-refs.txt /tmp/manifest-decl.txt >/dev/null; then
@@ -81,9 +112,14 @@ jobs:
             diff /tmp/code-refs.txt /tmp/readme-decl.txt || true
             FAIL=1
           fi
+          if ! diff -q /tmp/code-refs.txt /tmp/skill-decl.txt >/dev/null; then
+            echo "::error::AXONFLOW_* drift between shipped code and SKILL.md frontmatter:"
+            diff /tmp/code-refs.txt /tmp/skill-decl.txt || true
+            FAIL=1
+          fi
           if [ "$FAIL" -ne 0 ]; then
             echo ""
-            echo "::error::Resolution: every user-facing AXONFLOW_* referenced in src/ or bin/ must be declared in BOTH openclaw.plugin.json envVars AND README.md '## Environment variables' table. See feedback_plugin_manifest_envvars_hygiene.md."
+            echo "::error::Resolution: every user-facing AXONFLOW_* referenced in src/ or bin/ must be declared in ALL THREE: openclaw.plugin.json envVars, README.md '## Environment variables' table, AND SKILL.md frontmatter (requires.env + metadata.openclaw.config.optionalEnv). See feedback_plugin_manifest_envvars_hygiene.md."
             exit 1
           fi
-          echo "OK: code refs == manifest envVars == README table ($(wc -l < /tmp/code-refs.txt) entries)"
+          echo "OK: code refs == manifest envVars == README table == SKILL.md frontmatter ($(wc -l < /tmp/code-refs.txt) entries)"
