@@ -60,7 +60,7 @@ openclaw plugins install @axonflow/openclaw@latest
 
 We recommend the npm-spec form as the primary install path. npm is our source-of-truth registry; the `clawhub:@axonflow/openclaw` form also works.
 
-Requires OpenClaw **2026.4.15 or later** (CVE floor) and `@axonflow/openclaw` **2.3.0 or later** — the recommended stable floor for the v2.x line. Upgrade the CLI with `npm install -g openclaw@latest` and the plugin with `openclaw plugins install @axonflow/openclaw@latest`. Staying on the latest plugin patch is recommended — security and quality fixes ship monthly under the v2.x line.
+Requires OpenClaw **2026.4.15 or later** (CVE floor) and `@axonflow/openclaw` **2.3.3 or later** — the recommended stable floor for the v2.x line. Upgrade the CLI with `npm install -g openclaw@latest` and the plugin with `openclaw plugins install @axonflow/openclaw@latest`. Staying on the latest plugin patch is recommended — security and quality fixes ship monthly under the v2.x line.
 
 > **Note on the package name:** the npm package is `@axonflow/openclaw`, not `@axonflow/openclaw-plugin`. The repo name differs from the package name.
 
