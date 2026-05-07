@@ -2,59 +2,15 @@
 
 ## [Unreleased]
 
-### Added
+## [2.3.0] - 2026-05-07 — V1 Plugin Pro envelope + 5 new agent-callable Pro tools (cross-plugin parity)
 
-- **Four V1 Plugin Pro proxy tools** registered locally so OpenClaw
-  agents reach the same V1 Pro toolset that
-  `axonflow-claude-plugin` / `axonflow-cursor-plugin` /
-  `axonflow-codex-plugin` auto-discover from the agent's MCP server.
-  OpenClaw doesn't proxy `/api/v1/mcp-server` `tools/list`; closing
-  the gap by registering these as code-defined `AgentToolDef`s whose
-  `execute()` forwards to the agent via a single new
-  `AxonFlowClient.callMCPTool(name, args)` helper:
-  - `axonflow_request_approval` — Free 1/7d rolling, Pro unlimited.
-  - `axonflow_create_tenant_policy` — Free 2 active max, Pro unlimited.
-  - `axonflow_get_cost_estimate` — Pro-only; Free callers get the
-    locked V1 `feature_pro_only` envelope.
-  - `axonflow_list_pro_features` — Free + Pro, locked feature list
-    (5 differentiators + $9.99 / 90-day pricing).
-  Total agent-callable tools: 6 → 10.
-
-### Fixed
-
-- **`AxonFlowClient.handleEnvelope`** — pre-filter on
-  `status === 429 || status === 403` was dropping JSON-RPC-wrapped
-  envelope responses that come back over HTTP 200 with
-  `result.isError = true` (the path the agent's
-  `mcp_v1_pro_tools.go writeMCPGateError` uses). Removed the
-  pre-filter; `handleV1Envelope` already encodes the full status-vs-shape
-  decision and now sees all three envelope-bearing paths
-  (429 daily-quota, 403 graduated/Pro-only, 200 + JSON-RPC gate).
-  The 4 new proxy tools depend on the 200 path; without this fix,
-  Free callers got the envelope content as a generic `kind=ok` result
-  instead of a clean `kind=envelope` with the upgrade prompt
-  surfaced.
-
-### Internal
-
-- `runtime-e2e/v1_pro_proxy_tools/` — drives the compiled
-  `dist/agent-tools.js` + `dist/axonflow-client.js` against a real
-  registered tenant on `https://try.getaxonflow.com`. Asserts
-  end-to-end that `axonflow_list_pro_features` round-trips and
-  returns the locked V1 shape; `axonflow_get_cost_estimate` on a
-  Free tenant lands the `feature_pro_only` envelope with the locked
-  buy URL + logger wording + stamped throttle file; the subsequent
-  agent-tool `execute()` honours the throttle gate.
-- `tests/agent-tools.test.ts` + `tests/registration.test.ts` —
-  registry expectation 6 → 10.
-
-## [2.3.0] - 2026-05-07 — V1 Plugin Pro upgrade-prompt envelope + axonflow_get_tenant_id agent tool
-
-Companion plugin release to platform v7.7.0 + agent PRs #1966 / #1968.
-Surfaces the V1 Plugin Pro structured upgrade envelope to the operator
-and adds the `axonflow_get_tenant_id` agent-callable tool for cross-plugin
-parity (closing umbrella axonflow-enterprise#1958, sub-issue
-axonflow-enterprise#1965).
+Companion plugin release to AxonFlow agent v7.7.0. Surfaces the V1
+Plugin Pro structured upgrade envelope to the operator on Community
+SaaS rate-limit hits, and adds 5 new agent-callable Pro tools so
+OpenClaw agents reach the same V1 Pro toolset that the
+`axonflow-claude-plugin` / `axonflow-cursor-plugin` /
+`axonflow-codex-plugin` plugins auto-discover from the AxonFlow agent's
+MCP server. Total agent-callable tools: 5 → 10.
 
 ### Added
 
@@ -80,26 +36,68 @@ axonflow-enterprise#1965).
   server via auto-discovery; OpenClaw doesn't proxy that MCP server,
   so we register a local equivalent built from the same status surface
   `recover.sh status` exposes. Keeps cross-plugin behaviour consistent
-  for the "what's my tenant ID?" question. Total agent-callable tools:
-  6 (was 5).
+  for the "what's my tenant ID?" question.
+- **Four V1 Plugin Pro proxy tools** registered locally so OpenClaw
+  agents reach the same V1 Pro toolset that `axonflow-claude-plugin` /
+  `axonflow-cursor-plugin` / `axonflow-codex-plugin` auto-discover from
+  the agent's MCP server. OpenClaw doesn't proxy
+  `/api/v1/mcp-server` `tools/list`, so these are registered as
+  code-defined `AgentToolDef`s whose `execute()` forwards to the agent
+  via a single new `AxonFlowClient.callMCPTool(name, args)` helper:
+  - `axonflow_request_approval` — Free 1/7d rolling, Pro unlimited.
+  - `axonflow_create_tenant_policy` — Free 2 active max, Pro unlimited.
+  - `axonflow_get_cost_estimate` — Pro-only; Free callers get the
+    locked V1 `feature_pro_only` envelope.
+  - `axonflow_list_pro_features` — Free + Pro, locked feature list
+    (5 differentiators + $9.99 / 90-day pricing).
+
+  Total agent-callable tools: 5 → 10 (combining `axonflow_get_tenant_id`
+  above with these four).
 - **`clawhub/2.3.0/SKILL.md`** — frozen per-version skill record for the
-  v2.3.0 release. Documents the new `axonflow_get_tenant_id` tool
-  alongside the existing 5 agent-callable governance tools.
+  v2.3.0 release. Documents the new agent-callable tools alongside the
+  existing 5 governance tools.
+
+### Fixed
+
+- **`AxonFlowClient.handleEnvelope`** — pre-filter on
+  `status === 429 || status === 403` was dropping JSON-RPC-wrapped
+  envelope responses that come back over HTTP 200 with
+  `result.isError = true` (the path the agent's
+  `mcp_v1_pro_tools.go writeMCPGateError` uses). Removed the
+  pre-filter; `handleV1Envelope` already encodes the full
+  status-vs-shape decision and now sees all three envelope-bearing
+  paths (429 daily-quota, 403 graduated / Pro-only, 200 + JSON-RPC
+  gate). The 4 new proxy tools depend on the 200 path; without this
+  fix, Free callers got the envelope content as a generic `kind=ok`
+  result instead of a clean `kind=envelope` with the upgrade prompt
+  surfaced.
 
 ### Internal
 
-- Added `tests/upgrade-prompt.test.ts` — 26 unit assertions across
+- `tests/upgrade-prompt.test.ts` — 26 unit assertions across
   `detectEnvelope`, `retryAfterMs`, `resolveDeadlineMs`,
   `isThrottleActive`, `shouldShowPromptToday`, the full `handleEnvelope`
   state machine, and the `V1_LIMIT_TYPES` locked enumeration.
-- Added `runtime-e2e/v1_pro_envelope_surface/` per HARD RULE #0 — drives
-  the compiled `dist/upgrade-prompt.js` against a live 429 envelope
-  captured from `try.getaxonflow.com` via the canonical `db_helpers.sh`
-  ECS-exec seed pattern.
-- Updated `tests/agent-tools.test.ts` + `tests/registration.test.ts`
-  for the new tool count (5 → 6).
+- `runtime-e2e/v1_pro_envelope_surface/` — drives the compiled
+  `dist/upgrade-prompt.js` against a live 429 envelope captured from
+  a Free-tier tenant on `try.getaxonflow.com` past the 200/day cap.
+- `runtime-e2e/v1_pro_proxy_tools/` — drives the compiled
+  `dist/agent-tools.js` + `dist/axonflow-client.js` against a real
+  registered tenant on `https://try.getaxonflow.com`. Asserts
+  end-to-end that all 5 V1 Pro agent-callable tools dispatch
+  correctly: `axonflow_list_pro_features` returns the locked
+  5-differentiators shape; `axonflow_get_cost_estimate` on a Free
+  tenant lands the `feature_pro_only` envelope with the locked buy
+  URL + logger wording + stamped throttle file (and the subsequent
+  agent-tool `execute()` honours the throttle gate);
+  `axonflow_request_approval` and `axonflow_create_tenant_policy`
+  return non-empty `approval_id` / `policy_id` on first Free call,
+  with top-level `success: true` alongside `submitted: true` /
+  `created: true` on the response body.
+- `tests/agent-tools.test.ts` + `tests/registration.test.ts` —
+  updated for the new tool count (5 → 10).
 
-### Versions touched (per `feedback_openclaw_plugin_version_bump_surfaces.md`)
+### Versions touched
 
 - `package.json`: 2.2.0 → 2.3.0
 - `package-lock.json`: 2.2.0 → 2.3.0
