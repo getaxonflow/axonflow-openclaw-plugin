@@ -308,6 +308,11 @@ PRICE=$(jq -r '.list_pro_features.details.pricing.price_usd // empty' "$DRIVER_O
 if [ "$PRICE" != "9.99" ]; then
   fail "list_pro_features.pricing.price_usd = '$PRICE' (want 9.99)"
 fi
+# axonflow-enterprise#1989: top-level success:true on every non-paywall response.
+LIST_SUCCESS=$(jq -r '.list_pro_features.details.success // empty' "$DRIVER_OUT" 2>/dev/null)
+if [ "$LIST_SUCCESS" != "true" ]; then
+  fail "list_pro_features.details.success = '$LIST_SUCCESS' (want true; axonflow-enterprise#1989)"
+fi
 
 # Assertion 2: callMCPTool directly returned an envelope on the first
 # call (kind=envelope, with the locked V1 shape). This is the path the
@@ -375,6 +380,15 @@ RA_ID=$(jq -r '.request_approval_raw.result.approval_id // empty' "$DRIVER_OUT")
 if [ -z "$RA_ID" ] || [ "$RA_ID" = "null" ]; then
   fail "axonflow_request_approval response missing approval_id"
 fi
+# axonflow-enterprise#1989: success:true + submitted:true on the response body.
+RA_SUCCESS=$(jq -r '.request_approval_raw.result.success // empty' "$DRIVER_OUT")
+if [ "$RA_SUCCESS" != "true" ]; then
+  fail "request_approval_raw.result.success = '$RA_SUCCESS' (want true; axonflow-enterprise#1989)"
+fi
+RA_SUBMITTED=$(jq -r '.request_approval_raw.result.submitted // empty' "$DRIVER_OUT")
+if [ "$RA_SUBMITTED" != "true" ]; then
+  fail "request_approval_raw.result.submitted = '$RA_SUBMITTED' (want true; axonflow-enterprise#1989)"
+fi
 
 # Test 4: create_tenant_policy (Free tier 2 active max). First call
 # should succeed.
@@ -386,6 +400,15 @@ fi
 CP_ID=$(jq -r '.create_tenant_policy_raw.result.policy_id // empty' "$DRIVER_OUT")
 if [ -z "$CP_ID" ] || [ "$CP_ID" = "null" ]; then
   fail "axonflow_create_tenant_policy response missing policy_id"
+fi
+# axonflow-enterprise#1989: success:true + created:true on the response body.
+CP_SUCCESS=$(jq -r '.create_tenant_policy_raw.result.success // empty' "$DRIVER_OUT")
+if [ "$CP_SUCCESS" != "true" ]; then
+  fail "create_tenant_policy_raw.result.success = '$CP_SUCCESS' (want true; axonflow-enterprise#1989)"
+fi
+CP_CREATED=$(jq -r '.create_tenant_policy_raw.result.created // empty' "$DRIVER_OUT")
+if [ "$CP_CREATED" != "true" ]; then
+  fail "create_tenant_policy_raw.result.created = '$CP_CREATED' (want true; axonflow-enterprise#1989)"
 fi
 
 # Test 5: get_tenant_id (local tool, no MCP round-trip).

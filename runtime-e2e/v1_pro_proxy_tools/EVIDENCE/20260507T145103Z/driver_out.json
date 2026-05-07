@@ -3,7 +3,7 @@
     "content": [
       {
         "type": "text",
-        "text": "{\n  \"buy_url\": \"https://buy.stripe.com/bJe28qbztcdVchjdkw8k800\",\n  \"current_tier\": \"Free\",\n  \"differentiators\": [\n    {\n      \"capability\": \"Daily quota\",\n      \"free\": \"200 events/day\",\n      \"id\": \"daily_quota\",\n      \"pro\": \"2,000 events/day (10× Free)\"\n    },\n    {\n      \"capability\": \"Audit retention\",\n      \"free\": \"3 days\",\n      \"id\": \"audit_retention\",\n      \"pro\": \"30 days (10× Free)\"\n    },\n    {\n      \"capability\": \"Custom tenant policies\",\n      \"free\": \"2 active max\",\n      \"id\": \"active_policies\",\n      \"pro\": \"Unlimited\"\n    },\n    {\n      \"capability\": \"HITL approval gating\",\n      \"free\": \"1 per rolling 7 days\",\n      \"id\": \"hitl_approvals\",\n      \"pro\": \"Unlimited\"\n    },\n    {\n      \"capability\": \"LLM cost pre-flight\",\n      \"free\": \"Not available\",\n      \"id\": \"cost_preflight\",\n      \"pro\": \"Available\"\n    }\n  ],\n  \"pricing\": {\n    \"duration_days\": 90,\n    \"price_usd\": 9.99,\n    \"renewal\": \"one-time (re-purchase to extend; no auto-renewal)\"\n  },\n  \"tone\": \"Free validates the workflow. Pro removes the caps when AxonFlow becomes part of your real workflow.\",\n  \"upgrade_url\": \"https://getaxonflow.com/pricing/\"\n}"
+        "text": "{\n  \"buy_url\": \"https://buy.stripe.com/bJe28qbztcdVchjdkw8k800\",\n  \"current_tier\": \"Free\",\n  \"differentiators\": [\n    {\n      \"capability\": \"Daily quota\",\n      \"free\": \"200 events/day\",\n      \"id\": \"daily_quota\",\n      \"pro\": \"2,000 events/day (10× Free)\"\n    },\n    {\n      \"capability\": \"Audit retention\",\n      \"free\": \"3 days\",\n      \"id\": \"audit_retention\",\n      \"pro\": \"30 days (10× Free)\"\n    },\n    {\n      \"capability\": \"Custom tenant policies\",\n      \"free\": \"2 active max\",\n      \"id\": \"active_policies\",\n      \"pro\": \"Unlimited\"\n    },\n    {\n      \"capability\": \"HITL approval gating\",\n      \"free\": \"1 per rolling 7 days\",\n      \"id\": \"hitl_approvals\",\n      \"pro\": \"Unlimited\"\n    },\n    {\n      \"capability\": \"LLM cost pre-flight\",\n      \"free\": \"Not available\",\n      \"id\": \"cost_preflight\",\n      \"pro\": \"Available\"\n    }\n  ],\n  \"pricing\": {\n    \"duration_days\": 90,\n    \"price_usd\": 9.99,\n    \"renewal\": \"one-time (re-purchase to extend; no auto-renewal)\"\n  },\n  \"success\": true,\n  \"tone\": \"Free validates the workflow. Pro removes the caps when AxonFlow becomes part of your real workflow.\",\n  \"upgrade_url\": \"https://getaxonflow.com/pricing/\"\n}"
       }
     ],
     "details": {
@@ -46,6 +46,7 @@
         "price_usd": 9.99,
         "renewal": "one-time (re-purchase to extend; no auto-renewal)"
       },
+      "success": true,
       "tone": "Free validates the workflow. Pro removes the caps when AxonFlow becomes part of your real workflow.",
       "upgrade_url": "https://getaxonflow.com/pricing/"
     }
@@ -79,16 +80,19 @@
     },
     "isError": true
   },
-  "throttle_stamp_after_test2": "1778153206 feature_pro_only",
+  "throttle_stamp_after_test2": "1778165532 feature_pro_only",
   "request_approval_raw": {
     "kind": "ok",
     "result": {
-      "approval_id": "3",
-      "message": "Approval request created. The user must approve via the AxonFlow customer portal before the operation can proceed.",
+      "approval_id": "15",
+      "awaiting_review": true,
+      "message": "Approval request submitted successfully. A reviewer must approve this request via the AxonFlow customer portal before the operation can proceed.",
       "original_query": "delete production-east database — runtime-e2e probe",
       "request_type": "shell_command",
       "severity": "high",
-      "status": "pending"
+      "status": "pending",
+      "submitted": true,
+      "success": true
     }
   },
   "create_tenant_policy_raw": {
@@ -96,12 +100,14 @@
     "result": {
       "action": "block",
       "connector_type": "openclaw.Bash",
+      "created": true,
       "enabled": true,
-      "id": "e73e858a-1b9d-4f02-ab85-1598e82d9133",
-      "message": "Created tenant-scoped policy \"runtime-e2e-policy-1778153146707\". It will apply to subsequent governed calls.",
-      "name": "runtime-e2e-policy-1778153146707",
+      "id": "0469e4ad-0910-42aa-91c3-101ff193af19",
+      "message": "Successfully created tenant-scoped policy \"runtime-e2e-policy-1778165472941\". It will apply to subsequent governed calls.",
+      "name": "runtime-e2e-policy-1778165472941",
       "pattern": "rm -rf /",
-      "policy_id": "tenant-cs_4d6dab76--68bfa06e-1c30-4a7f-90ac-94357e27ced2"
+      "policy_id": "tenant-cs_bfe55bf1--1a8a93dc-e588-4f76-9903-8e8956764534",
+      "success": true
     }
   },
   "get_tenant_id": {
