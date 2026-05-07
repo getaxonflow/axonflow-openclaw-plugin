@@ -24,6 +24,18 @@
     "AXONFLOW_LICENSE_TOKEN": {
       "required": false,
       "description": "AxonFlow Pro plugin-claim license token (begins with 'AXON-'). When set, the plugin forwards this token on every governed request via the X-License-Token header so the agent applies Pro-tier entitlements (extended audit retention, higher quotas, license-gated capabilities). Wins over pluginConfig.licenseToken when both are set. Get one from getaxonflow.com/plugins/pro — the token is emailed to the address used at Stripe Checkout."
+    },
+    "AXONFLOW_ENDPOINT": {
+      "required": false,
+      "description": "Override the AxonFlow agent gateway endpoint. Wins over pluginConfig.endpoint when both are set. When unset and AXONFLOW_COMMUNITY_SAAS is not opted out, the plugin auto-bootstraps against https://try.getaxonflow.com. For self-hosted deployments, set this (or pluginConfig.endpoint) to your AxonFlow URL."
+    },
+    "AXONFLOW_RECOVERY_TIMEOUT_MS": {
+      "required": false,
+      "description": "Per-HTTP-request timeout in milliseconds for the axonflow-openclaw-recover CLI's calls to /api/v1/recover and /api/v1/recover/verify. Default: 10000 (10s). Increase for high-latency networks; decrease for fail-fast CI environments."
+    },
+    "AXONFLOW_UPGRADE_URL": {
+      "required": false,
+      "description": "Override the upgrade URL surfaced by axonflow-openclaw-status to free-tier users when reporting Pro-tier features. Defaults to https://getaxonflow.com/pricing/."
     }
   },
   "runtimeBehavior": {
