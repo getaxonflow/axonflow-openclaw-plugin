@@ -1,0 +1,89 @@
+name: manifest-envvars-coverage
+
+# Catch drift between AXONFLOW_* env vars referenced in shipped code/docs
+# and what's declared in the plugin manifest. Prevents the v2.3.0 → v2.3.1
+# incident where ship-time code referenced env vars not declared in
+# openclaw.plugin.json and ClawScan flagged the inconsistency.
+#
+# Three sources must stay in sync:
+#   1. AXONFLOW_* references in src/, bin/  (shipped runtime code)
+#   2. openclaw.plugin.json envVars block    (manifest declaration)
+#   3. README.md "## Environment variables" table  (user-facing prose)
+#
+# Internal-only vars (HARNESS_*, LOGS, OPENAPI_SPECS_DIR, CHECKPOINT_URL,
+# CLIENT_ID, CLIENT_SECRET) are excluded — these are SDK-side or test-only
+# and don't belong in the plugin manifest.
+#
+# Per `feedback_plugin_manifest_envvars_hygiene.md`.
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'bin/**'
+      - 'openclaw.plugin.json'
+      - 'README.md'
+      - '.github/workflows/manifest-envvars-coverage.yml'
+  push:
+    branches: [main]
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Compute three-way envVars coverage
+        run: |
+          set -euo pipefail
+
+          # 1) AXONFLOW_* refs in shipped code (src/ + bin/), excluding internals
+          grep -rhoE 'AXONFLOW_[A-Z_]+' src/ bin/ \
+            | sort -u \
+            | grep -vE '^AXONFLOW_HARNESS|^AXONFLOW_LOGS|^AXONFLOW_OPENAPI|^AXONFLOW_CHECKPOINT_URL|^AXONFLOW_CLIENT_(ID|SECRET)$' \
+            > /tmp/code-refs.txt
+          echo "Code references (src/ + bin/):"
+          cat /tmp/code-refs.txt
+          echo ""
+
+          # 2) openclaw.plugin.json envVars keys
+          python3 -c "import json; print('\n'.join(sorted(json.load(open('openclaw.plugin.json'))['envVars'].keys())))" \
+            > /tmp/manifest-decl.txt
+          echo "Manifest declarations (openclaw.plugin.json envVars):"
+          cat /tmp/manifest-decl.txt
+          echo ""
+
+          # 3) README.md "## Environment variables" section — extract every
+          # AXONFLOW_* mention from table rows under that heading.
+          # State-machine awk (vs range pattern) so the start heading
+          # itself doesn't terminate the section on /^## /.
+          awk '
+            $0 ~ /^## Environment variables/ { in_section = 1; next }
+            in_section && /^## / { exit }
+            in_section && /^\| `AXONFLOW_/ { print }
+          ' README.md \
+            | grep -oE 'AXONFLOW_[A-Z_]+' \
+            | sort -u \
+            > /tmp/readme-decl.txt
+          echo "README.md table declarations:"
+          cat /tmp/readme-decl.txt
+          echo ""
+
+          # Drift checks
+          FAIL=0
+          if ! diff -q /tmp/code-refs.txt /tmp/manifest-decl.txt >/dev/null; then
+            echo "::error::AXONFLOW_* drift between shipped code and openclaw.plugin.json envVars:"
+            diff /tmp/code-refs.txt /tmp/manifest-decl.txt || true
+            FAIL=1
+          fi
+          if ! diff -q /tmp/code-refs.txt /tmp/readme-decl.txt >/dev/null; then
+            echo "::error::AXONFLOW_* drift between shipped code and README.md env-vars table:"
+            diff /tmp/code-refs.txt /tmp/readme-decl.txt || true
+            FAIL=1
+          fi
+          if [ "$FAIL" -ne 0 ]; then
+            echo ""
+            echo "::error::Resolution: every user-facing AXONFLOW_* referenced in src/ or bin/ must be declared in BOTH openclaw.plugin.json envVars AND README.md '## Environment variables' table. See feedback_plugin_manifest_envvars_hygiene.md."
+            exit 1
+          fi
+          echo "OK: code refs == manifest envVars == README table ($(wc -l < /tmp/code-refs.txt) entries)"
