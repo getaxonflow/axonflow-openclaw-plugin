@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-05-07 — README env-vars completeness + cumulative-release-notes automation + manifest-envvars CI gate
+
+Patch release. No runtime behaviour change. Three durable improvements landing in lockstep:
+
+### Fixed
+
+- **`README.md` `## Environment variables` section now declares every `AXONFLOW_*` env var the plugin recognizes.** Promoted from `###` (sub-section under "Where your data goes") to `##` for top-level prominence; added the same three entries v2.3.1 added to `openclaw.plugin.json` envVars but missed in the README:
+  - `AXONFLOW_ENDPOINT`
+  - `AXONFLOW_RECOVERY_TIMEOUT_MS`
+  - `AXONFLOW_UPGRADE_URL`
+
+  README.md is the prose ClawScan reads for the plugin's ClawHub listing (in `package.json` `files` allowlist + not in `.clawhubignore`); v2.3.1's manifest-only fix didn't reach this surface because ClawHub's stored `capabilities` block has no envVars schema slot to index `openclaw.plugin.json` envVars from. README.md is the actual user-and-reviewer-visible declaration.
+
+### Added
+
+- **`.github/workflows/manifest-envvars-coverage.yml`**: new CI gate enforcing three-way coverage between (1) `AXONFLOW_*` references in `src/` + `bin/`, (2) `openclaw.plugin.json` envVars keys, (3) `README.md` `## Environment variables` table entries. Runs on every PR touching those paths and on main pushes; fails fast on drift. Internal-only vars (`AXONFLOW_HARNESS*`, `AXONFLOW_LOGS`, `AXONFLOW_OPENAPI*`, `AXONFLOW_CHECKPOINT_URL`, `AXONFLOW_CLIENT_*`) excluded from the check — these are SDK-side or test-only and don't belong in the plugin manifest.
+
+- **`.github/workflows/publish.yml` preflight cumulative-notes rule**: when releasing a patch (Z>0) within 24h of the parent feature minor (X.Y.0), the preflight automatically appends the parent minor's CHANGELOG section to the GH release body. Closes the v2.3.1 regression where the most-clicked discovery surface (latest-tag landing page) hid the v2.3.0 V1 Plugin Pro feature work behind a hygiene-only patch summary. Same-day patches now ship cumulative release notes by default; >24h patches keep their narrow scope. CHANGELOG.md remains semver-organized (each version its own `## [X.Y.Z]` section).
+
 ## [2.3.1] - 2026-05-07 — Manifest envVars completeness + test-script field-name hygiene
 
 Patch release on top of 2.3.0. No runtime behaviour change. Two surfaces tightened:

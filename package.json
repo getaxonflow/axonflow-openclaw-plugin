@@ -1,6 +1,6 @@
 {
   "name": "@axonflow/openclaw",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Policy enforcement, approval gates, and audit trails for OpenClaw — govern tool inputs before execution, scan outbound messages for PII/secrets, and record agent activity for review and compliance",
   "type": "module",
   "main": "dist/index.js",

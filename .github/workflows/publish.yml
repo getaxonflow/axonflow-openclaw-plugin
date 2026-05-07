@@ -52,6 +52,16 @@ jobs:
       # itself (`next`), and exits at the next version header. If no
       # matching section exists (someone tagged without a CHANGELOG entry),
       # the step fails loudly BEFORE any publish job runs.
+      #
+      # Cumulative-notes rule: when the release is a patch (Z>0) AND the
+      # parent minor (X.Y.0) was tagged within the last 24h, append the
+      # parent minor's CHANGELOG section to the release body. Reason: the
+      # latest-tag GH release page is the most-clicked discovery surface;
+      # if a same-day patch ships on top of a feature minor and the patch
+      # body only lists hygiene fixes, the actual feature story is hidden
+      # in the previous tag's release page. Per
+      # `feedback_patch_release_notes_cumulative.md` after the v2.3.0/v2.3.1
+      # incident on 2026-05-07.
       - name: Extract CHANGELOG section
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
@@ -82,6 +92,34 @@ jobs:
             echo ""
             cat /tmp/release-body.md
           } > /tmp/release-body-final.md
+
+          # Cumulative parent-minor section if patch <24h after parent.
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+          if [ "$PATCH" != "0" ]; then
+            MAJOR=$(echo "$VERSION" | cut -d. -f1)
+            MINOR=$(echo "$VERSION" | cut -d. -f2)
+            PARENT="${MAJOR}.${MINOR}.0"
+            # Fetch parent tag explicitly (workflow checkout is shallow).
+            git fetch --depth=1 origin "refs/tags/v${PARENT}:refs/tags/v${PARENT}" 2>/dev/null || true
+            PARENT_TIME=$(git log -1 --format=%ct "v${PARENT}" 2>/dev/null || echo 0)
+            if [ "$PARENT_TIME" -gt 0 ]; then
+              NOW=$(date +%s)
+              HOURS=$(( (NOW - PARENT_TIME) / 3600 ))
+              if [ "$HOURS" -lt 24 ]; then
+                echo "Cumulative-notes: appending v${PARENT} CHANGELOG section (${HOURS}h ago)"
+                {
+                  echo ""
+                  echo "---"
+                  echo ""
+                  echo "## v${PARENT} — feature release (carried forward, ${HOURS}h ago)"
+                  echo ""
+                  awk -v ver="$PARENT" '$0 ~ "^## \\["ver"\\]" {p=1; next} p && /^## \[/ {exit} p {print}' CHANGELOG.md
+                } >> /tmp/release-body-final.md
+              else
+                echo "Cumulative-notes: parent v${PARENT} is ${HOURS}h old (>=24h), not appending"
+              fi
+            fi
+          fi
           echo "Release body: $(wc -l < /tmp/release-body-final.md) lines"
 
       - name: Upload release body artifact

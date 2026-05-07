@@ -78,15 +78,22 @@ export AXONFLOW_TELEMETRY=off      # disable 7-day heartbeat
 
 …and configure `pluginConfig.endpoint` to a self-hosted AxonFlow on the same network. With these set, no traffic leaves your environment.
 
-### Environment variables (optional)
+## Environment variables
+
+The plugin recognizes the following environment variables. All are optional with safe defaults; the plugin runs unmodified if none are set.
 
 | Variable | Effect |
 |---|---|
+| `AXONFLOW_ENDPOINT` | Override the AxonFlow agent gateway endpoint. Wins over `pluginConfig.endpoint` when both are set. When unset and `AXONFLOW_COMMUNITY_SAAS` is not opted out, the plugin auto-bootstraps against `https://try.getaxonflow.com`. For self-hosted deployments, set this (or `pluginConfig.endpoint`) to your AxonFlow URL. |
 | `AXONFLOW_TELEMETRY=off` | Disables the 7-day anonymous heartbeat to `checkpoint.getaxonflow.com`. Accepted off-values: `off`, `0`, `false`, `no`. |
-| `AXONFLOW_COMMUNITY_SAAS=0` | Disables auto-registration with `try.getaxonflow.com`. You must then set `pluginConfig.endpoint` for the plugin to enforce policy. Accepted off-values: `0`, `false`, `off`, `no`. |
+| `AXONFLOW_COMMUNITY_SAAS=0` | Disables auto-registration with `try.getaxonflow.com`. You must then set `pluginConfig.endpoint` (or `AXONFLOW_ENDPOINT`) for the plugin to enforce policy. Accepted off-values: `0`, `false`, `off`, `no`. |
 | `AXONFLOW_CACHE_DIR` | Overrides the per-user cache dir (telemetry stamp, rate-limit backoff). Defaults to `$XDG_CACHE_HOME/axonflow` (Linux), `~/Library/Caches/axonflow` (macOS), `%LOCALAPPDATA%\axonflow` (Windows). |
-| `AXONFLOW_CONFIG_DIR` | Overrides the per-user config dir (Community-SaaS registration file, disclosure stamp). Defaults to OS conventions. |
+| `AXONFLOW_CONFIG_DIR` | Overrides the per-user config dir (Community-SaaS registration file, disclosure stamp). Defaults to OS conventions: `$XDG_CONFIG_HOME/axonflow` (Linux), `~/Library/Application Support/axonflow` (macOS), `%APPDATA%\axonflow` (Windows). |
 | `AXONFLOW_LICENSE_TOKEN` | AxonFlow Pro plugin-claim license token (begins with `AXON-`). Forwarded on every governed request via the `X-License-Token` header so the agent applies Pro-tier entitlements. Wins over `pluginConfig.licenseToken`. |
+| `AXONFLOW_RECOVERY_TIMEOUT_MS` | Per-HTTP-request timeout in milliseconds for the bundled `axonflow-openclaw-recover` CLI's calls to `/api/v1/recover` and `/api/v1/recover/verify`. Default `10000` (10s). Increase for high-latency networks; decrease for fail-fast CI environments. |
+| `AXONFLOW_UPGRADE_URL` | Overrides the upgrade URL surfaced by the bundled `axonflow-openclaw-status` CLI to free-tier users. Defaults to `https://getaxonflow.com/pricing/`. |
+
+The same set is the authoritative declaration in [`openclaw.plugin.json`](openclaw.plugin.json) `envVars` block — both surfaces ship in the published artifact and stay in lockstep via the [`manifest-envvars-coverage`](.github/workflows/manifest-envvars-coverage.yml) CI gate.
 
 ## Activate Pro tier
 
