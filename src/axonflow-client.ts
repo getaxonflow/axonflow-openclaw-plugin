@@ -947,6 +947,89 @@ export class AxonFlowClient {
   }
 
   /**
+   * V1.1 decision-list (issue #1982). Surfaces the caller's recent decisions
+   * — companion to `explainDecision` for "what just got blocked" UX, appeal
+   * flows, and forensic decision-history tracing.
+   *
+   * Three-way result so callers can render the right UX without inspecting
+   * status codes:
+   *   - { kind: "ok", decisions }            — 200, decisions array (possibly empty)
+   *   - { kind: "envelope", envelope, ... }  — 429 with V1 upgrade envelope (Free cap-hit)
+   *   - throws AxonFlowHttpError             — any other non-2xx (auth, 5xx)
+   *   - throws underlying Error              — network/timeout
+   *
+   * The 429-envelope path is the critical Pro-conversion surface per
+   * feedback_429_no_upgrade_hint_is_conversion_gap.md — when the Free user
+   * exceeds their tier's page cap, the upgrade wording + buy URL must be
+   * surfaced to the host. We also stamp the throttle-gate file so the
+   * caller's next governed call can short-circuit instead of round-tripping.
+   */
+  async listRecentDecisionsStrict(
+    options?: {
+      since?: string;
+      decision?: "allow" | "deny" | "require_approval";
+      policyId?: string;
+      toolSignature?: string;
+      limit?: number;
+    },
+  ): Promise<
+    | { kind: "ok"; decisions: Array<Record<string, unknown>> }
+    | { kind: "envelope"; envelope: V1RateLimitEnvelope }
+  > {
+    const params = new URLSearchParams();
+    if (options?.since) params.set("since", options.since);
+    if (options?.decision) params.set("decision", options.decision);
+    if (options?.policyId) params.set("policy_id", options.policyId);
+    if (options?.toolSignature) params.set("tool_signature", options.toolSignature);
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    const qs = params.toString();
+    const url = `${this.endpoint}/api/v1/decisions${qs ? "?" + qs : ""}`;
+
+    const response = await this.fetchWithTimeout(url, {
+      method: "GET",
+      headers: this.baseHeaders(),
+    });
+
+    if (response.status === 429) {
+      // Detect the V1 envelope via the class helper, which stamps the
+      // throttle file + surfaces the upgrade wording (gated by once-per-day).
+      let body: unknown = null;
+      try {
+        body = await response.json();
+      } catch {
+        body = null;
+      }
+      const envelope = this.handleEnvelope(response.status, body, response);
+      if (envelope) {
+        return { kind: "envelope", envelope };
+      }
+      // Bare 429 without recognized envelope — treat as transport error so
+      // the caller doesn't silently see "no decisions."
+      throw new AxonFlowHttpError(
+        429,
+        "Too Many Requests",
+        { error: typeof body === "string" ? body : JSON.stringify(body) },
+        "list recent decisions",
+      );
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: text },
+        "list recent decisions",
+      );
+    }
+    const data = (await response.json()) as { decisions?: Array<Record<string, unknown>> };
+    return {
+      kind: "ok",
+      decisions: Array.isArray(data.decisions) ? data.decisions : [],
+    };
+  }
+
+  /**
    * Generic MCP tool-call proxy — POST `tools/call` to the agent's MCP
    * server and return the parsed result. Used by the four V1 Plugin Pro
    * proxy tools (axonflow_request_approval, axonflow_create_tenant_policy,

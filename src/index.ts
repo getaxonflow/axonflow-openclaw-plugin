@@ -54,6 +54,7 @@ export {
   buildAgentTools,
   buildAuditSearchTool,
   buildExplainDecisionTool,
+  buildListRecentDecisionsTool,
   buildListOverridesTool,
   buildCreateOverrideTool,
   buildRevokeOverrideTool,

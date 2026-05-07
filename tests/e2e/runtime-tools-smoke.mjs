@@ -86,12 +86,24 @@ const api = {
 
 registerAxonFlowGovernance(api);
 
+// Full registered-tool surface: W2 governance (5 tools, since v2.0) +
+// V1 Plugin Pro proxy tools (5 tools, since v2.2 / umbrella #1958) +
+// V1.1 decision-list (1 tool, since v2.4 / #1982) = 11. Pre-existing
+// bug fix: this list was stale at 5 since the V1 Pro tools landed —
+// the count assertion below was failing for the wrong reason. Bringing
+// the smoke test back into alignment as part of #1982.
 const expectedNames = [
   'axonflow_audit_search',
   'axonflow_explain_decision',
+  'axonflow_list_recent_decisions',
   'axonflow_list_overrides',
   'axonflow_create_override',
   'axonflow_revoke_override',
+  'axonflow_get_tenant_id',
+  'axonflow_request_approval',
+  'axonflow_create_tenant_policy',
+  'axonflow_get_cost_estimate',
+  'axonflow_list_pro_features',
 ];
 
 let errors = 0;
@@ -187,7 +199,7 @@ console.log('--- 4/5 axonflow_explain_decision (validation) ---');
 }
 
 // 5) revoke_override — empty override_id → client-side rejection
-console.log('--- 5/5 axonflow_revoke_override (validation) ---');
+console.log('--- 5/6 axonflow_revoke_override (validation) ---');
 {
   const r = await exec('axonflow_revoke_override', {});
   if (!r.isError || !r.content[0]?.text.includes('override_id is required')) {
@@ -198,9 +210,32 @@ console.log('--- 5/5 axonflow_revoke_override (validation) ---');
   }
 }
 
+// 6) list_recent_decisions (V1.1, #1982) — happy path against the live
+// stack should return a decisions array. Empty is fine on a fresh DB.
+console.log('--- 6/6 axonflow_list_recent_decisions ---');
+{
+  const r = await exec('axonflow_list_recent_decisions', { limit: 5 });
+  if (r.isError) {
+    console.error('FAIL: list_recent_decisions returned isError:', r.content[0]?.text);
+    scenarioErrors++;
+  } else {
+    const d = r.details;
+    // Two valid shapes: { decisions: [...] } on happy path or
+    // { upgrade_required: true, envelope } on Free cap-hit.
+    if (Array.isArray(d?.decisions)) {
+      console.log(`PASS: list_recent_decisions returned ${d.decisions.length} decisions`);
+    } else if (d?.upgrade_required === true && d?.envelope?.limit_type === 'decision_list_size') {
+      console.log('PASS: list_recent_decisions hit Free cap, surfaced V1 upgrade envelope');
+    } else {
+      console.error('FAIL: list_recent_decisions returned unexpected shape:', JSON.stringify(d));
+      scenarioErrors++;
+    }
+  }
+}
+
 if (scenarioErrors > 0) {
   console.error(`FAIL: ${scenarioErrors} tool scenarios failed`);
   process.exit(1);
 }
 
-console.log('PASS: runtime-tools-smoke — all 5 tools registered and dispatch correctly');
+console.log('PASS: runtime-tools-smoke — all 6 tools registered and dispatch correctly');

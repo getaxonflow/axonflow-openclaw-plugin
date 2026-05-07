@@ -395,10 +395,16 @@ describe("upgrade-prompt", () => {
   });
 
   describe("V1_LIMIT_TYPES locked enumeration", () => {
-    it("includes the four V1 limit types and only those", () => {
+    it("includes the four V1 limit types plus the V1.1 decision_list_size addition", () => {
+      // V1.1 (#1982) extends the original V1 set with decision_list_size
+      // for the GET /api/v1/decisions cap-hit path. Adding to this list
+      // is a coordinated cross-surface change with the platform's
+      // limitTypeDecisionListSize constant in
+      // platform/orchestrator/decisions_list_handler.go — keep in sync.
       expect([...V1_LIMIT_TYPES].sort()).toEqual([
         "active_policies",
         "daily_quota",
+        "decision_list_size",
         "feature_pro_only",
         "hitl_approvals_window",
       ]);

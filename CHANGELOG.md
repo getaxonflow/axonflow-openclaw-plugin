@@ -18,6 +18,11 @@ Patch release. No runtime behaviour change. Single substantive improvement: arti
 
   Path forward: the actual fix is upstream in ClawHub (analog of openclaw/clawhub#350 for skills, but for code-plugin `capabilities.envVars`). Until that ships, the "Review" verdict on the Credentials dimension is acceptable — plugin remains installable; reviewer text is balanced ("These variables are related to AxonFlow, not unrelated services"). Static Analysis verdict stays Benign; ClawPack format moves the visible badge.
 
+### Added
+
+- **`axonflow_list_recent_decisions` agent tool** — V1.1 (#1982) companion to `axonflow_explain_decision`. Surfaces the caller's recent governance decisions (5-field summary per row) so OpenClaw agents can drive "what just got blocked" UX, appeal flows, and forensic decision-history tracing without leaving the tool surface. Tier-throttled per the platform's Free/Pro window+limit; Free callers exceeding the page cap see the V1 upgrade envelope rendered to the host (locking in `feedback_429_no_upgrade_hint_is_conversion_gap.md`). Total agent-callable tools: 10 → 11.
+- `decision_list_size` added to the `V1_LIMIT_TYPES` enumeration in `upgrade-prompt.ts`. Required for `handleEnvelope` to recognize the new V1.1 limit type and stamp the throttle gate.
+
 ## [2.3.2] - 2026-05-07 — README env-vars completeness + cumulative-release-notes automation + manifest-envvars CI gate
 
 Patch release. No runtime behaviour change. Three durable improvements landing in lockstep:
