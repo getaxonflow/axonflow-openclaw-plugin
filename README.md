@@ -88,7 +88,7 @@ export AXONFLOW_TELEMETRY=off      # disable 7-day heartbeat
 | `AXONFLOW_CONFIG_DIR` | Overrides the per-user config dir (Community-SaaS registration file, disclosure stamp). Defaults to OS conventions. |
 | `AXONFLOW_LICENSE_TOKEN` | AxonFlow Pro plugin-claim license token (begins with `AXON-`). Forwarded on every governed request via the `X-License-Token` header so the agent applies Pro-tier entitlements. Wins over `pluginConfig.licenseToken`. |
 
-### Activate Pro tier
+## Activate Pro tier
 
 Plugin Pro is the paid tier on top of free Community SaaS. The Free baseline supports 3-day audit retention, 200 governed events / day, 2 active custom policies, and 1 HITL approval per rolling 7d. Pro extends that to **30-day retention**, **2,000 events / day**, **unlimited active custom policies**, **unlimited HITL approvals**, and adds the **LLM cost pre-flight** tool (estimate token cost for a multi-step plan before it runs). 90-day window, **$9.99 USD** one-time payment, no auto-renewal, 14-day no-questions refund. See [getaxonflow.com/pricing/](https://getaxonflow.com/pricing/) for the full breakdown and the Stripe buy button.
 
