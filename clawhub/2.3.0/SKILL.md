@@ -159,7 +159,7 @@ The CLI posts the email to `/api/v1/recover` (the platform always returns 202 â€
 
 | Variable | Effect |
 |---|---|
-| `AXONFLOW_TELEMETRY=off` | Disables the 7-day anonymous heartbeat to `checkpoint.getaxonflow.com`. Accepted off-values: `off`, `0`, `false`, `no`. |
+| `AXONFLOW_TELEMETRY=off` | Disables the 7-day anonymous heartbeat to `checkpoint.getaxonflow.com`. Accepted off-values: `off`, `0`, `false`, `no`. **Scope:** the heartbeat opt-out is meaningful on self-hosted / in-VPC deployments where the heartbeat is the only data the plugin sends. On Community SaaS (`try.getaxonflow.com`) the hosted service also processes operational data (registrations, audit logs, policy enforcement records, workflow state, plan data, request-header metadata aggregated for usage analytics) as part of running the platform; that flow is governed by the [Privacy Policy](https://getaxonflow.com/privacy/), not by this env var. |
 | `AXONFLOW_COMMUNITY_SAAS=0` | Disables auto-registration with `try.getaxonflow.com`. You must then set `pluginConfig.endpoint` for the plugin to enforce policy. Accepted off-values: `0`, `false`, `off`, `no`. |
 | `AXONFLOW_CACHE_DIR` | Overrides the per-user cache directory used for telemetry stamps and rate-limit backoffs. Defaults to OS conventions: `$XDG_CACHE_HOME/axonflow` on Linux, `~/Library/Caches/axonflow` on macOS, `%LOCALAPPDATA%\axonflow` on Windows. |
 | `AXONFLOW_CONFIG_DIR` | Overrides the per-user config directory used for the Community-SaaS registration file (mode `0600`). Defaults to OS conventions: `$XDG_CONFIG_HOME/axonflow` on Linux, `~/Library/Application Support/axonflow` on macOS, `%APPDATA%\axonflow` on Windows. |
