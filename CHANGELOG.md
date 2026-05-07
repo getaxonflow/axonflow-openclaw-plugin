@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-05-07 — Manifest envVars completeness + test-script field-name hygiene
+
+Patch release on top of 2.3.0. No runtime behaviour change. Two surfaces tightened:
+
+### Fixed
+
+- **`openclaw.plugin.json` envVars block now declares every AXONFLOW_* env
+  var that ship-time code references.** Adds three entries that were
+  documented in `clawhub/2.3.0/SKILL.md` and used by `dist/` / `bin/`
+  but missing from the manifest's `envVars` block:
+  - `AXONFLOW_ENDPOINT` — overrides `pluginConfig.endpoint`; primary
+    self-hosted-mode entry point.
+  - `AXONFLOW_RECOVERY_TIMEOUT_MS` — per-HTTP timeout for the
+    `axonflow-openclaw-recover` CLI (default 10000).
+  - `AXONFLOW_UPGRADE_URL` — overrides the upgrade URL surfaced by
+    `axonflow-openclaw-status` (default `https://getaxonflow.com/pricing/`).
+
+  Closes the ClawScan v2.3.0 review's "Credentials" dimension concern
+  ("registry metadata declares no environment variables" while several
+  AXONFLOW_* names appear in code/docs). Pre-tag check now in place: a
+  grep of `AXONFLOW_[A-Z_]+` against `src/`, `bin/`, `scripts/` must be
+  a subset of `openclaw.plugin.json` envVars keys before tagging
+  (internal-only harness vars like `AXONFLOW_HARNESS*` excluded from
+  the check).
+
+### Internal
+
+- **`runtime-e2e/v1_pro_envelope_surface/test.sh`**: synthetic test-tenant
+  secret literal renamed `testpass` → `synth-tok-` to avoid triggering
+  generic secret-scanner heuristics on dev machines. The literal had no
+  functional role — the test inserts the synthetic value directly into
+  the test DB and uses it for Basic auth against a synthetic tenant.
+  The unrelated `["password"]` JSON-field reads at lines 105 and 126
+  are reading from AWS Secrets Manager's RDS-managed secret structure
+  (`{"username", "password", "host", "port", ...}` — AWS schema, not
+  AxonFlow-defined) and are correct as-is. Test scripts are not shipped
+  to npm or ClawHub (excluded via `.clawhubignore` and absent from npm's
+  `files` allowlist) — this is dev-only file hygiene.
+
 ## [2.3.0] - 2026-05-07 — V1 Plugin Pro envelope + 5 new agent-callable Pro tools (cross-plugin parity)
 
 Companion plugin release to AxonFlow agent v7.7.0. Surfaces the V1

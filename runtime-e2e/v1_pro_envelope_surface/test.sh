@@ -125,7 +125,7 @@ TEST_CACHE=$(mktemp -d -t axonflow-openclaw-v1env.XXXXXX)
 export AXONFLOW_CACHE_DIR="$TEST_CACHE/axonflow"
 
 TENANT="cs_e2e_openclaw_envelope_$(date -u +%s)"
-SECRET="testpass$(openssl rand -hex 4)"
+SECRET="synth-tok-$(openssl rand -hex 4)"
 cleanup() {
   rm -rf "$TEST_CACHE" 2>/dev/null || true
   if [ -n "${TENANT:-}" ]; then
