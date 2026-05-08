@@ -1,0 +1,6 @@
+PASS: MCP session initialized (axonflow-e8d8a91a00596c14522b7912)
+PASS: MCP server advertises list_recent_decisions
+PASS: tools/call list_recent_decisions returned a recognized shape
+PASS: cap-hit returned wrapped V1 envelope (upgrade_required + decision_list_size + buy_url)
+
+PASS: list_recent_decisions runtime — MCP server advertises tool, happy path returns decisions, cap-hit preserves V1 upgrade envelope

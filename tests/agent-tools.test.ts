@@ -12,12 +12,14 @@ import {
   buildAgentTools,
   buildAuditSearchTool,
   buildExplainDecisionTool,
+  buildListRecentDecisionsTool,
   buildListOverridesTool,
   buildCreateOverrideTool,
   buildRevokeOverrideTool,
 } from "../src/agent-tools.js";
 import { AxonFlowClient, AxonFlowHttpError } from "../src/axonflow-client.js";
 import type { ClientRef } from "../src/client-ref.js";
+import type { V1RateLimitEnvelope } from "../src/upgrade-prompt.js";
 
 function makeClientRef(): ClientRef {
   // Use a real client only for type compatibility — every method is
@@ -32,10 +34,10 @@ function makeClientRef(): ClientRef {
 }
 
 describe("agent-tools — buildAgentTools", () => {
-  it("returns 10 tools with axonflow_ prefixed names (5 W2 governance + V1 Pro proxies)", () => {
+  it("returns 11 tools with axonflow_ prefixed names (W2 governance + V1.1 list + V1 Pro proxies)", () => {
     const ref = makeClientRef();
     const tools = buildAgentTools(ref);
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(11);
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       "axonflow_audit_search",
@@ -46,6 +48,7 @@ describe("agent-tools — buildAgentTools", () => {
       "axonflow_get_tenant_id",
       "axonflow_list_overrides",
       "axonflow_list_pro_features",
+      "axonflow_list_recent_decisions",
       "axonflow_request_approval",
       "axonflow_revoke_override",
     ]);
@@ -212,6 +215,107 @@ describe("axonflow_explain_decision", () => {
     const result = await tool.execute("call-1", { decision_id: "dec-42" });
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("ECONNREFUSED");
+  });
+});
+
+describe("axonflow_list_recent_decisions", () => {
+  it("forwards mapped args to client.listRecentDecisionsStrict", async () => {
+    const ref = makeClientRef();
+    const spy = jest
+      .spyOn(ref.current, "listRecentDecisionsStrict")
+      .mockResolvedValue({
+        kind: "ok",
+        decisions: [
+          {
+            decision_id: "dec-1",
+            timestamp: "2026-05-07T12:00:00Z",
+            decision: "deny",
+            policy_id: "pol-sqli",
+            tool_signature: "postgres.query",
+          },
+        ],
+      });
+
+    const tool = buildListRecentDecisionsTool(ref);
+    const result = await tool.execute("call-1", {
+      since: "2026-05-01T00:00:00Z",
+      decision: "deny",
+      policy_id: "pol-sqli",
+      tool_signature: "postgres.query",
+      limit: 25,
+    });
+
+    expect(spy).toHaveBeenCalledWith({
+      since: "2026-05-01T00:00:00Z",
+      decision: "deny",
+      policyId: "pol-sqli",
+      toolSignature: "postgres.query",
+      limit: 25,
+    });
+    expect(result.isError).toBeUndefined();
+    const details = result.details as { decisions: unknown[] };
+    expect(details.decisions).toHaveLength(1);
+  });
+
+  it("rejects unknown decision filter with structured error", async () => {
+    const ref = makeClientRef();
+    const tool = buildListRecentDecisionsTool(ref);
+    const result = await tool.execute("call-1", { decision: "maybe" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toMatch(/decision must be allow\|deny\|require_approval/);
+  });
+
+  it("surfaces V1 upgrade envelope on Free cap-hit (429) — Pro conversion gap regression test", async () => {
+    // Locks in feedback_429_no_upgrade_hint_is_conversion_gap.md: when
+    // the platform returns 429 with the V1 envelope, the tool MUST
+    // pass the upgrade.compare_url + buy_url + wording back to the
+    // host LLM/UI, not collapse it into a generic "Error: ..." string.
+    const ref = makeClientRef();
+    const envelope: V1RateLimitEnvelope = {
+      error: "Free tier shows the last 5 decisions in 24h. Pro raises this to 100 decisions in the last 30 days.",
+      limit_type: "decision_list_size",
+      tier: "Free",
+      limit: 5,
+      remaining: 0,
+      upgrade: {
+        tier: "Pro",
+        wording: "Free tier shows the last 5 decisions in 24h. Pro raises this to 100 decisions in the last 30 days.",
+        compare_url: "https://getaxonflow.com/pricing/",
+        buy_url: "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
+      },
+    };
+    jest.spyOn(ref.current, "listRecentDecisionsStrict").mockResolvedValue({
+      kind: "envelope",
+      envelope,
+    });
+
+    const tool = buildListRecentDecisionsTool(ref);
+    const result = await tool.execute("call-1", { limit: 10 });
+
+    // Not isError — the host should render the upgrade prompt as a
+    // structured result, not as a tool failure.
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]?.text).toContain("Pro raises this to 100");
+    expect(result.content[0]?.text).toContain("https://buy.stripe.com/");
+    const details = result.details as {
+      upgrade_required: boolean;
+      envelope: V1RateLimitEnvelope;
+    };
+    expect(details.upgrade_required).toBe(true);
+    expect(details.envelope.upgrade.compare_url).toBe("https://getaxonflow.com/pricing/");
+    expect(details.envelope.upgrade.buy_url).toBe("https://buy.stripe.com/bJe28qbztcdVchjdkw8k800");
+    expect(details.envelope.limit_type).toBe("decision_list_size");
+  });
+
+  it("returns isError on transport failure (non-429 non-2xx)", async () => {
+    const ref = makeClientRef();
+    jest.spyOn(ref.current, "listRecentDecisionsStrict").mockRejectedValue(
+      new AxonFlowHttpError(500, "Internal Server Error", { error: "boom" }, "list recent decisions"),
+    );
+    const tool = buildListRecentDecisionsTool(ref);
+    const result = await tool.execute("call-1", {});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("HTTP 500");
   });
 });
 

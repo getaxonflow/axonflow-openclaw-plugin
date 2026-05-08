@@ -47,12 +47,17 @@ import * as path from "path";
 import { axonflowCacheDir } from "./cache-dir.js";
 
 /** Locked V1 limit-type identifiers (mirror of LimitType* constants in
- * platform/agent/community_saas_ratelimit_response.go). */
+ * platform/agent/community_saas_ratelimit_response.go AND the V1.1
+ * limitTypeDecisionListSize in platform/orchestrator/decisions_list_handler.go).
+ * Adding a value here is required for `handleEnvelope` to recognize that
+ * limit_type — unrecognized types short-circuit the throttle gate and the
+ * upgrade wording is silently dropped. */
 export const V1_LIMIT_TYPES = [
   "daily_quota",
   "active_policies",
   "hitl_approvals_window",
   "feature_pro_only",
+  "decision_list_size",
 ] as const;
 
 export type V1LimitType = typeof V1_LIMIT_TYPES[number];

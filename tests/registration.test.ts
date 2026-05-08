@@ -115,7 +115,7 @@ describe("registerAxonFlowGovernance", () => {
 
     registerAxonFlowGovernance(api);
 
-    expect(api.registerTool).toHaveBeenCalledTimes(10);
+    expect(api.registerTool).toHaveBeenCalledTimes(11);
     expect(registered.map((t) => t.name).sort()).toEqual([
       "axonflow_audit_search",
       "axonflow_create_override",
@@ -125,11 +125,12 @@ describe("registerAxonFlowGovernance", () => {
       "axonflow_get_tenant_id",
       "axonflow_list_overrides",
       "axonflow_list_pro_features",
+      "axonflow_list_recent_decisions",
       "axonflow_request_approval",
       "axonflow_revoke_override",
     ]);
     expect(logger.info).toHaveBeenCalledWith(
-      "[AxonFlow] Registered 10 agent-callable tools",
+      "[AxonFlow] Registered 11 agent-callable tools",
     );
   });
 

@@ -49,8 +49,13 @@ openclaw_install_local_plugin() {
 
   local install_out
   install_out=$(cd "$plugin_dir" && openclaw plugins install --force --dangerously-force-unsafe-install . 2>&1)
-  if ! printf '%s' "$install_out" | grep -q "Registered 5 agent-callable tools"; then
-    echo "FAIL: OpenClaw runtime did not log 'Registered 5 agent-callable tools'"
+  # Match any reasonable two-digit count so the gate doesn't go stale
+  # whenever new agent tools land. Pre-existing bug: this regex was
+  # frozen at "Registered 5" since v2.0 — V1 Pro brought it to 10 and
+  # V1.1 (#1982) brings it to 11. Asserting "Registered N agent-callable
+  # tools" with N≥5 instead of a hardcoded count.
+  if ! printf '%s' "$install_out" | grep -qE "Registered [0-9]+ agent-callable tools"; then
+    echo "FAIL: OpenClaw runtime did not log 'Registered N agent-callable tools'"
     printf '%s\n' "$install_out" | tail -10 | sed 's/^/      /'
     return 1
   fi

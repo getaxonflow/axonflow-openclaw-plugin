@@ -187,6 +187,96 @@ export function buildExplainDecisionTool(clientRef: ClientRef): AgentToolDef {
   };
 }
 
+// ─── list_recent_decisions ─────────────────────────────────────────────
+
+export function buildListRecentDecisionsTool(clientRef: ClientRef): AgentToolDef {
+  return {
+    name: "axonflow_list_recent_decisions",
+    label: "AxonFlow: List Recent Decisions",
+    description:
+      "List recent governance decisions made by AxonFlow for the current user/tenant. " +
+      "Returns a 5-field summary per row (decision_id, timestamp, decision, policy_id, tool_signature). " +
+      "Use this to surface 'what just got blocked' UX, drive an appeal/override flow, or trace a workflow's decision history. " +
+      "Tier-throttled per the platform's Free/Pro window+limit — Free callers exceeding the page cap see the V1 upgrade envelope rendered to the host.",
+    parameters: {
+      type: "object",
+      properties: {
+        since: {
+          type: "string",
+          format: "date-time",
+          description:
+            "Optional RFC3339 lower bound (e.g. 2026-05-01T00:00:00Z). Silently clamped to the tier's lookback window when reaching further back.",
+        },
+        decision: {
+          type: "string",
+          enum: ["allow", "deny", "require_approval"],
+          description: "Filter to decisions of this kind.",
+        },
+        policy_id: {
+          type: "string",
+          description: "Filter to decisions matching this policy_id.",
+        },
+        tool_signature: {
+          type: "string",
+          description: "Filter to decisions scoped to this tool signature.",
+        },
+        limit: {
+          type: "number",
+          minimum: 1,
+          maximum: 1000,
+          description:
+            "Max rows to return. Caller-supplied limits exceeding the tier's max page surface the V1 upgrade envelope.",
+        },
+      },
+      additionalProperties: false,
+    },
+    execute: async (_id, args) => {
+      try {
+        const decision = readString(args, "decision");
+        if (
+          decision !== undefined &&
+          decision !== "allow" &&
+          decision !== "deny" &&
+          decision !== "require_approval"
+        ) {
+          return fail(`decision must be allow|deny|require_approval (got ${JSON.stringify(decision)})`);
+        }
+        const result = await clientRef.current.listRecentDecisionsStrict({
+          since: readString(args, "since"),
+          decision: decision as "allow" | "deny" | "require_approval" | undefined,
+          policyId: readString(args, "policy_id"),
+          toolSignature: readString(args, "tool_signature"),
+          limit: readNumber(args, "limit"),
+        });
+        if (result.kind === "envelope") {
+          // Free-tier cap-hit: surface the upgrade envelope to the host
+          // LLM/UI rather than dropping it on the floor. The wording was
+          // already logged by handleEnvelope; we additionally pass it
+          // back as a structured tool result so the agent can render it.
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  `${result.envelope.upgrade?.wording ?? result.envelope.error}\n` +
+                  `Upgrade: ${result.envelope.upgrade?.buy_url ?? ""}`,
+              },
+            ],
+            details: {
+              upgrade_required: true,
+              envelope: result.envelope,
+            },
+          };
+        }
+        return ok({ decisions: result.decisions });
+      } catch (e) {
+        const { message, details } = describeError(e);
+        return fail(message, details);
+      }
+    },
+  };
+}
+
 // ─── list_overrides ────────────────────────────────────────────────────
 
 export function buildListOverridesTool(clientRef: ClientRef): AgentToolDef {
@@ -592,6 +682,7 @@ export function buildAgentTools(clientRef: ClientRef): AgentToolDef[] {
   return [
     buildAuditSearchTool(clientRef),
     buildExplainDecisionTool(clientRef),
+    buildListRecentDecisionsTool(clientRef),
     buildListOverridesTool(clientRef),
     buildCreateOverrideTool(clientRef),
     buildRevokeOverrideTool(clientRef),
