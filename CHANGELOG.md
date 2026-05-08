@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-05-08 — drop telemetry `profile` field (env-var collision fix)
+
+### Removed
+
+- Telemetry `profile` field and the `AXONFLOW_PROFILE` env-var read introduced in v2.4.0. The env var was already in use by the agent governance engine (allowlist `dev | default | strict | compliance`), so reusing it for telemetry caused customer-visible HTTP 400s when governance values like `strict`/`compliance`/`production` were set. The `deployment_mode` field already provides the topology dimension `profile` was meant to add, so removing the field loses no analytics signal in use. `AXONFLOW_PROFILE` reverts to its single original meaning (governance only). Manifest `envVars` and `README.md` env-var table updated to match.
+
 ## [2.4.0] - 2026-05-08 — v1 telemetry-schema adoption
 
 ### Telemetry

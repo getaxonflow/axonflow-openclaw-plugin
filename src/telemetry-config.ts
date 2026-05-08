@@ -20,13 +20,6 @@ export interface TelemetryConfig {
   /** Endpoint that receives the anonymous ping. Configurable for self-hosted checkpoint deployments. */
   checkpointUrl: string;
   /**
-   * Deployment profile from `AXONFLOW_PROFILE` (e.g. `production`,
-   * `staging`, `development`). Reported on the heartbeat as the v1
-   * telemetry-schema `profile` field. `unknown` when unset, matching
-   * the v1 schema default for missing values.
-   */
-  profile: string;
-  /**
    * `AXONFLOW_TRY=1` opts the deployment-mode classifier into reporting
    * `community_saas` regardless of endpoint host. Provided so that
    * Community-SaaS tenants behind a custom hostname proxying
@@ -40,7 +33,6 @@ export function loadTelemetryConfig(): TelemetryConfig {
     return {
       optedOut: false,
       checkpointUrl: DEFAULT_CHECKPOINT_URL,
-      profile: "unknown",
       trySaasFlag: false,
     };
   }
@@ -51,10 +43,7 @@ export function loadTelemetryConfig(): TelemetryConfig {
 
   const checkpointUrl = env.AXONFLOW_CHECKPOINT_URL || DEFAULT_CHECKPOINT_URL;
 
-  const profileRaw = env.AXONFLOW_PROFILE?.trim();
-  const profile = profileRaw && profileRaw.length > 0 ? profileRaw : "unknown";
-
   const trySaasFlag = env.AXONFLOW_TRY?.trim() === "1";
 
-  return { optedOut, checkpointUrl, profile, trySaasFlag };
+  return { optedOut, checkpointUrl, trySaasFlag };
 }
