@@ -37,10 +37,6 @@
       "required": false,
       "description": "Override the upgrade URL surfaced by axonflow-openclaw-status to free-tier users when reporting Pro-tier features. Defaults to https://getaxonflow.com/pricing/."
     },
-    "AXONFLOW_PROFILE": {
-      "required": false,
-      "description": "Free-form deployment profile (e.g. 'production', 'staging', 'dev') reported on the anonymous 7-day heartbeat as the v1 telemetry-schema 'profile' field. Reports 'unknown' when unset. No behavioural effect; analytics dimension only."
-    },
     "AXONFLOW_TRY": {
       "required": false,
       "description": "Set to '1' to force the v1 telemetry deployment-mode classifier to report 'community_saas' even when the configured endpoint is a custom hostname. Use only when proxying try.getaxonflow.com behind a different host. No behavioural effect outside the heartbeat payload.",

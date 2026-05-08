@@ -67,11 +67,6 @@ export interface TelemetryPayload {
   endpoint_type: string;
   features: string[];
   instance_id: string;
-  /**
-   * Free-form deployment profile (`production`, `staging`, `dev`, etc.)
-   * sourced from `AXONFLOW_PROFILE`; `unknown` when unset.
-   */
-  profile: string;
 }
 
 /**
@@ -268,7 +263,6 @@ async function sendInner(options: SendOptions): Promise<void> {
       `mode:${options.mode}`,
     ],
     instance_id: instanceId,
-    profile: config.profile,
   };
 
   // 5. Fire the heartbeat.

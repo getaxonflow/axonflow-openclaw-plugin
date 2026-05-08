@@ -19,8 +19,7 @@
  *        matches the `*.try.getaxonflow.com` rule directly — the
  *        AXONFLOW_HARNESS_AGENT_ENDPOINT override only redirects the
  *        bootstrap probe, not the user-facing endpoint), endpoint_type=remote
- *        (try.getaxonflow.com is a remote host), profile=unknown when
- *        AXONFLOW_PROFILE is unset.
+ *        (try.getaxonflow.com is a remote host).
  *     5. Telemetry stamp file written.
  *
  *   Run 2 — WARM CACHE. Same sandbox dirs. Expectations:
@@ -145,7 +144,6 @@ async function loadPluginAndRegister({ endpoint, configDir, cacheDir, checkpoint
   // match — no need for the explicit AXONFLOW_TRY=1 override here.
   delete process.env.AXONFLOW_TRY;
   delete process.env.AXONFLOW_TELEMETRY;
-  delete process.env.AXONFLOW_PROFILE;
 
   // Wipe Node module cache so a second cold-start re-runs init.
   const distEntry = path.join(PLUGIN_DIR, "dist", "index.js");
@@ -263,10 +261,13 @@ async function main() {
     } else {
       fail(`ping endpoint_type mismatch: ${pings[0]?.endpoint_type}`);
     }
-    if (pings.length > 0 && pings[0].profile === "unknown") {
-      pass("ping profile=unknown (AXONFLOW_PROFILE unset)");
+    // `profile` field intentionally absent from v1 — collided with the
+    // governance `AXONFLOW_PROFILE` env var (platform/agent/profile.go) and
+    // was dropped before any tag shipped (#2033).
+    if (pings.length > 0 && !("profile" in pings[0])) {
+      pass("ping has no profile field (dropped per #2033)");
     } else {
-      fail(`ping profile mismatch: ${pings[0]?.profile}`);
+      fail(`ping unexpectedly carries profile field: ${pings[0]?.profile}`);
     }
     if (pings.length > 0 && pings[0].sdk === "openclaw-plugin") {
       pass("ping sdk=openclaw-plugin");

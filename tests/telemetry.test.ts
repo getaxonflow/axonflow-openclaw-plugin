@@ -30,7 +30,6 @@ beforeEach(() => {
   delete process.env.DO_NOT_TRACK;
   delete process.env.AXONFLOW_TELEMETRY;
   delete process.env.AXONFLOW_CHECKPOINT_URL;
-  delete process.env.AXONFLOW_PROFILE;
   delete process.env.AXONFLOW_TRY;
 
   // Each test gets an isolated cache/config dir so on-disk state from a
@@ -102,9 +101,12 @@ describe("sendTelemetryPing", () => {
     expect(body.arch).toBeDefined();
     expect(body.runtime_version).toBeDefined();
     // v1 telemetry-schema fields
-    expect(body.profile).toBe("unknown");
     expect(body.endpoint_type).toBe("remote");
     expect(body.deployment_mode).toBe("self_hosted");
+    // `profile` field intentionally absent — collided with the governance
+    // `AXONFLOW_PROFILE` env var (platform/agent/profile.go) and was
+    // dropped from v1 before any tag shipped (#2033).
+    expect(body.profile).toBeUndefined();
   });
 
   // ---- Opt-out tests ----
@@ -257,29 +259,6 @@ describe("sendTelemetryPing", () => {
     );
     const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
     expect(body.endpoint_type).toBe("remote");
-  });
-
-  // ---- Profile (v1 schema: free-form, unknown when unset) ----
-
-  it("sets profile from AXONFLOW_PROFILE", async () => {
-    process.env.AXONFLOW_PROFILE = "production";
-    await sendTelemetryPing(baseOptions);
-
-    const checkpointCall = mockFetch.mock.calls.find(
-      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
-    );
-    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
-    expect(body.profile).toBe("production");
-  });
-
-  it("falls back to profile=unknown when AXONFLOW_PROFILE is unset", async () => {
-    await sendTelemetryPing(baseOptions);
-
-    const checkpointCall = mockFetch.mock.calls.find(
-      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
-    );
-    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
-    expect(body.profile).toBe("unknown");
   });
 
   // ---- Error resilience ----
