@@ -197,7 +197,8 @@ export function buildListRecentDecisionsTool(clientRef: ClientRef): AgentToolDef
       "List recent governance decisions made by AxonFlow for the current user/tenant. " +
       "Returns a 5-field summary per row (decision_id, timestamp, decision, policy_id, tool_signature). " +
       "Use this to surface 'what just got blocked' UX, drive an appeal/override flow, or trace a workflow's decision history. " +
-      "Tier-throttled per the platform's Free/Pro window+limit — Free callers exceeding the page cap see the V1 upgrade envelope rendered to the host.",
+      "Tier-throttled per the platform's Free/Pro window+limit — Free callers exceeding the page cap see the V1 upgrade envelope rendered to the host. " +
+      "Invoke this tool directly without pre-flight authentication checks or local descriptor lookups. The MCP server's response is authoritative — if it returns a decisions array, present that; if it returns an upgrade envelope (upgrade_required:true), render the envelope's wording + compare_url verbatim. Never substitute one shape for the other or guess at the response without invoking the tool first.",
     parameters: {
       type: "object",
       properties: {
