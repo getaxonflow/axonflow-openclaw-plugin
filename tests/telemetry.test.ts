@@ -30,6 +30,8 @@ beforeEach(() => {
   delete process.env.DO_NOT_TRACK;
   delete process.env.AXONFLOW_TELEMETRY;
   delete process.env.AXONFLOW_CHECKPOINT_URL;
+  delete process.env.AXONFLOW_PROFILE;
+  delete process.env.AXONFLOW_TRY;
 
   // Each test gets an isolated cache/config dir so on-disk state from a
   // prior test never silences the heartbeat in the next. We can't just set
@@ -88,6 +90,7 @@ describe("sendTelemetryPing", () => {
     expect(checkpointCall).toBeDefined();
 
     const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+    expect(body.telemetry_type).toBe("plugin");
     expect(body.sdk).toBe("openclaw-plugin");
     expect(body.sdk_version).toBe(VERSION);
     expect(body.features).toContain("hooks:5");
@@ -98,6 +101,10 @@ describe("sendTelemetryPing", () => {
     expect(body.os).toBeDefined();
     expect(body.arch).toBeDefined();
     expect(body.runtime_version).toBeDefined();
+    // v1 telemetry-schema fields
+    expect(body.profile).toBe("unknown");
+    expect(body.endpoint_type).toBe("remote");
+    expect(body.deployment_mode).toBe("self_hosted");
   });
 
   // ---- Opt-out tests ----
@@ -164,41 +171,115 @@ describe("sendTelemetryPing", () => {
     expect(body.platform_version).toBe("5.5.0");
   });
 
-  // ---- Deployment mode ----
+  // ---- Deployment mode (v1 schema: self_hosted | community_saas | unknown) ----
 
-  it("sets deployment_mode=production when self-hosted with onError=block", async () => {
+  it("sets deployment_mode=self_hosted for an arbitrary remote endpoint", async () => {
+    // v1 schema collapses the prior production/development split. The
+    // dimension now reflects deployment topology only — onError is no
+    // longer a deployment-mode signal.
     await sendTelemetryPing(baseOptions);
 
     const checkpointCall = mockFetch.mock.calls.find(
       (call: unknown[]) => !(call[0] as string).endsWith("/health"),
     );
     const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
-    expect(body.deployment_mode).toBe("production");
+    expect(body.deployment_mode).toBe("self_hosted");
   });
 
-  it("sets deployment_mode=development when self-hosted with onError=allow", async () => {
+  it("self_hosted regardless of onError=allow (v1 onError-independence)", async () => {
     await sendTelemetryPing({ ...baseOptions, onError: "allow" });
 
     const checkpointCall = mockFetch.mock.calls.find(
       (call: unknown[]) => !(call[0] as string).endsWith("/health"),
     );
     const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
-    expect(body.deployment_mode).toBe("development");
+    expect(body.deployment_mode).toBe("self_hosted");
   });
 
-  it("sets deployment_mode=community-saas when mode=community-saas, regardless of onError", async () => {
-    // Community-SaaS users would otherwise be hidden inside "production"
-    // (because plugin-generated auth is present and onError defaults to block).
-    // The deployment_mode field must reflect that they are first-class
-    // Community-SaaS users, not self-hosted production users.
-    await sendTelemetryPing({ ...baseOptions, mode: "community-saas" });
+  it("sets deployment_mode=community_saas when endpoint is *.try.getaxonflow.com", async () => {
+    await sendTelemetryPing({ ...baseOptions, endpoint: "https://try.getaxonflow.com" });
 
     const checkpointCall = mockFetch.mock.calls.find(
       (call: unknown[]) => !(call[0] as string).endsWith("/health"),
     );
     const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
-    expect(body.deployment_mode).toBe("community-saas");
-    expect(body.features).toContain("mode:community-saas");
+    expect(body.deployment_mode).toBe("community_saas");
+  });
+
+  it("sets deployment_mode=community_saas when AXONFLOW_TRY=1 even on a custom host", async () => {
+    process.env.AXONFLOW_TRY = "1";
+    await sendTelemetryPing({ ...baseOptions, endpoint: "https://my-proxy.example.com" });
+
+    const checkpointCall = mockFetch.mock.calls.find(
+      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+    );
+    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+    expect(body.deployment_mode).toBe("community_saas");
+  });
+
+  it("sets deployment_mode=unknown when endpoint is empty/unparseable", async () => {
+    await sendTelemetryPing({ ...baseOptions, endpoint: "not a url" });
+
+    const checkpointCall = mockFetch.mock.calls.find(
+      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+    );
+    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+    expect(body.deployment_mode).toBe("unknown");
+  });
+
+  // ---- Endpoint type (v1 schema: localhost | private_network | remote | unknown) ----
+
+  it("sets endpoint_type=localhost for http://localhost:8080", async () => {
+    await sendTelemetryPing({ ...baseOptions, endpoint: "http://localhost:8080" });
+
+    const checkpointCall = mockFetch.mock.calls.find(
+      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+    );
+    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+    expect(body.endpoint_type).toBe("localhost");
+  });
+
+  it("sets endpoint_type=private_network for an RFC1918 host", async () => {
+    await sendTelemetryPing({ ...baseOptions, endpoint: "http://10.0.0.5:8080" });
+
+    const checkpointCall = mockFetch.mock.calls.find(
+      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+    );
+    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+    expect(body.endpoint_type).toBe("private_network");
+  });
+
+  it("sets endpoint_type=remote for a generic public hostname", async () => {
+    await sendTelemetryPing(baseOptions);
+
+    const checkpointCall = mockFetch.mock.calls.find(
+      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+    );
+    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+    expect(body.endpoint_type).toBe("remote");
+  });
+
+  // ---- Profile (v1 schema: free-form, unknown when unset) ----
+
+  it("sets profile from AXONFLOW_PROFILE", async () => {
+    process.env.AXONFLOW_PROFILE = "production";
+    await sendTelemetryPing(baseOptions);
+
+    const checkpointCall = mockFetch.mock.calls.find(
+      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+    );
+    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+    expect(body.profile).toBe("production");
+  });
+
+  it("falls back to profile=unknown when AXONFLOW_PROFILE is unset", async () => {
+    await sendTelemetryPing(baseOptions);
+
+    const checkpointCall = mockFetch.mock.calls.find(
+      (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+    );
+    const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+    expect(body.profile).toBe("unknown");
   });
 
   // ---- Error resilience ----

@@ -19,11 +19,30 @@ export interface TelemetryConfig {
   optedOut: boolean;
   /** Endpoint that receives the anonymous ping. Configurable for self-hosted checkpoint deployments. */
   checkpointUrl: string;
+  /**
+   * Deployment profile from `AXONFLOW_PROFILE` (e.g. `production`,
+   * `staging`, `development`). Reported on the heartbeat as the v1
+   * telemetry-schema `profile` field. `unknown` when unset, matching
+   * the v1 schema default for missing values.
+   */
+  profile: string;
+  /**
+   * `AXONFLOW_TRY=1` opts the deployment-mode classifier into reporting
+   * `community_saas` regardless of endpoint host. Provided so that
+   * Community-SaaS tenants behind a custom hostname proxying
+   * `try.getaxonflow.com` are still classified correctly.
+   */
+  trySaasFlag: boolean;
 }
 
 export function loadTelemetryConfig(): TelemetryConfig {
   if (typeof process === "undefined" || !process.env) {
-    return { optedOut: false, checkpointUrl: DEFAULT_CHECKPOINT_URL };
+    return {
+      optedOut: false,
+      checkpointUrl: DEFAULT_CHECKPOINT_URL,
+      profile: "unknown",
+      trySaasFlag: false,
+    };
   }
 
   const env = process.env;
@@ -32,5 +51,10 @@ export function loadTelemetryConfig(): TelemetryConfig {
 
   const checkpointUrl = env.AXONFLOW_CHECKPOINT_URL || DEFAULT_CHECKPOINT_URL;
 
-  return { optedOut, checkpointUrl };
+  const profileRaw = env.AXONFLOW_PROFILE?.trim();
+  const profile = profileRaw && profileRaw.length > 0 ? profileRaw : "unknown";
+
+  const trySaasFlag = env.AXONFLOW_TRY?.trim() === "1";
+
+  return { optedOut, checkpointUrl, profile, trySaasFlag };
 }

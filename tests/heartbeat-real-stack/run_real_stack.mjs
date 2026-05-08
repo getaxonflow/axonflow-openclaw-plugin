@@ -12,8 +12,15 @@
  *        "[AxonFlow] Connected to AxonFlow at <url> (mode=community-saas)".
  *     3. Bootstrap registers against the fake /api/v1/register and
  *        persists try-registration.json (mode 0600 on POSIX).
- *     4. Telemetry heartbeat fires once (counter goes 0 → 1) with
- *        deployment_mode=community-saas.
+ *     4. Telemetry heartbeat fires once (counter goes 0 → 1) with the v1
+ *        schema fields populated: telemetry_type=plugin,
+ *        deployment_mode=community_saas (the resolved config.endpoint in
+ *        community-saas mode is `https://try.getaxonflow.com`, which
+ *        matches the `*.try.getaxonflow.com` rule directly — the
+ *        AXONFLOW_HARNESS_AGENT_ENDPOINT override only redirects the
+ *        bootstrap probe, not the user-facing endpoint), endpoint_type=remote
+ *        (try.getaxonflow.com is a remote host), profile=unknown when
+ *        AXONFLOW_PROFILE is unset.
  *     5. Telemetry stamp file written.
  *
  *   Run 2 — WARM CACHE. Same sandbox dirs. Expectations:
@@ -131,7 +138,14 @@ async function loadPluginAndRegister({ endpoint, configDir, cacheDir, checkpoint
   process.env.AXONFLOW_HARNESS = "1";
   process.env.AXONFLOW_HARNESS_REGISTER_URL = `${endpoint}/api/v1/register`;
   process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT = endpoint;
+  // Community-SaaS mode resolves config.endpoint to `https://try.getaxonflow.com`
+  // (the public user-facing URL); only the bootstrap probe is redirected to
+  // 127.0.0.1 via AXONFLOW_HARNESS_AGENT_ENDPOINT. The v1 deployment-mode
+  // classifier therefore reports `community_saas` directly from the host
+  // match — no need for the explicit AXONFLOW_TRY=1 override here.
+  delete process.env.AXONFLOW_TRY;
   delete process.env.AXONFLOW_TELEMETRY;
+  delete process.env.AXONFLOW_PROFILE;
 
   // Wipe Node module cache so a second cold-start re-runs init.
   const distEntry = path.join(PLUGIN_DIR, "dist", "index.js");
@@ -232,10 +246,27 @@ async function main() {
     }
 
     const pings = readPings(workDir);
-    if (pings.length > 0 && pings[0].deployment_mode === "community-saas") {
-      pass("ping deployment_mode=community-saas");
+    // v1 telemetry-schema (#2008) — assert the four payload contracts the
+    // plugin promises to the checkpoint receiver.
+    if (pings.length > 0 && pings[0].telemetry_type === "plugin") {
+      pass("ping telemetry_type=plugin");
+    } else {
+      fail(`ping telemetry_type mismatch: ${pings[0]?.telemetry_type}`);
+    }
+    if (pings.length > 0 && pings[0].deployment_mode === "community_saas") {
+      pass("ping deployment_mode=community_saas (try.getaxonflow.com host)");
     } else {
       fail(`ping deployment_mode mismatch: ${pings[0]?.deployment_mode}`);
+    }
+    if (pings.length > 0 && pings[0].endpoint_type === "remote") {
+      pass("ping endpoint_type=remote (try.getaxonflow.com is a remote host)");
+    } else {
+      fail(`ping endpoint_type mismatch: ${pings[0]?.endpoint_type}`);
+    }
+    if (pings.length > 0 && pings[0].profile === "unknown") {
+      pass("ping profile=unknown (AXONFLOW_PROFILE unset)");
+    } else {
+      fail(`ping profile mismatch: ${pings[0]?.profile}`);
     }
     if (pings.length > 0 && pings[0].sdk === "openclaw-plugin") {
       pass("ping sdk=openclaw-plugin");
