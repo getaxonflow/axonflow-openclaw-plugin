@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-05-08 — v1 telemetry-schema adoption
+
+Minor release. Additive payload changes only. Aligns the anonymous 7-day heartbeat with the v1 telemetry schema (#2008 in the platform repo).
+
+### Added
+
+- **`telemetry_type: "plugin"`** field on every heartbeat — stable discriminator the receiver uses to route plugin pings vs SDK / platform / synthetic pings on the v1 schema.
+- **`endpoint_type`** field — classifies the configured endpoint as `localhost`, `private_network`, `remote`, or `unknown`. Mirrors the SDK-side `ClassifyEndpoint` shape so cross-client analytics dimensions stay consistent.
+- **`profile`** field — sourced from the new `AXONFLOW_PROFILE` env var; reports `unknown` when unset. Free-form deployment classifier (e.g. `production`, `staging`, `dev`); analytics dimension only with no behavioural effect.
+- **`AXONFLOW_PROFILE`** env var declared in `openclaw.plugin.json` envVars + README env-var table. Drives the new `profile` payload field.
+- **`AXONFLOW_TRY=1`** env var declared in the same surfaces. Forces the deployment-mode classifier to report `community_saas` even when the configured endpoint is a custom hostname proxying `try.getaxonflow.com`. No effect outside the heartbeat payload.
+
+### Changed
+
+- **`deployment_mode` allowlist normalised to `self_hosted | community_saas | unknown`** (v1 schema). The prior `production` / `development` / `community-saas` (hyphen) values are removed. The dimension now reflects deployment topology only — `onError` no longer participates in the classifier. Analytics queries that match on the legacy values must be updated; queries that match on `community_saas` (underscore) work going forward.
+- **Detection moved off `options.mode`/`options.onError`** and onto the configured endpoint host plus `AXONFLOW_TRY`. Tenants reaching `*.try.getaxonflow.com` are classified `community_saas` automatically; custom-hostname proxies use `AXONFLOW_TRY=1`.
+
+### Internal
+
+- Heartbeat real-stack harness (`tests/heartbeat-real-stack/run_real_stack.mjs`) updated to assert all four v1 fields against a real network round-trip; runs cross-platform on Ubuntu / macOS / Windows in CI.
+
 ## [2.3.3] - 2026-05-08 — ClawPack format migration
 
 Patch release. No runtime behaviour change. Single substantive improvement: artifact format migration that closes the visible "Legacy ZIP" badge on the ClawHub listing.

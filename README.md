@@ -92,6 +92,8 @@ The plugin recognizes the following environment variables. All are optional with
 | `AXONFLOW_LICENSE_TOKEN` | AxonFlow Pro plugin-claim license token (begins with `AXON-`). Forwarded on every governed request via the `X-License-Token` header so the agent applies Pro-tier entitlements. Wins over `pluginConfig.licenseToken`. |
 | `AXONFLOW_RECOVERY_TIMEOUT_MS` | Per-HTTP-request timeout in milliseconds for the bundled `axonflow-openclaw-recover` CLI's calls to `/api/v1/recover` and `/api/v1/recover/verify`. Default `10000` (10s). Increase for high-latency networks; decrease for fail-fast CI environments. |
 | `AXONFLOW_UPGRADE_URL` | Overrides the upgrade URL surfaced by the bundled `axonflow-openclaw-status` CLI to free-tier users. Defaults to `https://getaxonflow.com/pricing/`. |
+| `AXONFLOW_PROFILE` | Free-form deployment profile (e.g. `production`, `staging`, `dev`) emitted on the v1 telemetry payload as the `profile` field. Reports `unknown` when unset. No behavioural effect; analytics dimension only. |
+| `AXONFLOW_TRY=1` | Forces the v1 telemetry `deployment_mode` classifier to report `community_saas` even when the configured endpoint is a custom hostname proxying `try.getaxonflow.com`. No effect outside the heartbeat payload. |
 
 The same set is the authoritative declaration in [`openclaw.plugin.json`](openclaw.plugin.json) `envVars` block — both surfaces ship in the published artifact and stay in lockstep via the [`manifest-envvars-coverage`](.github/workflows/manifest-envvars-coverage.yml) CI gate.
 
