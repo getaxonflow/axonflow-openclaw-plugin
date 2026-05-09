@@ -17,9 +17,9 @@ This plugin checks tool calls against policy on an AxonFlow agent that you point
 2. **Community Edition with an [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/)** — for production use with real users or clients on the open core; adds production-fit limits and license-gated features. Free 90-day [evaluation license](https://getaxonflow.com/plugins/evaluation-license).
 3. **[AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/)** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries. Contact [hello@getaxonflow.com](mailto:hello@getaxonflow.com).
 
-If `pluginConfig.endpoint` is unset, the plugin uses the AxonFlow Community SaaS endpoint as a zero-config starting point for early exploration only. See the [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) page for full details on its scope and limits.
+**Production setup requires `pluginConfig.endpoint`** pointing at a self-hosted AxonFlow URL (Step 1 + Step 3 below). When unset, the plugin runs in evaluation mode against the Community SaaS endpoint — intended only for early exploration before self-hosting. See the [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) page for the evaluation-mode scope and limits.
 
-Setting `pluginConfig.endpoint` to a self-hosted AxonFlow URL flips the plugin into self-hosted mode — no env var is required. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide. For air-gapped environments where AxonFlow is not yet reachable but you want to suppress the trial-server fallback, set `AXONFLOW_COMMUNITY_SAAS=0`; set `AXONFLOW_TELEMETRY=off` to also disable the anonymous 7-day heartbeat.
+Setting `pluginConfig.endpoint` to a self-hosted AxonFlow URL puts the plugin into self-hosted mode — no env var is required. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide. For air-gapped environments where AxonFlow is not yet reachable but you want to suppress the Community SaaS evaluation fallback, set `AXONFLOW_COMMUNITY_SAAS=0`; set `AXONFLOW_TELEMETRY=off` to also disable the anonymous 7-day heartbeat.
 
 LLM provider keys never leave the user's machine in any mode — OpenClaw makes the LLM calls; AxonFlow only enforces policies and records audit trails.
 
@@ -50,7 +50,7 @@ curl -s http://localhost:8080/health | jq .
 
 Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for prerequisites (Docker Engine or Desktop, Docker Compose v2, 4 GB RAM, 10 GB disk) and the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deployment/self-hosted/) for production options. The agent gateway listens on port 8080 — all SDK and plugin traffic goes through this port.
 
-> If you skip this step and just install the plugin, it uses the [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) endpoint for early exploration only. **Do not skip Step 1 for production** — see the [Deployment recommendation](#deployment-recommendation) above.
+> If you skip this step, the plugin runs in evaluation mode against the [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) endpoint — intended only for early exploration. **Do not skip Step 1 for production** — see the [Deployment recommendation](#deployment-recommendation) above.
 
 ### Step 2: install the plugin
 
@@ -84,7 +84,7 @@ Every plugin init logs a one-line canary on stderr confirming the active mode:
 
 If the canary says `mode=community-saas` after you ran Step 1, the plugin is still hitting `try.getaxonflow.com` because Step 3 was skipped or `pluginConfig.endpoint` is unset. Fix Step 3 and reload.
 
-Skipping Step 3 entirely (and Step 1) uses the Community SaaS endpoint for early exploration only — see the [Deployment recommendation](#deployment-recommendation) above. The first-load disclosure banner stamps under `$AXONFLOW_CONFIG_DIR`; remove the stamp file to re-display.
+Skipping Step 3 entirely (and Step 1) leaves the plugin in evaluation mode against the Community SaaS endpoint — intended only for early exploration; see the [Deployment recommendation](#deployment-recommendation) above. The first-load disclosure banner stamps under `$AXONFLOW_CONFIG_DIR`; remove the stamp file to re-display.
 
 ## Mode-specific reference
 

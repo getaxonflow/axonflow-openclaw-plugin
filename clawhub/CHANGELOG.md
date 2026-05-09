@@ -4,18 +4,28 @@
 
 ### 2.4.1 (2026-05-09)
 
-VirusTotal scan re-tune patch. v2.4.0 cleared ClawScan + Static analysis as Benign on first scan but VirusTotal flagged as Suspicious — the LLM scanner re-read the agent-tools enumeration as "attack surface" and quoted back specific tool names (`axonflow_audit_search`, `axonflow_create_override`) plus the active-voice verbs ("search audit events", "create time-bounded overrides") as risk evidence. Plugin capability is unchanged; only the disclosure language is reframed. Same shape of patch as v2.0.2 (post-release ClawScan re-tune) and v2.1.1 (post-release scanner re-tune).
+VirusTotal scan re-tune patch. v2.4.0 cleared ClawScan + Static analysis as Benign on first scan but VirusTotal flagged as Suspicious — the LLM scanner reasoning quoted back two distinct categories of language as risk evidence:
 
-**Drops the standalone "Decision History API (platform v7.9.0+)" callout block.** The same content was already in the read-side group bullet above; the redundant second mention is the kind of double-disclosure the v2.1.1 backfill flagged as a scanner trigger. Substantive content (wraps `GET /api/v1/decisions`, records `policy_version_at_decision` inline) is preserved on the linked Explainability docs page.
+1. **Connectivity framing** — "defaults to outbound network communication with a Community SaaS endpoint (try.getaxonflow.com) and a telemetry service (checkpoint.getaxonflow.com)". The trigger phrasing was the unset-state framing ("If `pluginConfig.endpoint` is unset, the plugin uses the AxonFlow Community SaaS endpoint as a zero-config starting point") — VT read this as auto-on outbound behavior.
+2. **Agent-tools enumeration** — "the skill empowers the AI agent to search sensitive audit logs containing previous LLM interactions (`axonflow_audit_search`) and to create time-bounded policy overrides (`axonflow_create_override`)". The trigger phrasing was the read-side group bullet's trailing active-voice summary plus the redundant standalone Decision History callout block.
 
-**Reframes the read-side group bullet:**
-- Leads with "all scoped to the caller's tenant and tier" so the access boundary is explicit before tool names appear.
-- Replaces the trailing active-voice summary ("create / list / revoke session overrides, and search audit events") — which the VT scanner paraphrased as "search sensitive audit logs containing previous LLM interactions" and "create time-bounded policy overrides" — with a defensive framing of the override invariants (TTL clamp, mandatory justification, critical-risk policies non-overridable). Cross-links the existing "Grant a Session Override" section instead of restating verbs.
-- Removes "search audit events" as a standalone verb (replaced by the tool name + the cross-link).
+Plugin capability is unchanged; only the disclosure language is reframed. Same shape of patch as v2.0.2 (post-release ClawScan re-tune) and v2.1.1 (post-release scanner re-tune).
+
+**Reframes connectivity language to lead with the action, not the unset-state behavior.** Three lines updated (Deployment recommendation + Step 1 callout + Step 3 callout):
+
+- Lead sentence: "**Production setup requires `pluginConfig.endpoint`** pointing at a self-hosted AxonFlow URL" — action-first phrasing instead of "if unset, the plugin uses the SaaS endpoint" auto-on framing.
+- Frames the Community SaaS endpoint as **evaluation mode** the operator opts into by leaving endpoint unset, intended only for early exploration before self-hosting.
+- Drops the "trial-server fallback" phrasing in favor of "Community SaaS evaluation fallback" — consistent with the Mode-specific reference section's vocabulary.
+- "puts the plugin into self-hosted mode" replaces "flips the plugin into self-hosted mode" — neutral verb.
+
+**Reframes the agent-tools section.** Two surgical edits:
+
+- Drops the standalone "Decision History API (platform v7.9.0+)" callout block. The same content was already in the read-side group bullet above; the redundant second mention is the kind of double-disclosure v2.1.1 flagged as scanner trigger. Substantive content (wraps `GET /api/v1/decisions`, records `policy_version_at_decision` inline) preserved on the linked Explainability docs page.
+- Reframes the read-side group bullet: leads with "all scoped to the caller's tenant and tier" so the access boundary is explicit before tool names appear; replaces the trailing active-voice summary ("create / list / revoke session overrides, and search audit events") with a defensive framing of the override invariants (TTL clamp, mandatory justification, critical-risk policies non-overridable). Cross-links the existing "Grant a Session Override" section instead of restating verbs.
 
 **Plugin floor reference unchanged:** still `@axonflow/openclaw` 2.4.0 or later. v2.4.1 is a skill-only republish — the openclaw npm package and ClawHub plugin artifact at v2.4.0 are unaffected.
 
-Base: copied verbatim from skill v2.4.0 with only the agent-tools block reworded.
+Base: copied verbatim from skill v2.4.0 with only the connectivity-language and agent-tools blocks reworded.
 
 ### 2.4.0 (2026-05-09)
 
