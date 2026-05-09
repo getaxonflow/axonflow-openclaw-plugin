@@ -2,6 +2,18 @@
 
 ## @axonflow/governance-policies
 
+### 2.4.0 (2026-05-09)
+
+Companion skill release to plugin v2.4.0 — the Decision History API surface introduced in AxonFlow platform v7.9.0.
+
+**Adds `axonflow_list_recent_decisions` to the agent-callable read-side governance group, taking the total to 11 tools (6 read-side + 5 Pro).** Lets the OpenClaw agent answer "what just got blocked?" / "show me my recent decisions" inline without spawning a shell, paginated by the platform's tier-aware retention windows (Free 24h / 5 results / page; Pro 30d / 100 results / page). Free callers hitting the cap see the upgrade envelope rendered to the host.
+
+**Documents the Decision History API at the platform layer (v7.9.0+).** The new tool wraps `GET /api/v1/decisions`; every decision driven by a static-policy match also records `policy_version_at_decision` inline on the audit row, so explain calls surface the policy text that actually fired even after the policy is later edited. Adds an explicit callout block under the agent-tools list so consumers understand the wire shape behind the tool.
+
+**Bumps minimum-version reference** from `@axonflow/openclaw` 2.3.3 to **2.4.0** — the v2.4.0 plugin release is the recommended stable floor for the v2.x line. v2.4.0 ships the new agent-callable tool, the v1 telemetry-schema fields (`telemetry_type`, `endpoint_type`, `deployment_mode`) on the heartbeat, and `AXONFLOW_TELEMETRY=off` as the sole opt-out matching the SDKs.
+
+Base: copied verbatim from skill v2.3.0 to preserve all ClawScan-tuned phrasing in the Deployment recommendation, Install, and Mode-specific reference sections — only additive changes (read-side group expansion 5 → 6, Decision History API callout, plugin floor bump).
+
 ### 2.3.0 (2026-05-08)
 
 Companion skill release to plugin v2.3.0+ — the V1 Plugin Pro graduated-freemium tier and the cross-plugin V1 Pro agent-callable toolset.
