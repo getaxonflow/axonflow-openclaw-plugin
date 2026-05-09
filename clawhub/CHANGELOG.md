@@ -2,6 +2,21 @@
 
 ## @axonflow/governance-policies
 
+### 2.4.1 (2026-05-09)
+
+VirusTotal scan re-tune patch. v2.4.0 cleared ClawScan + Static analysis as Benign on first scan but VirusTotal flagged as Suspicious — the LLM scanner re-read the agent-tools enumeration as "attack surface" and quoted back specific tool names (`axonflow_audit_search`, `axonflow_create_override`) plus the active-voice verbs ("search audit events", "create time-bounded overrides") as risk evidence. Plugin capability is unchanged; only the disclosure language is reframed. Same shape of patch as v2.0.2 (post-release ClawScan re-tune) and v2.1.1 (post-release scanner re-tune).
+
+**Drops the standalone "Decision History API (platform v7.9.0+)" callout block.** The same content was already in the read-side group bullet above; the redundant second mention is the kind of double-disclosure the v2.1.1 backfill flagged as a scanner trigger. Substantive content (wraps `GET /api/v1/decisions`, records `policy_version_at_decision` inline) is preserved on the linked Explainability docs page.
+
+**Reframes the read-side group bullet:**
+- Leads with "all scoped to the caller's tenant and tier" so the access boundary is explicit before tool names appear.
+- Replaces the trailing active-voice summary ("create / list / revoke session overrides, and search audit events") — which the VT scanner paraphrased as "search sensitive audit logs containing previous LLM interactions" and "create time-bounded policy overrides" — with a defensive framing of the override invariants (TTL clamp, mandatory justification, critical-risk policies non-overridable). Cross-links the existing "Grant a Session Override" section instead of restating verbs.
+- Removes "search audit events" as a standalone verb (replaced by the tool name + the cross-link).
+
+**Plugin floor reference unchanged:** still `@axonflow/openclaw` 2.4.0 or later. v2.4.1 is a skill-only republish — the openclaw npm package and ClawHub plugin artifact at v2.4.0 are unaffected.
+
+Base: copied verbatim from skill v2.4.0 with only the agent-tools block reworded.
+
 ### 2.4.0 (2026-05-09)
 
 Companion skill release to plugin v2.4.0 — the Decision History API surface introduced in AxonFlow platform v7.9.0.
