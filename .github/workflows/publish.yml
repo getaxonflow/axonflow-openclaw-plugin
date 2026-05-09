@@ -269,7 +269,7 @@ jobs:
           clawhub package publish . \
             --family code-plugin \
             --name "@axonflow/openclaw" \
-            --owner saurabhjain1592 \
+            --owner axonflow \
             --display-name "AxonFlow Governance" \
             --version "$VERSION" \
             --changelog "See https://github.com/getaxonflow/axonflow-openclaw-plugin/blob/v${VERSION}/CHANGELOG.md" \
