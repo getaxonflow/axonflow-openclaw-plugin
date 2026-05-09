@@ -15,7 +15,7 @@ Patch release. No runtime behaviour change. Single substantive improvement: arti
 
 ### Fixed
 
-- **ClawHub publish migrated from Legacy ZIP → ClawPack via `clawhub@0.12.3`.** `.github/workflows/publish.yml` `Install ClawHub CLI` step pinned from `clawhub@0.12.0` to `clawhub@0.12.3`. v0.12.2 (2026-05-02 21:45 UTC) shipped the CLI fix for v0.12.1's tarball-bytes-mismatch regression ("publish code plugins as clawpacks and allow legacy package downloads"); v0.12.3 (2026-05-06) added monorepo support + `dry-run --metadata-only` + scope-owner inference. Verified working locally via `clawhub package pack` + `clawhub package publish. --dry-run` against this repo at v2.3.2 — clean ClawPack tarball with correct sha256/integrity. Closes the "Legacy ZIP — may have compatibility issues" artifact badge on the ClawHub listing and lifts the verification tier from `source-linked` (lowest) to the modern plugin architecture.
+- **ClawHub publish migrated from Legacy ZIP → ClawPack via `clawhub@0.12.3`.** `.github/workflows/publish.yml` `Install ClawHub CLI` step pinned from `clawhub@0.12.0` to `clawhub@0.12.3`. v0.12.2 (2026-05-02 21:45 UTC) shipped the CLI fix for v0.12.1's tarball-bytes-mismatch regression ("publish code plugins as clawpacks and allow legacy package downloads"); v0.12.3 (2026-05-06) added monorepo support + `dry-run --metadata-only` + scope-owner inference. Verified working locally via `clawhub package pack` + `clawhub package publish . --dry-run` against this repo at v2.3.2 — clean ClawPack tarball with correct sha256/integrity. Closes the "Legacy ZIP — may have compatibility issues" artifact badge on the ClawHub listing and lifts the verification tier from `source-linked` (lowest) to the modern plugin architecture.
 
  Safety net unchanged: existing `verify-clawhub-install` job runs `openclaw plugins install clawhub:@axonflow/openclaw@<version>` on every publish and fails fast on any bytes-mismatch — same gate that broke v2.0.5/v2.0.6 visibly during the v0.12.1 regression. If broken, revert path is documented in the project's internal notes and the project's internal notes (clawhub@0.12.0 + folder upload).
 
@@ -83,7 +83,7 @@ Patch release on top of 2.3.0. No runtime behaviour change. Two surfaces tighten
  the test DB and uses it for Basic auth against a synthetic tenant.
  The unrelated `["password"]` JSON-field reads at lines 105 and 126
  are reading from AWS Secrets Manager's RDS-managed secret structure
- (`{"username", "password", "host", "port",.}` — AWS schema, not
+ (`{"username", "password", "host", "port", ...}` — AWS schema, not
  AxonFlow-defined) and are correct as-is. Test scripts are not shipped
  to npm or ClawHub (excluded via `.clawhubignore` and absent from npm's
  `files` allowlist) — this is dev-only file hygiene.
@@ -218,7 +218,7 @@ every governed request.
 ### Fixed
 
 - **the runtime test bundle: pass when stack is long-running.** Previously the test silently exited as `PARTIAL PASS` after Feature 1 whenever `/api/v1/register` returned 429, mislabeling the cause as "agent not in community-saas mode". The agent's per-IP rate limiter (5 calls per source-IP per hour, shared between `/api/v1/register` and `/api/v1/recover`) trips quickly when the test runs against a stack that has already absorbed any traffic in the current hour, which silently turns the recovery handler into a no-op (handler returns generic 202 to prevent enumeration). The test now sends a per-run synthetic source-IP via `X-Forwarded-For` (override with `RUNTIME_E2E_XFF`) so each run gets a fresh rate-limit bucket, and surfaces a real failure with a remediation hint when the bucket is somehow still saturated. Step 2g also now probes `$AXONFLOW_ENDPOINT/api/request` (the agent's primary Basic-auth surface) instead of `$PERSISTED_ENDPOINT/api/v1/audit/tool-call` — the persisted endpoint is hardcoded by the platform to `https://try.getaxonflow.com` and is correct for production users but useless for a runtime test pointing at a local stack, and the audit/tool-call route additionally requires the operator to have set `AXONFLOW_INTERNAL_SERVICE_SECRET` in non-Community deployments. Feature 1 PASSED, Feature 2 PASSED end-to-end on local docker-compose with v7.7.0.
-- **Upgrade-pointer URL aligned with the canonical pricing page.** `STATUS_DEFAULT_UPGRADE_URL` (the URL surfaced by `axonflow-openclaw-status` to free-tier users, and embedded in the `tier=Free (Pro expired. — visit. to renew)` line) is now `https://getaxonflow.com/pricing/`. The previous default `https://getaxonflow.com/pro` returned 404 — that page was referenced in PRDs but never built. The pricing page already resolves and carries the Plugin Pro $9.99 tier card with the Stripe buy button, so plugin status output now points free-tier users at a working URL. Override via `AXONFLOW_UPGRADE_URL` env var if needed. Same fix landed in companion plugin releases (claude-plugin v1.2.0, cursor-plugin v1.2.0, codex-plugin v1.2.0).
+- **Upgrade-pointer URL aligned with the canonical pricing page.** `STATUS_DEFAULT_UPGRADE_URL` (the URL surfaced by `axonflow-openclaw-status` to free-tier users, and embedded in the `tier=Free (Pro expired ... — visit ... to renew)` line) is now `https://getaxonflow.com/pricing/`. The previous default `https://getaxonflow.com/pro` returned 404 — that page was referenced in PRDs but never built. The pricing page already resolves and carries the Plugin Pro $9.99 tier card with the Stripe buy button, so plugin status output now points free-tier users at a working URL. Override via `AXONFLOW_UPGRADE_URL` env var if needed. Same fix landed in companion plugin releases (claude-plugin v1.2.0, cursor-plugin v1.2.0, codex-plugin v1.2.0).
 
 ## [2.1.1] - 2026-05-05 — exclude runtime-e2e/ from published artifact
 
@@ -270,7 +270,7 @@ Falling back to the v2.0.4 baseline: CLI v0.12.0 + folder upload (Legacy ZIP). T
 
 ### Changed
 
-- **`.github/workflows/publish.yml` `publish-clawhub` step uses folder upload** (`clawhub package publish.`). Identical to the v2.0.4 publish step; CLI pin from v2.0.7 retained.
+- **`.github/workflows/publish.yml` `publish-clawhub` step uses folder upload** (`clawhub package publish .`). Identical to the v2.0.4 publish step; CLI pin from v2.0.7 retained.
 
 ### Carried forward (unchanged from v2.0.7)
 
@@ -307,7 +307,7 @@ v2.0.4 (last known-good install) was published 2026-04-30 with `clawhub` CLI v0.
 ### Changed
 
 - **Pin `clawhub@0.12.0` in `.github/workflows/publish.yml`.** `npm install -g clawhub` (unpinned) was always pulling latest, which is why the regression hit on the next publish after v0.12.1 shipped. The pin holds until ClawHub fixes the upstream regression in v0.12.1+.
-- **Restore ClawPack tarball publish path.** With CLI pinned to v0.12.0, `clawhub package publish./<tarball>.tgz` returns to producing a publishable ClawPack artifact. Re-earns the ClawPack badge on the install page. If install still breaks despite the pin, v2.0.8 will revert to folder upload (Legacy ZIP).
+- **Restore ClawPack tarball publish path.** With CLI pinned to v0.12.0, `clawhub package publish ./<tarball>.tgz` returns to producing a publishable ClawPack artifact. Re-earns the ClawPack badge on the install page. If install still breaks despite the pin, v2.0.8 will revert to folder upload (Legacy ZIP).
 
 ### Added
 
@@ -333,7 +333,7 @@ v2.0.5 switched the ClawHub publish artifact from folder upload (Legacy ZIP) to 
 
 ### Changed
 
-- **Revert ClawHub publish step to folder upload.** `.github/workflows/publish.yml` now runs `clawhub package publish.` (folder) instead of `clawhub package publish./<tarball>.tgz`. This re-introduces the "Legacy ZIP — may have compatibility issues" badge on the ClawHub install page but restores `openclaw plugins install` for every adopter. Trade-off accepted until ClawHub fixes the ClawPack handling path.
+- **Revert ClawHub publish step to folder upload.** `.github/workflows/publish.yml` now runs `clawhub package publish .` (folder) instead of `clawhub package publish ./<tarball>.tgz`. This re-introduces the "Legacy ZIP — may have compatibility issues" badge on the ClawHub install page but restores `openclaw plugins install` for every adopter. Trade-off accepted until ClawHub fixes the ClawPack handling path.
 
 ### Carried forward from v2.0.5
 
@@ -439,7 +439,7 @@ The first ClawHub static-analyzer ruleset bump on the v2.0 line. v2.0.1's compil
 
 ## [2.0.1] - 2026-04-30 — Restore ClawHub install + explicit Community-SaaS consent surface
 
-ClawHub's static-analysis scanner blocked install of `@axonflow/openclaw@2.0.0` because the telemetry and Community-SaaS bootstrap modules co-located `process.env.*` access and `fs.readFileSync(.)` calls with the outbound `fetch(.)` in the same compiled file — a pattern the scanner heuristically flags as credential-harvesting / potential data exfiltration. This release restores a clean install path on every supported OpenClaw host, adds a real opt-out for Community-SaaS auto-registration, and ships a CI gate so this class of regression cannot recur.
+ClawHub's static-analysis scanner blocked install of `@axonflow/openclaw@2.0.0` because the telemetry and Community-SaaS bootstrap modules co-located `process.env.*` access and `fs.readFileSync(...)` calls with the outbound `fetch(...)` in the same compiled file — a pattern the scanner heuristically flags as credential-harvesting / potential data exfiltration. This release restores a clean install path on every supported OpenClaw host, adds a real opt-out for Community-SaaS auto-registration, and ships a CI gate so this class of regression cannot recur.
 
 ### Added
 
@@ -476,7 +476,7 @@ The full set of platform-side security fixes shipped alongside this release — 
 
 **Reliability and bug-fix highlights:**
 - **7-day delivered-heartbeat with stamp-on-success** (this release). Telemetry stamp advances only after the POST returns 2xx, so a transient network failure no longer silences telemetry until the next 7-day window. Concurrent invocations are de-duplicated by an in-flight gate.
-- **Mode-clarity canary log line** on every plugin init (this release). Logs `[AxonFlow] Connected to AxonFlow at <URL> (mode=.)` and a PR-blocking CI gate asserts the canary matches the actual outbound destination, guarding against silent endpoint drift.
+- **Mode-clarity canary log line** on every plugin init (this release). Logs `[AxonFlow] Connected to AxonFlow at <URL> (mode=...)` and a PR-blocking CI gate asserts the canary matches the actual outbound destination, guarding against silent endpoint drift.
 - **PR-blocking install-to-use smoke against the live community stack** (this release). Catches plugin-side regressions against `try.getaxonflow.com` before they reach a user's host process.
 
 ### BREAKING
