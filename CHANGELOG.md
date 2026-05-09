@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
-## [2.4.0] - 2026-05-09 — v1 telemetry-schema adoption
+## [2.4.0] - 2026-05-09 — Decision History API + policy_version recorded on every decision + telemetry simplification
+
+### Added
+
+- **`axonflow_list_recent_decisions` agent tool** — surfaces the caller's recent governance decisions via the new `list_recent_decisions` MCP tool. Tier-throttled per the platform's Free/Pro window+limit; Free callers hitting the cap see the upgrade envelope rendered to the host.
 
 ### Telemetry
 
@@ -24,11 +28,6 @@ Patch release. No runtime behaviour change. Single substantive improvement: arti
 - **ClawScan `Credentials` review concern remains open** and is upstream-blocked. Architectural research confirmed that the env-vars schema landed in `clawhub@0.7.0` (2026-02-16) is **skill-side only**: parsed from SKILL.md frontmatter into the registry capabilities block for skills. Code plugins (this artifact) have no analogous `envVars` schema slot in their `capabilities` indexing today — the registry stores `bundledSkills`, `capabilityTags`, `commandNames`, `configSchema`, `executesCode`, `hooks`, `providers`, etc., but no `envVars`. The earlier v2.3.1 / v2.3.2 / v2.3.3-WIP attempts to close this client-side via `openclaw.plugin.json envVars`, README.md table, and a SKILL.md frontmatter file at the package root were all wrong-layer fixes — adding a SKILL.md to a code plugin's root would either be inert (right) or cause OpenClaw runtime to inject our governance prose into the agent's system prompt (wrong, since we're a code plugin that registers hooks, not a skill that injects prompts).
 
  Path forward: the actual fix is upstream in ClawHub (analog of the upstream tracker for skills, but for code-plugin `capabilities.envVars`). Until that ships, the "Review" verdict on the Credentials dimension is acceptable — plugin remains installable; reviewer text is balanced ("These variables are related to AxonFlow, not unrelated services"). Static Analysis verdict stays Benign; ClawPack format moves the visible badge.
-
-### Added
-
-- **`axonflow_list_recent_decisions` agent tool** — V1.1 companion to `axonflow_explain_decision`. Surfaces the caller's recent governance decisions (5-field summary per row) so OpenClaw agents can drive "what just got blocked" UX, appeal flows, and forensic decision-history tracing without leaving the tool surface. Tier-throttled per the platform's Free/Pro window+limit; Free callers exceeding the page cap see the V1 upgrade envelope rendered to the host (locking in the project's internal notes). Total agent-callable tools: 10 → 11.
-- `decision_list_size` added to the `V1_LIMIT_TYPES` enumeration in `upgrade-prompt.ts`. Required for `handleEnvelope` to recognize the new V1.1 limit type and stamp the throttle gate.
 
 ## [2.3.2] - 2026-05-07 — README env-vars completeness + cumulative-release-notes automation + manifest-envvars CI gate
 
