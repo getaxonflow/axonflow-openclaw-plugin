@@ -2,12 +2,12 @@
 
 ## [Unreleased]
 
-## [2.4.0] - 2026-05-08 — v1 telemetry-schema adoption
+## [2.4.0] - 2026-05-09 — v1 telemetry-schema adoption
 
 ### Telemetry
 
-- v1 schema (axonflow-enterprise#2008): heartbeat now emits `telemetry_type: "plugin"`, `endpoint_type` (`localhost | private_network | remote | unknown`), and `AXONFLOW_TRY=1` to force `deployment_mode=community_saas` for tenants behind custom hostnames proxying try.getaxonflow.com.
-- `deployment_mode` allowlist normalised to `self_hosted | community_saas | unknown` (was `production`/`development`/`community-saas`). Detection now derives from endpoint host + `AXONFLOW_TRY=1`. Analytics queries on the legacy values must update.
+- **`AXONFLOW_TELEMETRY=off` is the sole opt-out** for the plugin heartbeat — same single-lever model as the SDKs.
+- **Heartbeat payload v1 schema additions**: `telemetry_type: "plugin"`, `endpoint_type` (`localhost | private_network | remote | unknown`), `deployment_mode` (`self_hosted | community_saas | unknown`). Set `AXONFLOW_TRY=1` if your stack proxies a custom hostname into try.getaxonflow.com so heartbeats classify as `community_saas` correctly.
 
 ## [2.3.3] - 2026-05-08 — ClawPack format migration
 
@@ -15,19 +15,19 @@ Patch release. No runtime behaviour change. Single substantive improvement: arti
 
 ### Fixed
 
-- **ClawHub publish migrated from Legacy ZIP → ClawPack via `clawhub@0.12.3`.** `.github/workflows/publish.yml` `Install ClawHub CLI` step pinned from `clawhub@0.12.0` to `clawhub@0.12.3`. v0.12.2 (2026-05-02 21:45 UTC) shipped the CLI fix for v0.12.1's tarball-bytes-mismatch regression ("publish code plugins as clawpacks and allow legacy package downloads"); v0.12.3 (2026-05-06) added monorepo support + `dry-run --metadata-only` + scope-owner inference. Verified working locally via `clawhub package pack` + `clawhub package publish . --dry-run` against this repo at v2.3.2 — clean ClawPack tarball with correct sha256/integrity. Closes the "Legacy ZIP — may have compatibility issues" artifact badge on the ClawHub listing and lifts the verification tier from `source-linked` (lowest) to the modern plugin architecture.
+- **ClawHub publish migrated from Legacy ZIP → ClawPack via `clawhub@0.12.3`.** `.github/workflows/publish.yml` `Install ClawHub CLI` step pinned from `clawhub@0.12.0` to `clawhub@0.12.3`. v0.12.2 (2026-05-02 21:45 UTC) shipped the CLI fix for v0.12.1's tarball-bytes-mismatch regression ("publish code plugins as clawpacks and allow legacy package downloads"); v0.12.3 (2026-05-06) added monorepo support + `dry-run --metadata-only` + scope-owner inference. Verified working locally via `clawhub package pack` + `clawhub package publish. --dry-run` against this repo at v2.3.2 — clean ClawPack tarball with correct sha256/integrity. Closes the "Legacy ZIP — may have compatibility issues" artifact badge on the ClawHub listing and lifts the verification tier from `source-linked` (lowest) to the modern plugin architecture.
 
-  Safety net unchanged: existing `verify-clawhub-install` job runs `openclaw plugins install clawhub:@axonflow/openclaw@<version>` on every publish and fails fast on any bytes-mismatch — same gate that broke v2.0.5/v2.0.6 visibly during the v0.12.1 regression. If broken, revert path is documented in `feedback_plugin_manifest_envvars_hygiene.md` and `feedback_clawhub_cli_v0_12_1_tarball_regression.md` (clawhub@0.12.0 + folder upload).
+ Safety net unchanged: existing `verify-clawhub-install` job runs `openclaw plugins install clawhub:@axonflow/openclaw@<version>` on every publish and fails fast on any bytes-mismatch — same gate that broke v2.0.5/v2.0.6 visibly during the v0.12.1 regression. If broken, revert path is documented in the project's internal notes and the project's internal notes (clawhub@0.12.0 + folder upload).
 
 ### Internal
 
-- **ClawScan `Credentials` review concern remains open** and is upstream-blocked. Architectural research (memory: `feedback_plugin_manifest_envvars_hygiene.md`) confirmed that the env-vars schema landed in `clawhub@0.7.0` (2026-02-16) is **skill-side only**: parsed from SKILL.md frontmatter into the registry capabilities block for skills. Code plugins (this artifact) have no analogous `envVars` schema slot in their `capabilities` indexing today — the registry stores `bundledSkills`, `capabilityTags`, `commandNames`, `configSchema`, `executesCode`, `hooks`, `providers`, etc., but no `envVars`. The earlier v2.3.1 / v2.3.2 / v2.3.3-WIP attempts to close this client-side via `openclaw.plugin.json envVars`, README.md table, and a SKILL.md frontmatter file at the package root were all wrong-layer fixes — adding a SKILL.md to a code plugin's root would either be inert (right) or cause OpenClaw runtime to inject our governance prose into the agent's system prompt (wrong, since we're a code plugin that registers hooks, not a skill that injects prompts).
+- **ClawScan `Credentials` review concern remains open** and is upstream-blocked. Architectural research confirmed that the env-vars schema landed in `clawhub@0.7.0` (2026-02-16) is **skill-side only**: parsed from SKILL.md frontmatter into the registry capabilities block for skills. Code plugins (this artifact) have no analogous `envVars` schema slot in their `capabilities` indexing today — the registry stores `bundledSkills`, `capabilityTags`, `commandNames`, `configSchema`, `executesCode`, `hooks`, `providers`, etc., but no `envVars`. The earlier v2.3.1 / v2.3.2 / v2.3.3-WIP attempts to close this client-side via `openclaw.plugin.json envVars`, README.md table, and a SKILL.md frontmatter file at the package root were all wrong-layer fixes — adding a SKILL.md to a code plugin's root would either be inert (right) or cause OpenClaw runtime to inject our governance prose into the agent's system prompt (wrong, since we're a code plugin that registers hooks, not a skill that injects prompts).
 
-  Path forward: the actual fix is upstream in ClawHub (analog of openclaw/clawhub#350 for skills, but for code-plugin `capabilities.envVars`). Until that ships, the "Review" verdict on the Credentials dimension is acceptable — plugin remains installable; reviewer text is balanced ("These variables are related to AxonFlow, not unrelated services"). Static Analysis verdict stays Benign; ClawPack format moves the visible badge.
+ Path forward: the actual fix is upstream in ClawHub (analog of the upstream tracker for skills, but for code-plugin `capabilities.envVars`). Until that ships, the "Review" verdict on the Credentials dimension is acceptable — plugin remains installable; reviewer text is balanced ("These variables are related to AxonFlow, not unrelated services"). Static Analysis verdict stays Benign; ClawPack format moves the visible badge.
 
 ### Added
 
-- **`axonflow_list_recent_decisions` agent tool** — V1.1 (#1982) companion to `axonflow_explain_decision`. Surfaces the caller's recent governance decisions (5-field summary per row) so OpenClaw agents can drive "what just got blocked" UX, appeal flows, and forensic decision-history tracing without leaving the tool surface. Tier-throttled per the platform's Free/Pro window+limit; Free callers exceeding the page cap see the V1 upgrade envelope rendered to the host (locking in `feedback_429_no_upgrade_hint_is_conversion_gap.md`). Total agent-callable tools: 10 → 11.
+- **`axonflow_list_recent_decisions` agent tool** — V1.1 companion to `axonflow_explain_decision`. Surfaces the caller's recent governance decisions (5-field summary per row) so OpenClaw agents can drive "what just got blocked" UX, appeal flows, and forensic decision-history tracing without leaving the tool surface. Tier-throttled per the platform's Free/Pro window+limit; Free callers exceeding the page cap see the V1 upgrade envelope rendered to the host (locking in the project's internal notes). Total agent-callable tools: 10 → 11.
 - `decision_list_size` added to the `V1_LIMIT_TYPES` enumeration in `upgrade-prompt.ts`. Required for `handleEnvelope` to recognize the new V1.1 limit type and stamp the throttle gate.
 
 ## [2.3.2] - 2026-05-07 — README env-vars completeness + cumulative-release-notes automation + manifest-envvars CI gate
@@ -37,11 +37,11 @@ Patch release. No runtime behaviour change. Three durable improvements landing i
 ### Fixed
 
 - **`README.md` `## Environment variables` section now declares every `AXONFLOW_*` env var the plugin recognizes.** Promoted from `###` (sub-section under "Where your data goes") to `##` for top-level prominence; added the same three entries v2.3.1 added to `openclaw.plugin.json` envVars but missed in the README:
-  - `AXONFLOW_ENDPOINT`
-  - `AXONFLOW_RECOVERY_TIMEOUT_MS`
-  - `AXONFLOW_UPGRADE_URL`
+ - `AXONFLOW_ENDPOINT`
+ - `AXONFLOW_RECOVERY_TIMEOUT_MS`
+ - `AXONFLOW_UPGRADE_URL`
 
-  README.md is the prose ClawScan reads for the plugin's ClawHub listing (in `package.json` `files` allowlist + not in `.clawhubignore`); v2.3.1's manifest-only fix didn't reach this surface because ClawHub's stored `capabilities` block has no envVars schema slot to index `openclaw.plugin.json` envVars from. README.md is the actual user-and-reviewer-visible declaration.
+ README.md is the prose ClawScan reads for the plugin's ClawHub listing (in `package.json` `files` allowlist + not in `.clawhubignore`); v2.3.1's manifest-only fix didn't reach this surface because ClawHub's stored `capabilities` block has no envVars schema slot to index `openclaw.plugin.json` envVars from. README.md is the actual user-and-reviewer-visible declaration.
 
 ### Added
 
@@ -56,37 +56,37 @@ Patch release on top of 2.3.0. No runtime behaviour change. Two surfaces tighten
 ### Fixed
 
 - **`openclaw.plugin.json` envVars block now declares every AXONFLOW_* env
-  var that ship-time code references.** Adds three entries that were
-  documented in `clawhub/2.3.0/SKILL.md` and used by `dist/` / `bin/`
-  but missing from the manifest's `envVars` block:
-  - `AXONFLOW_ENDPOINT` — overrides `pluginConfig.endpoint`; primary
-    self-hosted-mode entry point.
-  - `AXONFLOW_RECOVERY_TIMEOUT_MS` — per-HTTP timeout for the
-    `axonflow-openclaw-recover` CLI (default 10000).
-  - `AXONFLOW_UPGRADE_URL` — overrides the upgrade URL surfaced by
-    `axonflow-openclaw-status` (default `https://getaxonflow.com/pricing/`).
+ var that ship-time code references.** Adds three entries that were
+ documented in `clawhub/2.3.0/SKILL.md` and used by `dist/` / `bin/`
+ but missing from the manifest's `envVars` block:
+ - `AXONFLOW_ENDPOINT` — overrides `pluginConfig.endpoint`; primary
+ self-hosted-mode entry point.
+ - `AXONFLOW_RECOVERY_TIMEOUT_MS` — per-HTTP timeout for the
+ `axonflow-openclaw-recover` CLI (default 10000).
+ - `AXONFLOW_UPGRADE_URL` — overrides the upgrade URL surfaced by
+ `axonflow-openclaw-status` (default `https://getaxonflow.com/pricing/`).
 
-  Closes the ClawScan v2.3.0 review's "Credentials" dimension concern
-  ("registry metadata declares no environment variables" while several
-  AXONFLOW_* names appear in code/docs). Pre-tag check now in place: a
-  grep of `AXONFLOW_[A-Z_]+` against `src/`, `bin/`, `scripts/` must be
-  a subset of `openclaw.plugin.json` envVars keys before tagging
-  (internal-only harness vars like `AXONFLOW_HARNESS*` excluded from
-  the check).
+ Closes the ClawScan v2.3.0 review's "Credentials" dimension concern
+ ("registry metadata declares no environment variables" while several
+ AXONFLOW_* names appear in code/docs). Pre-tag check now in place: a
+ grep of `AXONFLOW_[A-Z_]+` against `src/`, `bin/`, `scripts/` must be
+ a subset of `openclaw.plugin.json` envVars keys before tagging
+ (internal-only harness vars like `AXONFLOW_HARNESS*` excluded from
+ the check).
 
 ### Internal
 
-- **`runtime-e2e/v1_pro_envelope_surface/test.sh`**: synthetic test-tenant
-  secret literal renamed `testpass` → `synth-tok-` to avoid triggering
-  generic secret-scanner heuristics on dev machines. The literal had no
-  functional role — the test inserts the synthetic value directly into
-  the test DB and uses it for Basic auth against a synthetic tenant.
-  The unrelated `["password"]` JSON-field reads at lines 105 and 126
-  are reading from AWS Secrets Manager's RDS-managed secret structure
-  (`{"username", "password", "host", "port", ...}` — AWS schema, not
-  AxonFlow-defined) and are correct as-is. Test scripts are not shipped
-  to npm or ClawHub (excluded via `.clawhubignore` and absent from npm's
-  `files` allowlist) — this is dev-only file hygiene.
+- **the runtime test bundle**: synthetic test-tenant
+ secret literal renamed `testpass` → `synth-tok-` to avoid triggering
+ generic secret-scanner heuristics on dev machines. The literal had no
+ functional role — the test inserts the synthetic value directly into
+ the test DB and uses it for Basic auth against a synthetic tenant.
+ The unrelated `["password"]` JSON-field reads at lines 105 and 126
+ are reading from AWS Secrets Manager's RDS-managed secret structure
+ (`{"username", "password", "host", "port",.}` — AWS schema, not
+ AxonFlow-defined) and are correct as-is. Test scripts are not shipped
+ to npm or ClawHub (excluded via `.clawhubignore` and absent from npm's
+ `files` allowlist) — this is dev-only file hygiene.
 
 ## [2.3.0] - 2026-05-07 — V1 Plugin Pro envelope + 5 new agent-callable Pro tools (cross-plugin parity)
 
@@ -101,87 +101,87 @@ MCP server. Total agent-callable tools: 5 → 10.
 ### Added
 
 - **V1 Plugin Pro upgrade-prompt envelope handling** in
-  `src/upgrade-prompt.ts` — sourced into `axonflow-client.ts` so every
-  4xx response from `mcpCheckInput` / `mcpCheckOutput` runs through
-  envelope detection. When the agent returns a 429 (daily-quota) or
-  403 (graduated / Pro-only) with the structured envelope shape:
-  - Parses `upgrade.wording` + `upgrade.buy_url` and forwards it to the
-    host plugin logger (`api.logger.info`) at most once per UTC day.
-    Surfaced to OpenClaw operators via the standard plugin log channel.
-  - Honours `Retry-After` / `resets_at` by stamping a back-off file at
-    `${AXONFLOW_CACHE_DIR or platform default}/throttle-until`.
-    `governance.ts` checks the gate before each governed call and
-    short-circuits during the back-off window (no thundering-herd
-    retries against the agent).
-  - Handles both bare and JSON-RPC-wrapped envelope shapes (the latter
-    is what the new V1 Pro MCP tools deliver via `writeMCPGateError`).
+ `src/upgrade-prompt.ts` — sourced into `axonflow-client.ts` so every
+ 4xx response from `mcpCheckInput` / `mcpCheckOutput` runs through
+ envelope detection. When the agent returns a 429 (daily-quota) or
+ 403 (graduated / Pro-only) with the structured envelope shape:
+ - Parses `upgrade.wording` + `upgrade.buy_url` and forwards it to the
+ host plugin logger (`api.logger.info`) at most once per UTC day.
+ Surfaced to OpenClaw operators via the standard plugin log channel.
+ - Honours `Retry-After` / `resets_at` by stamping a back-off file at
+ `${AXONFLOW_CACHE_DIR or platform default}/throttle-until`.
+ `governance.ts` checks the gate before each governed call and
+ short-circuits during the back-off window (no thundering-herd
+ retries against the agent).
+ - Handles both bare and JSON-RPC-wrapped envelope shapes (the latter
+ is what the new V1 Pro MCP tools deliver via `writeMCPGateError`).
 - **`axonflow_get_tenant_id` agent-callable tool** — returns the
-  install's tenant_id, current tier (Free / Pro / pro_expired),
-  endpoint, and the locked V1 upgrade URLs. The other three plugin
-  hosts (claude / cursor / codex) get this tool from the agent's MCP
-  server via auto-discovery; OpenClaw doesn't proxy that MCP server,
-  so we register a local equivalent built from the same status surface
-  `recover.sh status` exposes. Keeps cross-plugin behaviour consistent
-  for the "what's my tenant ID?" question.
+ install's tenant_id, current tier (Free / Pro / pro_expired),
+ endpoint, and the locked V1 upgrade URLs. The other three plugin
+ hosts (claude / cursor / codex) get this tool from the agent's MCP
+ server via auto-discovery; OpenClaw doesn't proxy that MCP server,
+ so we register a local equivalent built from the same status surface
+ `recover.sh status` exposes. Keeps cross-plugin behaviour consistent
+ for the "what's my tenant ID?" question.
 - **Four V1 Plugin Pro proxy tools** registered locally so OpenClaw
-  agents reach the same V1 Pro toolset that `axonflow-claude-plugin` /
-  `axonflow-cursor-plugin` / `axonflow-codex-plugin` auto-discover from
-  the agent's MCP server. OpenClaw doesn't proxy
-  `/api/v1/mcp-server` `tools/list`, so these are registered as
-  code-defined `AgentToolDef`s whose `execute()` forwards to the agent
-  via a single new `AxonFlowClient.callMCPTool(name, args)` helper:
-  - `axonflow_request_approval` — Free 1/7d rolling, Pro unlimited.
-  - `axonflow_create_tenant_policy` — Free 2 active max, Pro unlimited.
-  - `axonflow_get_cost_estimate` — Pro-only; Free callers get the
-    locked V1 `feature_pro_only` envelope.
-  - `axonflow_list_pro_features` — Free + Pro, locked feature list
-    (5 differentiators + $9.99 / 90-day pricing).
+ agents reach the same V1 Pro toolset that `axonflow-claude-plugin` /
+ `axonflow-cursor-plugin` / `axonflow-codex-plugin` auto-discover from
+ the agent's MCP server. OpenClaw doesn't proxy
+ `/api/v1/mcp-server` `tools/list`, so these are registered as
+ code-defined `AgentToolDef`s whose `execute()` forwards to the agent
+ via a single new `AxonFlowClient.callMCPTool(name, args)` helper:
+ - `axonflow_request_approval` — Free 1/7d rolling, Pro unlimited.
+ - `axonflow_create_tenant_policy` — Free 2 active max, Pro unlimited.
+ - `axonflow_get_cost_estimate` — Pro-only; Free callers get the
+ locked V1 `feature_pro_only` envelope.
+ - `axonflow_list_pro_features` — Free + Pro, locked feature list
+ (5 differentiators + $9.99 / 90-day pricing).
 
-  Total agent-callable tools: 5 → 10 (combining `axonflow_get_tenant_id`
-  above with these four).
+ Total agent-callable tools: 5 → 10 (combining `axonflow_get_tenant_id`
+ above with these four).
 - **`clawhub/2.3.0/SKILL.md`** — frozen per-version skill record for the
-  v2.3.0 release. Documents the new agent-callable tools alongside the
-  existing 5 governance tools.
+ v2.3.0 release. Documents the new agent-callable tools alongside the
+ existing 5 governance tools.
 
 ### Fixed
 
 - **`AxonFlowClient.handleEnvelope`** — pre-filter on
-  `status === 429 || status === 403` was dropping JSON-RPC-wrapped
-  envelope responses that come back over HTTP 200 with
-  `result.isError = true` (the path the agent's
-  `mcp_v1_pro_tools.go writeMCPGateError` uses). Removed the
-  pre-filter; `handleV1Envelope` already encodes the full
-  status-vs-shape decision and now sees all three envelope-bearing
-  paths (429 daily-quota, 403 graduated / Pro-only, 200 + JSON-RPC
-  gate). The 4 new proxy tools depend on the 200 path; without this
-  fix, Free callers got the envelope content as a generic `kind=ok`
-  result instead of a clean `kind=envelope` with the upgrade prompt
-  surfaced.
+ `status === 429 || status === 403` was dropping JSON-RPC-wrapped
+ envelope responses that come back over HTTP 200 with
+ `result.isError = true` (the path the agent's
+ `mcp_v1_pro_tools.go writeMCPGateError` uses). Removed the
+ pre-filter; `handleV1Envelope` already encodes the full
+ status-vs-shape decision and now sees all three envelope-bearing
+ paths (429 daily-quota, 403 graduated / Pro-only, 200 + JSON-RPC
+ gate). The 4 new proxy tools depend on the 200 path; without this
+ fix, Free callers got the envelope content as a generic `kind=ok`
+ result instead of a clean `kind=envelope` with the upgrade prompt
+ surfaced.
 
 ### Internal
 
 - `tests/upgrade-prompt.test.ts` — 26 unit assertions across
-  `detectEnvelope`, `retryAfterMs`, `resolveDeadlineMs`,
-  `isThrottleActive`, `shouldShowPromptToday`, the full `handleEnvelope`
-  state machine, and the `V1_LIMIT_TYPES` locked enumeration.
-- `runtime-e2e/v1_pro_envelope_surface/` — drives the compiled
-  `dist/upgrade-prompt.js` against a live 429 envelope captured from
-  a Free-tier tenant on `try.getaxonflow.com` past the 200/day cap.
-- `runtime-e2e/v1_pro_proxy_tools/` — drives the compiled
-  `dist/agent-tools.js` + `dist/axonflow-client.js` against a real
-  registered tenant on `https://try.getaxonflow.com`. Asserts
-  end-to-end that all 5 V1 Pro agent-callable tools dispatch
-  correctly: `axonflow_list_pro_features` returns the locked
-  5-differentiators shape; `axonflow_get_cost_estimate` on a Free
-  tenant lands the `feature_pro_only` envelope with the locked buy
-  URL + logger wording + stamped throttle file (and the subsequent
-  agent-tool `execute()` honours the throttle gate);
-  `axonflow_request_approval` and `axonflow_create_tenant_policy`
-  return non-empty `approval_id` / `policy_id` on first Free call,
-  with top-level `success: true` alongside `submitted: true` /
-  `created: true` on the response body.
+ `detectEnvelope`, `retryAfterMs`, `resolveDeadlineMs`,
+ `isThrottleActive`, `shouldShowPromptToday`, the full `handleEnvelope`
+ state machine, and the `V1_LIMIT_TYPES` locked enumeration.
+- the runtime test bundle — drives the compiled
+ `dist/upgrade-prompt.js` against a live 429 envelope captured from
+ a Free-tier tenant on `try.getaxonflow.com` past the 200/day cap.
+- the runtime test bundle — drives the compiled
+ `dist/agent-tools.js` + `dist/axonflow-client.js` against a real
+ registered tenant on `https://try.getaxonflow.com`. Asserts
+ end-to-end that all 5 V1 Pro agent-callable tools dispatch
+ correctly: `axonflow_list_pro_features` returns the locked
+ 5-differentiators shape; `axonflow_get_cost_estimate` on a Free
+ tenant lands the `feature_pro_only` envelope with the locked buy
+ URL + logger wording + stamped throttle file (and the subsequent
+ agent-tool `execute()` honours the throttle gate);
+ `axonflow_request_approval` and `axonflow_create_tenant_policy`
+ return non-empty `approval_id` / `policy_id` on first Free call,
+ with top-level `success: true` alongside `submitted: true` /
+ `created: true` on the response body.
 - `tests/agent-tools.test.ts` + `tests/registration.test.ts` —
-  updated for the new tool count (5 → 10).
+ updated for the new tool count (5 → 10).
 
 ### Versions touched
 
@@ -200,12 +200,12 @@ every governed request.
 ### Added
 
 - **`X-Axonflow-Client: openclaw/<version>` header** on every governed
-  agent request. Set automatically by the `axonflow-client.ts` HTTP
-  layer using the canonical `VERSION` constant from `src/version.ts`;
-  not configurable. Agents at v7.7.0+ derive request scope from this
-  header and reject cross-quadrant token misuse (e.g. a SaaS Plugin Pro
-  token paired with an SDK request) at the validator boundary. Older
-  agents (pre-v7.7.0) ignore the header and continue to work unchanged.
+ agent request. Set automatically by the `axonflow-client.ts` HTTP
+ layer using the canonical `VERSION` constant from `src/version.ts`;
+ not configurable. Agents at v7.7.0+ derive request scope from this
+ header and reject cross-quadrant token misuse (e.g. a SaaS Plugin Pro
+ token paired with an SDK request) at the validator boundary. Older
+ agents (pre-v7.7.0) ignore the header and continue to work unchanged.
 
 ### Added
 
@@ -213,54 +213,54 @@ every governed request.
 - **`axonflow-openclaw-status` CLI for tenant + tier introspection.** New bin script (`npx @axonflow/openclaw axonflow-openclaw-status`, also exported as `buildStatusReport` / `formatStatusReport` / `resolveStatusInputs` / `redactLicenseToken` / `readPersistedTenantId` from the package entry point) prints the user's `tenant_id` (read from `$AXONFLOW_CONFIG_DIR/try-registration.json`), the AxonFlow endpoint the plugin would talk to, and a tier indicator (Pro when `AXONFLOW_LICENSE_TOKEN` or `pluginConfig.licenseToken` is set, Free otherwise). Surfaces the upgrade URL on free, and a redacted preview of the license token (last 4 chars only — full token is **never** printed) on Pro. Closes the W4 paid-Pro launch UX gap where users had no way to read their `tenant_id` before pasting it into the Stripe checkout custom field. `--json` flag emits the same shape as machine-readable output.
 - **Pro tier activation via `X-License-Token`.** New `licenseToken` pluginConfig field (and `AXONFLOW_LICENSE_TOKEN` env var, env wins) carries the AXON-prefixed plugin-claim token issued by AxonFlow Pro Stripe Checkout. When set, the plugin forwards it on every governed request via the `X-License-Token` header so the agent's plugin-claim middleware can apply Pro-tier entitlements (extended audit retention, higher quotas, license-gated capabilities). On every plugin init the canary log emits `[AxonFlow] Pro tier active …` alongside the existing connection canary so users always know the token is wired through. Free-tier installs are unaffected — when no token is configured the header is omitted entirely.
 - **`axonflow-openclaw-recover` CLI for Community-SaaS credential recovery.** New bin script (`npx @axonflow/openclaw axonflow-openclaw-recover <email>`, also exported as `requestRecovery` / `verifyRecovery` / `extractRecoveryToken` / `persistRecoveredCredentials` from the package entry point) drives the platform's email-based recovery flow when `try-registration.json` is lost: posts to `/api/v1/recover`, prompts for the magic-link token (or accepts the full magic-link URL), posts to `/api/v1/recover/verify`, and persists the freshly-issued tenant_id + secret at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode 0o600) so the next plugin reload picks them up automatically. Magic-link tokens are one-shot and short-lived; replays return 401.
-- **`runtime-e2e/v1_paid_tier/`** — runtime-path test that drives both new features end-to-end against a live community-saas stack: confirms the `Pro tier active` canary fires, the agent's plugin-claim middleware counter increments after a governed call (proving `X-License-Token` reached the wire), and the recovery CLI completes the email → magic link → verify → persist → authenticate cycle with a fresh tenant_id.
+- **the runtime test bundle** — runtime-path test that drives both new features end-to-end against a live community-saas stack: confirms the `Pro tier active` canary fires, the agent's plugin-claim middleware counter increments after a governed call (proving `X-License-Token` reached the wire), and the recovery CLI completes the email → magic link → verify → persist → authenticate cycle with a fresh tenant_id.
 
 ### Fixed
 
-- **`runtime-e2e/v1_paid_tier/`: pass when stack is long-running.** Previously the test silently exited as `PARTIAL PASS` after Feature 1 whenever `/api/v1/register` returned 429, mislabeling the cause as "agent not in community-saas mode". The agent's per-IP rate limiter (5 calls per source-IP per hour, shared between `/api/v1/register` and `/api/v1/recover`) trips quickly when the test runs against a stack that has already absorbed any traffic in the current hour, which silently turns the recovery handler into a no-op (handler returns generic 202 to prevent enumeration). The test now sends a per-run synthetic source-IP via `X-Forwarded-For` (override with `RUNTIME_E2E_XFF`) so each run gets a fresh rate-limit bucket, and surfaces a real failure with a remediation hint when the bucket is somehow still saturated. Step 2g also now probes `$AXONFLOW_ENDPOINT/api/request` (the agent's primary Basic-auth surface) instead of `$PERSISTED_ENDPOINT/api/v1/audit/tool-call` — the persisted endpoint is hardcoded by the platform to `https://try.getaxonflow.com` and is correct for production users but useless for a runtime test pointing at a local stack, and the audit/tool-call route additionally requires the operator to have set `AXONFLOW_INTERNAL_SERVICE_SECRET` in non-Community deployments. Feature 1 PASSED, Feature 2 PASSED end-to-end on local docker-compose with v7.7.0.
-- **Upgrade-pointer URL aligned with the canonical pricing page.** `STATUS_DEFAULT_UPGRADE_URL` (the URL surfaced by `axonflow-openclaw-status` to free-tier users, and embedded in the `tier=Free (Pro expired ... — visit ... to renew)` line) is now `https://getaxonflow.com/pricing/`. The previous default `https://getaxonflow.com/pro` returned 404 — that page was referenced in PRDs but never built. The pricing page already resolves and carries the Plugin Pro $9.99 tier card with the Stripe buy button, so plugin status output now points free-tier users at a working URL. Override via `AXONFLOW_UPGRADE_URL` env var if needed. Same fix landed in companion plugin releases (claude-plugin v1.2.0, cursor-plugin v1.2.0, codex-plugin v1.2.0).
+- **the runtime test bundle: pass when stack is long-running.** Previously the test silently exited as `PARTIAL PASS` after Feature 1 whenever `/api/v1/register` returned 429, mislabeling the cause as "agent not in community-saas mode". The agent's per-IP rate limiter (5 calls per source-IP per hour, shared between `/api/v1/register` and `/api/v1/recover`) trips quickly when the test runs against a stack that has already absorbed any traffic in the current hour, which silently turns the recovery handler into a no-op (handler returns generic 202 to prevent enumeration). The test now sends a per-run synthetic source-IP via `X-Forwarded-For` (override with `RUNTIME_E2E_XFF`) so each run gets a fresh rate-limit bucket, and surfaces a real failure with a remediation hint when the bucket is somehow still saturated. Step 2g also now probes `$AXONFLOW_ENDPOINT/api/request` (the agent's primary Basic-auth surface) instead of `$PERSISTED_ENDPOINT/api/v1/audit/tool-call` — the persisted endpoint is hardcoded by the platform to `https://try.getaxonflow.com` and is correct for production users but useless for a runtime test pointing at a local stack, and the audit/tool-call route additionally requires the operator to have set `AXONFLOW_INTERNAL_SERVICE_SECRET` in non-Community deployments. Feature 1 PASSED, Feature 2 PASSED end-to-end on local docker-compose with v7.7.0.
+- **Upgrade-pointer URL aligned with the canonical pricing page.** `STATUS_DEFAULT_UPGRADE_URL` (the URL surfaced by `axonflow-openclaw-status` to free-tier users, and embedded in the `tier=Free (Pro expired. — visit. to renew)` line) is now `https://getaxonflow.com/pricing/`. The previous default `https://getaxonflow.com/pro` returned 404 — that page was referenced in PRDs but never built. The pricing page already resolves and carries the Plugin Pro $9.99 tier card with the Stripe buy button, so plugin status output now points free-tier users at a working URL. Override via `AXONFLOW_UPGRADE_URL` env var if needed. Same fix landed in companion plugin releases (claude-plugin v1.2.0, cursor-plugin v1.2.0, codex-plugin v1.2.0).
 
 ## [2.1.1] - 2026-05-05 — exclude runtime-e2e/ from published artifact
 
 ### Fixed
 
 - **`runtime-e2e/` now excluded from the ClawHub publish.** The runtime
-  E2E test harnesses are CI fixtures that drive a real OpenClaw agent
-  against a live AxonFlow stack — they're not consumed by the plugin
-  runtime. They were inadvertently shipped with the v2.1.0 artifact and
-  the static-analysis scanner flagged five of them on a false-positive
-  exfiltration heuristic that matched their HTTP Basic-auth header
-  setup. Removing the surface area entirely is more durable than
-  appealing the heuristic.
+ E2E test harnesses are CI fixtures that drive a real OpenClaw agent
+ against a live AxonFlow stack — they're not consumed by the plugin
+ runtime. They were inadvertently shipped with the v2.1.0 artifact and
+ the static-analysis scanner flagged five of them on a false-positive
+ exfiltration heuristic that matched their HTTP Basic-auth header
+ setup. Removing the surface area entirely is more durable than
+ appealing the heuristic.
 
 ## [2.1.0] - 2026-05-04 — 5 agent-callable governance tools
 
 ### Added
 
 - **5 agent-callable governance tools.** OpenClaw agents can invoke
-  AxonFlow's read-side governance surface directly through tool-calling:
-  `axonflow_audit_search`, `axonflow_explain_decision`,
-  `axonflow_list_overrides`, `axonflow_create_override`, and
-  `axonflow_revoke_override`. Tools register when OpenClaw exposes
-  `registerTool` (2026.3.22+); older runtimes log a one-line warning
-  and continue with hooks only.
+ AxonFlow's read-side governance surface directly through tool-calling:
+ `axonflow_audit_search`, `axonflow_explain_decision`,
+ `axonflow_list_overrides`, `axonflow_create_override`, and
+ `axonflow_revoke_override`. Tools register when OpenClaw exposes
+ `registerTool` (2026.3.22+); older runtimes log a one-line warning
+ and continue with hooks only.
 - **`userEmail` config field.** Required for `axonflow_create_override`
-  and `axonflow_revoke_override` so the platform can scope overrides to
-  the actual user. When absent, the override-write tools fail with a
-  clear authentication error from the platform; read-side tools and the
-  hook path continue to work.
+ and `axonflow_revoke_override` so the platform can scope overrides to
+ the actual user. When absent, the override-write tools fail with a
+ clear authentication error from the platform; read-side tools and the
+ hook path continue to work.
 
 ### Fixed
 
 - **Agent tools now surface platform outages as errors instead of empty
-  results.** Previously, a 5xx, network failure, or auth error on
-  `axonflow_audit_search`, `axonflow_list_overrides`, or
-  `axonflow_explain_decision` could be silently collapsed into "no audit
-  events" / "no overrides" / "no explanation available" because the
-  underlying client methods were written for CLI UX and swallow HTTP
-  failures. The agent tools now use strict client variants that throw
-  on transport / non-2xx, so a calling agent sees `isError: true` with
-  the HTTP status instead of a misleading success.
+ results.** Previously, a 5xx, network failure, or auth error on
+ `axonflow_audit_search`, `axonflow_list_overrides`, or
+ `axonflow_explain_decision` could be silently collapsed into "no audit
+ events" / "no overrides" / "no explanation available" because the
+ underlying client methods were written for CLI UX and swallow HTTP
+ failures. The agent tools now use strict client variants that throw
+ on transport / non-2xx, so a calling agent sees `isError: true` with
+ the HTTP status instead of a misleading success.
 
 ## [2.0.8] - 2026-05-02 — Drop tarball arg; v0.12.0 only supports folder upload
 
@@ -270,7 +270,7 @@ Falling back to the v2.0.4 baseline: CLI v0.12.0 + folder upload (Legacy ZIP). T
 
 ### Changed
 
-- **`.github/workflows/publish.yml` `publish-clawhub` step uses folder upload** (`clawhub package publish .`). Identical to the v2.0.4 publish step; CLI pin from v2.0.7 retained.
+- **`.github/workflows/publish.yml` `publish-clawhub` step uses folder upload** (`clawhub package publish.`). Identical to the v2.0.4 publish step; CLI pin from v2.0.7 retained.
 
 ### Carried forward (unchanged from v2.0.7)
 
@@ -307,7 +307,7 @@ v2.0.4 (last known-good install) was published 2026-04-30 with `clawhub` CLI v0.
 ### Changed
 
 - **Pin `clawhub@0.12.0` in `.github/workflows/publish.yml`.** `npm install -g clawhub` (unpinned) was always pulling latest, which is why the regression hit on the next publish after v0.12.1 shipped. The pin holds until ClawHub fixes the upstream regression in v0.12.1+.
-- **Restore ClawPack tarball publish path.** With CLI pinned to v0.12.0, `clawhub package publish ./<tarball>.tgz` returns to producing a publishable ClawPack artifact. Re-earns the ClawPack badge on the install page. If install still breaks despite the pin, v2.0.8 will revert to folder upload (Legacy ZIP).
+- **Restore ClawPack tarball publish path.** With CLI pinned to v0.12.0, `clawhub package publish./<tarball>.tgz` returns to producing a publishable ClawPack artifact. Re-earns the ClawPack badge on the install page. If install still breaks despite the pin, v2.0.8 will revert to folder upload (Legacy ZIP).
 
 ### Added
 
@@ -333,7 +333,7 @@ v2.0.5 switched the ClawHub publish artifact from folder upload (Legacy ZIP) to 
 
 ### Changed
 
-- **Revert ClawHub publish step to folder upload.** `.github/workflows/publish.yml` now runs `clawhub package publish .` (folder) instead of `clawhub package publish ./<tarball>.tgz`. This re-introduces the "Legacy ZIP — may have compatibility issues" badge on the ClawHub install page but restores `openclaw plugins install` for every adopter. Trade-off accepted until ClawHub fixes the ClawPack handling path.
+- **Revert ClawHub publish step to folder upload.** `.github/workflows/publish.yml` now runs `clawhub package publish.` (folder) instead of `clawhub package publish./<tarball>.tgz`. This re-introduces the "Legacy ZIP — may have compatibility issues" badge on the ClawHub install page but restores `openclaw plugins install` for every adopter. Trade-off accepted until ClawHub fixes the ClawPack handling path.
 
 ### Carried forward from v2.0.5
 
@@ -367,7 +367,7 @@ ClawHub's install page on prior versions surfaced a "Legacy ZIP — may have com
 
 ## [2.0.4] - 2026-05-01 — Restore `userEmail` configuration + reframe Community SaaS as exploration-only
 
-`openclaw.plugin.json` declared `configSchema.additionalProperties: false` but did not list `userEmail` in `properties`, even though the plugin's runtime config resolver (`src/config.ts`) reads `userEmail` from `pluginConfig` and forwards it as the `X-User-Email` header on every request. OpenClaw's plugin loader runs the published configSchema against the user's `pluginConfig`; when validation fails (because of the unknown property), the loader emits a single `[plugins] axonflow-governance invalid config: ...` log line and skips the plugin entirely — it never registers, no hooks fire, and tool calls execute completely ungoverned.
+`openclaw.plugin.json` declared `configSchema.additionalProperties: false` but did not list `userEmail` in `properties`, even though the plugin's runtime config resolver (`src/config.ts`) reads `userEmail` from `pluginConfig` and forwards it as the `X-User-Email` header on every request. OpenClaw's plugin loader runs the published configSchema against the user's `pluginConfig`; when validation fails (because of the unknown property), the loader emits a single `[plugins] axonflow-governance invalid config:.` log line and skips the plugin entirely — it never registers, no hooks fire, and tool calls execute completely ungoverned.
 
 In practice this affected every user who followed the documented configuration path for the override workflow. `client.createOverride()`, `client.revokeOverride()`, `client.listOverrides()` all require `userEmail` to be set (the endpoints reject calls without user identity with HTTP 401), and `client.explainDecision()` needs it for correct per-user scoping. Setting it via `pluginConfig.userEmail` — which is what the README, the SKILL.md on ClawHub, and the rest of the documentation describe — failed schema validation, disabled the plugin silently, and left the user with neither governance nor an obvious error.
 
@@ -439,7 +439,7 @@ The first ClawHub static-analyzer ruleset bump on the v2.0 line. v2.0.1's compil
 
 ## [2.0.1] - 2026-04-30 — Restore ClawHub install + explicit Community-SaaS consent surface
 
-ClawHub's static-analysis scanner blocked install of `@axonflow/openclaw@2.0.0` because the telemetry and Community-SaaS bootstrap modules co-located `process.env.*` access and `fs.readFileSync(...)` calls with the outbound `fetch(...)` in the same compiled file — a pattern the scanner heuristically flags as credential-harvesting / potential data exfiltration. This release restores a clean install path on every supported OpenClaw host, adds a real opt-out for Community-SaaS auto-registration, and ships a CI gate so this class of regression cannot recur.
+ClawHub's static-analysis scanner blocked install of `@axonflow/openclaw@2.0.0` because the telemetry and Community-SaaS bootstrap modules co-located `process.env.*` access and `fs.readFileSync(.)` calls with the outbound `fetch(.)` in the same compiled file — a pattern the scanner heuristically flags as credential-harvesting / potential data exfiltration. This release restores a clean install path on every supported OpenClaw host, adds a real opt-out for Community-SaaS auto-registration, and ships a CI gate so this class of regression cannot recur.
 
 ### Added
 
@@ -476,7 +476,7 @@ The full set of platform-side security fixes shipped alongside this release — 
 
 **Reliability and bug-fix highlights:**
 - **7-day delivered-heartbeat with stamp-on-success** (this release). Telemetry stamp advances only after the POST returns 2xx, so a transient network failure no longer silences telemetry until the next 7-day window. Concurrent invocations are de-duplicated by an in-flight gate.
-- **Mode-clarity canary log line** on every plugin init (this release). Logs `[AxonFlow] Connected to AxonFlow at <URL> (mode=...)` and a PR-blocking CI gate asserts the canary matches the actual outbound destination, guarding against silent endpoint drift.
+- **Mode-clarity canary log line** on every plugin init (this release). Logs `[AxonFlow] Connected to AxonFlow at <URL> (mode=.)` and a PR-blocking CI gate asserts the canary matches the actual outbound destination, guarding against silent endpoint drift.
 - **PR-blocking install-to-use smoke against the live community stack** (this release). Catches plugin-side regressions against `try.getaxonflow.com` before they reach a user's host process.
 
 ### BREAKING
@@ -500,8 +500,8 @@ The full set of platform-side security fixes shipped alongside this release — 
 
 ### Fixed
 
-- The `DO_NOT_TRACK=1 is deprecated...` `console.warn` is no longer emitted on every plugin init when `DO_NOT_TRACK=1` is set.
-- Hooks now correctly see Community-SaaS credentials produced by the asynchronous bootstrap. Previously the hook handlers captured the AxonFlowClient by value at registration time, so the post-bootstrap reassignment was invisible — every governed tool call kept shipping `Authorization: Basic :` against try.getaxonflow.com. Hooks now read through a mutable client holder.
+- The `DO_NOT_TRACK=1 is deprecated.` `console.warn` is no longer emitted on every plugin init when `DO_NOT_TRACK=1` is set.
+- Hooks now correctly see Community-SaaS credentials produced by the asynchronous bootstrap. Previously the hook handlers captured the AxonFlowClient by value at registration time, so the post-bootstrap reassignment was invisible — every governed tool call kept shipping `Authorization: Basic:` against try.getaxonflow.com. Hooks now read through a mutable client holder.
 
 ### Security
 
@@ -525,56 +525,56 @@ closes six related server-side gaps.
 ### Added
 
 - **`config.userEmail`** — per-user identity forwarded via `X-User-Email`
-  on every request. Required for `createOverride` / `revokeOverride` /
-  `listOverrides` (endpoints reject unauthenticated user identity with
-  HTTP 401) and for correct per-user scoping on `explainDecision`. If
-  unset the client continues to work for block-path features (richer
-  context, check_input / check_output) but the override lifecycle
-  methods will 401.
+ on every request. Required for `createOverride` / `revokeOverride` /
+ `listOverrides` (endpoints reject unauthenticated user identity with
+ HTTP 401) and for correct per-user scoping on `explainDecision`. If
+ unset the client continues to work for block-path features (richer
+ context, check_input / check_output) but the override lifecycle
+ methods will 401.
 
 ### Fixed
 
 - `baseHeaders()` now emits `X-User-Email` when `config.userEmail` is
-  set. Before this release, calling `createOverride` always returned
-  HTTP 401 "Authenticated user identity required" and `listOverrides`
-  scoped to a synthetic client-wide user.
+ set. Before this release, calling `createOverride` always returned
+ HTTP 401 "Authenticated user identity required" and `listOverrides`
+ scoped to a synthetic client-wide user.
 
 ### Internal
 
-- **Smoke E2E** at `tests/e2e/smoke-block-context.mjs` — exercises the
-  `AxonFlowClient.mcpCheckInput` path against a reachable platform and
-  asserts Plugin Batch 1 richer-context fields (`decision_id`,
-  `risk_level`, `policy_matches`) land on the response. Exits with
-  `SKIP:` when no stack is reachable so it's safe to run anywhere.
+- **Smoke E2E** at the e2e test suite — exercises the
+ `AxonFlowClient.mcpCheckInput` path against a reachable platform and
+ asserts Plugin Batch 1 richer-context fields (`decision_id`,
+ `risk_level`, `policy_matches`) land on the response. Exits with
+ `SKIP:` when no stack is reachable so it's safe to run anywhere.
 - **`.github/workflows/smoke-e2e.yml`** — `workflow_dispatch` triggered job running the smoke scenario.
-  Requires an operator-supplied endpoint (GitHub-hosted runners have no
-  local stack), so not wired to PR events — PR smoke gating needs a
-  self-hosted runner with a live stack. Full install-and-use matrix
-  lives in `axonflow-enterprise/tests/e2e/plugin-batch-1/openclaw-install/`.
+ Requires an operator-supplied endpoint (GitHub-hosted runners have no
+ local stack), so not wired to PR events — PR smoke gating needs a
+ self-hosted runner with a live stack. Full install-and-use matrix is
+ exercised in the platform integration tests.
 
 ## [1.3.0] - 2026-04-18
 
 ### Added
 
 - **`client.explainDecision(decisionId)`** — programmatic access to the full
-  decision explanation (matched policies, risk level, reason, override
-  availability, rolling-24h session hit count). Shape is frozen.
-  Returns null on 404 / network failure so callers can fall back to a
-  terse block message without crashing.
+ decision explanation (matched policies, risk level, reason, override
+ availability, rolling-24h session hit count). Shape is frozen.
+ Returns null on 404 / network failure so callers can fall back to a
+ terse block message without crashing.
 - **`client.createOverride({ policyId, policyType, overrideReason, toolSignature?, ttlSeconds? })`** —
-  creates a session-scoped override with a mandatory free-text justification.
-  Client-side validates the reason is non-empty; server enforces TTL clamping
-  (default 60m, hard cap 24h), critical-risk rejection, and the
-  `allow_override=false` contract.
+ creates a session-scoped override with a mandatory free-text justification.
+ Client-side validates the reason is non-empty; server enforces TTL clamping
+ (default 60m, hard cap 24h), critical-risk rejection, and the
+ `allow_override=false` contract.
 - **`client.revokeOverride(overrideId)`** and **`client.listOverrides()`** —
-  round out the override CRUD surface for the upcoming CLI.
+ round out the override CRUD surface for the upcoming CLI.
 - **New types exported:** `DecisionExplanation`, `ExplainPolicy`, `ExplainRule`,
-  `CreateOverrideOptions`, `CreateOverrideResult`.
+ `CreateOverrideOptions`, `CreateOverrideResult`.
 - **Richer `MCPCheckInputResponse` / `MCPCheckOutputResponse`** — surface
-  optional `decision_id`, `policy_matches`, `risk_level`, `override_available`,
-  `override_existing_id` fields when the platform is v7.1.0+. Older platforms
-  return undefined for these fields; callers should treat absence as "context
-  not available" rather than an error.
+ optional `decision_id`, `policy_matches`, `risk_level`, `override_available`,
+ `override_existing_id` fields when the platform is v7.1.0+. Older platforms
+ return undefined for these fields; callers should treat absence as "context
+ not available" rather than an error.
 
 ### Compatibility
 
@@ -595,8 +595,8 @@ No code changes.
 ### Fixed
 
 - **`openclaw plugins install @axonflow/openclaw` now works end-to-end on OpenClaw 2026.4.14+.** Two separate upstream bugs had been blocking this install path:
-  1. OpenClaw CLI prior to 2026.4.14 wrote the downloaded archive to `<tempdir>/@scope/name.zip` without creating the `@scope/` subdirectory, which made every scoped npm package on ClawHub fail with `ENOENT`. Fixed upstream in OpenClaw 2026.4.14 ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)).
-  2. OpenClaw 2026.4.14 also upgraded its install-time static scanner from **warn** to **block** on files that co-locate `process.env.X` reads with `fetch()` calls. Our telemetry opt-out unit tests (`tests/telemetry.test.ts`) legitimately mock both and were flagged as "possible credential harvesting", which blocked installation of v1.2.2. Filed upstream: [openclaw/openclaw#66840](https://github.com/openclaw/openclaw/issues/66840).
+ 1. OpenClaw CLI prior to 2026.4.14 wrote the downloaded archive to `<tempdir>/@scope/name.zip` without creating the `@scope/` subdirectory, which made every scoped npm package on ClawHub fail with `ENOENT`. Fixed upstream in OpenClaw 2026.4.14 ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)).
+ 2. OpenClaw 2026.4.14 also upgraded its install-time static scanner from **warn** to **block** on files that co-locate `process.env.X` reads with `fetch()` calls. Our telemetry opt-out unit tests (`tests/telemetry.test.ts`) legitimately mock both and were flagged as "possible credential harvesting", which blocked installation of v1.2.2. Filed upstream: [openclaw/openclaw#66840](https://github.com/openclaw/openclaw/issues/66840).
 - **Fix in this release:** new `.clawhubignore` excludes test files, TypeScript sources, CI config, and internal scripts from the ClawHub-published archive. Only runtime artifacts (`dist/`, `openclaw.plugin.json`, `policies/`, `package.json`, `README.md`, `CHANGELOG.md`, `LICENSE`) ship to ClawHub. The npm-published tgz was already minimal via the `files` field in `package.json`; this brings the ClawHub archive in line.
 
 ## [1.2.2] - 2026-04-14
