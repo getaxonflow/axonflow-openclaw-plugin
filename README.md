@@ -316,7 +316,7 @@ Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/)
 
 ### Step 2: install the plugin
 
-Requires OpenClaw **2026.4.15 or later** (CVE floor). Upgrade with `npm install -g openclaw@latest` if needed.
+Requires OpenClaw **2026.4.15 or later** (CVE floor). **Strongly recommended: 2026.5.7 or later** — see [hash-mismatch workaround](#openclaw-cli-hash-mismatch) below. Upgrade with `npm install -g openclaw@latest`.
 
 ```bash
 openclaw plugins install @axonflow/openclaw@latest
@@ -332,8 +332,35 @@ openclaw plugins install @axonflow/openclaw@2.1.0
 
 The `clawhub:@axonflow/openclaw` form is also supported and pulls from the [ClawHub](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw) mirror, which we publish to alongside [npm](https://www.npmjs.com/package/@axonflow/openclaw) on each release.
 
+<a id="openclaw-cli-hash-mismatch"></a>
 <details>
-<summary>On an older OpenClaw CLI? The ENOENT workaround still applies.</summary>
+<summary>Hit <code>ClawHub archive integrity mismatch</code>? Upgrade the CLI.</summary>
+
+OpenClaw CLI versions before **2026.5.7** can hit a regression in the ClawHub install path's integrity check (confirmed on 2026.4.27). `openclaw plugins install @axonflow/openclaw` fails with:
+
+```
+ClawHub archive integrity mismatch for "@axonflow/openclaw@2.X.Y":
+expected sha256-..., got sha256-...
+```
+
+The published artifact is byte-correct on both [npm](https://www.npmjs.com/package/@axonflow/openclaw) and [ClawHub](https://clawhub.ai/p/axonflow) (they serve identical bytes that match the manifest's pinned hash). The CLI computes a different hash internally and fails the comparison. Fixed in OpenClaw **2026.5.7**.
+
+```bash
+npm install -g openclaw@latest
+openclaw plugins install @axonflow/openclaw@latest
+```
+
+If you cannot upgrade the CLI, fall back to a local-tgz install — the same path used for the older ENOENT bug below — which bypasses the broken integrity check:
+
+```bash
+TGZ=$(npm pack @axonflow/openclaw 2>/dev/null | tail -1)
+openclaw plugins install "./$TGZ"
+```
+
+</details>
+
+<details>
+<summary>On a pre-2026.4.14 CLI? The ENOENT workaround still applies.</summary>
 
 OpenClaw versions before 2026.4.14 had a bug ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) that made scoped packages fail with `ENOENT .../openclaw-clawhub-package-XXXXXX/@axonflow/openclaw.zip` — both forms of the install command hit it. The fix shipped in 2026.4.14. If you cannot upgrade, install from npm directly:
 
