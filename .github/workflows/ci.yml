@@ -19,8 +19,13 @@ jobs:
     env:
       AXONFLOW_TELEMETRY: "off"
     strategy:
+      # PR runs only Node 20 (the lower bound this plugin supports). Push to
+      # main and workflow_dispatch run the full matrix to catch version-
+      # specific drift before tagging. install-smoke.yml mirrors this so a
+      # tarball that installs on one but not the other is still gated
+      # at merge time.
       matrix:
-        node-version: [20, 22]
+        node-version: ${{ fromJson(github.event_name == 'pull_request' && '[20]' || '[20, 22]') }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

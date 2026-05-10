@@ -60,11 +60,12 @@ jobs:
     timeout-minutes: 6
     strategy:
       fail-fast: false
+      # PR runs only Node 20 (the lower bound). Push, dispatch, and merge
+      # validate both versions to keep the "tarball-installs-everywhere"
+      # invariant. The 20-only PR run still catches breakage on the lower
+      # bound, which is where most install regressions surface.
       matrix:
-        # Mirror ci.yml's matrix so a tarball that installs on 22 but
-        # breaks on 20 (the lower bound the plugin supports) can't slip
-        # through.
-        node-version: [20, 22]
+        node-version: ${{ fromJson(github.event_name == 'pull_request' && '[20]' || '[20, 22]') }}
     env:
       AXONFLOW_TELEMETRY: 'off'
 
