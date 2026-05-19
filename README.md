@@ -102,15 +102,15 @@ Plugin Pro is the paid tier on top of free Community SaaS. The Free baseline sup
 
 To activate Pro on an installed plugin:
 
-1. **Find your tenant ID.** Run the bundled status CLI from a terminal:
+1. **Find your client ID.** Run the bundled status CLI from a terminal:
 
     ```bash
     npx @axonflow/openclaw axonflow-openclaw-status
     ```
 
-    The output includes a `tenant_id:  cs_<uuid>` line — that's the value Stripe Checkout needs to bind the license to your tenant. Copy it. (See [Check status](#check-status) below for the full output shape and `--json` mode.)
+    The output includes a `client_id:  cs_<uuid>` line — that's the value Stripe Checkout needs to bind the license to your account. Copy it. (Same value the v2.4.x output called `tenant_id`; renamed in v2.5.0 for consistency with the rest of AxonFlow's v9 terminology. See [Check status](#check-status) below for the full output shape and `--json` mode — both `client_id` and the legacy `tenant_id` key are populated in JSON output for v2.4.x-consumer compat.)
 
-2. **Buy at the pricing page.** Visit [getaxonflow.com/pricing/](https://getaxonflow.com/pricing/) and click **Buy Plugin Pro — $9.99**. At Stripe Checkout, paste your `tenant_id` into the **AxonFlow tenant ID** custom field. The agent issues an `AXON-…` token and emails it to the address you used at checkout.
+2. **Buy at the pricing page.** Visit [getaxonflow.com/pricing/](https://getaxonflow.com/pricing/) and click **Buy Plugin Pro — $9.99**. At Stripe Checkout, paste your `client_id` into the **AxonFlow tenant ID** custom field. (The Stripe form's field label is still "AxonFlow tenant ID" — same value, the label will be renamed in a future release.) The agent issues an `AXON-…` token and emails it to the address you used at checkout.
 3. **Install the issued license token.** Either set `AXONFLOW_LICENSE_TOKEN=<the token>` in the environment OpenClaw runs in, or set `pluginConfig.licenseToken` in your OpenClaw config.
 4. **Reload OpenClaw.** The plugin emits `[AxonFlow] Pro tier active …` on every init alongside the connection canary, and forwards `X-License-Token` on every governed request automatically.
 
@@ -118,7 +118,7 @@ If you lose the token (laptop reinstall, never archived the email), use the reco
 
 ### Check status
 
-When you need to know your `tenant_id` (for example to paste it into the Stripe checkout custom field when buying Pro), or you want to confirm which AxonFlow endpoint the plugin is pointed at and whether a Pro license token is wired through:
+When you need to know your `client_id` (for example to paste it into the Stripe checkout custom field when buying Pro), or you want to confirm which AxonFlow endpoint the plugin is pointed at and whether a Pro license token is wired through:
 
 ```bash
 # Installed via OpenClaw plugin install:
@@ -136,8 +136,9 @@ Sample output (free tier, registered):
 ```
 AxonFlow OpenClaw plugin status
 
-  tenant_id:  cs_demo_tenant_abc123
-              (paste this into the Stripe checkout custom field when buying Pro)
+  client_id:  cs_demo_tenant_abc123  (formerly tenant_id)
+              (paste this into the Stripe checkout custom field when buying Pro —
+              the form's field label is still 'AxonFlow tenant ID' for now)
   endpoint:   https://try.getaxonflow.com
   tier:       Free
   upgrade:    https://getaxonflow.com/pricing/
@@ -148,14 +149,15 @@ Sample output (Pro tier active):
 ```
 AxonFlow OpenClaw plugin status
 
-  tenant_id:  cs_demo_tenant_abc123
-              (paste this into the Stripe checkout custom field when buying Pro)
+  client_id:  cs_demo_tenant_abc123  (formerly tenant_id)
+              (paste this into the Stripe checkout custom field when buying Pro —
+              the form's field label is still 'AxonFlow tenant ID' for now)
   endpoint:   https://try.getaxonflow.com
   tier:       Pro (license token configured)
   license:    …XYZ9 (redacted — last 4 chars only)
 ```
 
-The license token is **never** printed in full — only the last four characters are shown so you can confirm the token is the one you expect without exposing it via screen-share, copy-paste, or shell history. If `tenant_id` is missing, the CLI points you at `axonflow-openclaw-recover` to re-issue credentials against your registered email.
+The license token is **never** printed in full — only the last four characters are shown so you can confirm the token is the one you expect without exposing it via screen-share, copy-paste, or shell history. If `client_id` is missing, the CLI points you at `axonflow-openclaw-recover` to re-issue credentials against your registered email. JSON output (`--json`) populates BOTH `client_id` and the legacy `tenant_id` key with the same value so v2.4.x consumers keep working unchanged.
 
 ### Recover lost Community-SaaS credentials
 
