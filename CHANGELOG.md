@@ -4,6 +4,8 @@
 
 ### Documentation
 
+- **README use-case recipe for TweetClaw-governed X/Twitter automation.** Added a focused OpenClaw configuration example that keeps TweetClaw's free `explore` catalog outside approval gates while requiring review for live `tweetclaw` calls that can search tweets, export followers, manage media, send direct messages, create monitors or webhooks, run giveaway draws, and request post tweets or replies.
+
 - **README + integration guide: `ClawHub archive integrity mismatch` workaround.** Documented the OpenClaw CLI regression that causes `openclaw plugins install @axonflow/openclaw` to fail with a SHA-256 mismatch on CLI versions before 2026.5.7 (confirmed on 2026.4.27). Both registries serve byte-correct artifacts matching the manifest pin; the bug is in the CLI's internal hash computation. Fixed upstream in OpenClaw 2026.5.7 — `npm install -g openclaw@latest` to upgrade. Local-tgz fallback (`npm pack` → `openclaw plugins install ./<tgz>`) bypasses the broken path on older CLIs.
 
 ## [2.4.0] - 2026-05-09 — Decision History API + policy_version recorded on every decision + telemetry simplification

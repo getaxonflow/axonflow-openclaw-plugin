@@ -452,6 +452,21 @@ plugins:
     onError: block
 ```
 
+### X/Twitter automation agent - reviewed public actions
+
+Pair AxonFlow with [TweetClaw](https://github.com/Xquik-dev/tweetclaw) when an OpenClaw agent can search tweets, search tweet replies, export followers, inspect users, manage media, send direct messages, create monitors, create webhooks, run giveaway draws, or request reviewed post tweets and post tweet replies through Xquik.
+
+```yaml
+plugins:
+  @axonflow/openclaw:
+    endpoint: http://localhost:8080
+    highRiskTools: [tweetclaw]
+    excludedTools: [explore]
+    onError: block
+```
+
+Keep TweetClaw's free `explore` catalog outside approval gates if you only want policy checks on live X/Twitter calls. Require approval for the `tweetclaw` tool because it can perform paid reads, private reads, and write actions.
+
 ### Self-healing infrastructure agent — highest risk
 
 ```yaml
