@@ -93,7 +93,23 @@ export interface StatusInputs {
 
 /** Resolved status report — stable shape for both human + JSON consumers. */
 export interface StatusReport {
-  /** Tenant identifier from try-registration.json, or null if missing. */
+  /**
+   * Client identifier from try-registration.json (the JSON key on disk
+   * is still `tenant_id` for file-format compat with installed base —
+   * see v1.5.0 CHANGELOG and axonflow-enterprise#2230). Null if the
+   * registration file is missing.
+   *
+   * v9 canonical field name. JSON consumers reading from
+   * `axonflow-openclaw-status --json` SHOULD prefer this key over the
+   * legacy `tenant_id` alias going forward; the alias remains populated
+   * for backwards compat.
+   */
+  client_id: string | null;
+  /**
+   * Legacy alias of {@link client_id} — same value, preserved for JSON
+   * consumers that scripted around the v1.4.x output shape. Will be
+   * removed in v3.0.0; use {@link client_id} for new consumers.
+   */
   tenant_id: string | null;
   /** Endpoint the plugin would talk to. */
   endpoint: string;
@@ -312,6 +328,7 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
   }
 
   return {
+    client_id: tenantId,
     tenant_id: tenantId,
     endpoint,
     tier,
@@ -379,19 +396,23 @@ export function resolveStatusInputs(
  * stdout. Stable line shape so users can grep / pipe it.
  *
  * The report is intentionally chatty for first-time users: we explain
- * what tenant_id is for (Stripe checkout custom field), and where to
- * recover lost credentials. Power users who want a stable structured
- * surface should consume `buildStatusReport()` directly.
+ * what client_id is for (Stripe checkout custom field, still labeled
+ * "AxonFlow tenant ID" on the Stripe form until that surface rebrands
+ * separately), and where to recover lost credentials. Power users who
+ * want a stable structured surface should consume `buildStatusReport()`
+ * directly — both `client_id` and `tenant_id` keys are populated in
+ * the report for v2.4.x → v2.5.0 JSON-consumer compat.
  */
 export function formatStatusReport(report: StatusReport): string {
   const lines: string[] = [];
   lines.push("AxonFlow OpenClaw plugin status");
   lines.push("");
-  if (report.tenant_id) {
-    lines.push(`  tenant_id:  ${report.tenant_id}`);
-    lines.push("              (paste this into the Stripe checkout custom field when buying Pro)");
+  if (report.client_id) {
+    lines.push(`  client_id:  ${report.client_id}  (formerly tenant_id)`);
+    lines.push("              (paste this into the Stripe checkout custom field when buying Pro —");
+    lines.push("              the form's field label is still 'AxonFlow tenant ID' for now)");
   } else {
-    lines.push("  tenant_id:  (not registered)");
+    lines.push("  client_id:  (not registered)  (formerly tenant_id)");
     lines.push(`              No registration file at ${report.registration_file}`);
     lines.push("              The plugin auto-registers with Community SaaS on first init.");
     lines.push("              Lost your registration? Run `axonflow-openclaw-recover <email>`");

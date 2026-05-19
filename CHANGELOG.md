@@ -6,6 +6,20 @@
 
 - **README + integration guide: `ClawHub archive integrity mismatch` workaround.** Documented the OpenClaw CLI regression that causes `openclaw plugins install @axonflow/openclaw` to fail with a SHA-256 mismatch on CLI versions before 2026.5.7 (confirmed on 2026.4.27). Both registries serve byte-correct artifacts matching the manifest pin; the bug is in the CLI's internal hash computation. Fixed upstream in OpenClaw 2026.5.7 — `npm install -g openclaw@latest` to upgrade. Local-tgz fallback (`npm pack` → `openclaw plugins install ./<tgz>`) bypasses the broken path on older CLIs.
 
+## [2.5.0] - 2026-05-19 — Terminology: `tenant_id` → `client_id` in user-facing output
+
+### Changed
+
+- **`axonflow-openclaw-status` output: `tenant_id:` label is now `client_id:`.** Same value, new user-facing term. Aligns OpenClaw plugin output with the rest of AxonFlow's v9 terminology (the `org_id` ↔ `client_id` ↔ deployment-license-identity three-identifier model — see [axonflow-enterprise#2230](https://github.com/getaxonflow/axonflow-enterprise/issues/2230)). For this release, the output carries a parenthetical bridge note (`(formerly tenant_id)`) so existing users connect the old and new terms without surprise. The bridge note will be removed in v3.0.0.
+
+  **Cosmetic only — no config change is required.** The on-disk registration file at `$AXONFLOW_CONFIG_DIR/try-registration.json` continues to use the `tenant_id` JSON key (file-format compat with installed base); only the human-readable status output reads `client_id`. Wire-level `X-Axonflow-Client` header is unchanged. The agent-side MCP tool `axonflow_get_tenant_id` keeps its name (callable both as muscle-memory "what's my tenant ID?" and the new "what's my client ID?" — both return the same identifier).
+
+  **JSON consumer compat: `axonflow-openclaw-status --json` populates BOTH `client_id` and the legacy `tenant_id` key** with the same value. The `StatusReport` TypeScript interface exposes both as `string | null` fields. v2.4.x consumers scripting around `.tenant_id` keep working unchanged; new consumers SHOULD prefer `.client_id`. The legacy `tenant_id` alias will be removed in v3.0.0.
+
+  **Action required for users who scripted around the old text output:** if your tooling greps for `tenant_id:` in `axonflow-openclaw-status` stdout, update to grep for `client_id:` (or switch to `--json` mode which still emits the legacy `tenant_id` key).
+
+- **README install-flow examples** updated to use `client_id` terminology consistently. The "Activate Pro tier" walkthrough notes that Stripe Checkout's custom field is still labeled "AxonFlow tenant ID" until that form is updated separately.
+
 ## [2.4.0] - 2026-05-09 — Decision History API + policy_version recorded on every decision + telemetry simplification
 
 ### Added
