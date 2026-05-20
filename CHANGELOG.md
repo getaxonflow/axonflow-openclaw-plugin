@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-05-20 — Harden auth-failure circuit breaker (non-JSON body + centralized fetch chokepoint)
+
+### Fixed
+
+- **Non-JSON 401 body bypassed the breaker** (follow-up to [axonflow-enterprise#2275](https://github.com/getaxonflow/axonflow-enterprise/issues/2275); tracked as [#2275 follow-up](https://github.com/getaxonflow/axonflow-enterprise/issues/2275)). `mcpCheckInput` and `mcpCheckOutput` did `const data = await response.json()` BEFORE checking `response.status === 401`. A real-world 401 from an infrastructure layer (ALB / nginx / WAF / API Gateway) returns `Content-Type: text/plain` + body `Unauthorized\n` — the `.json()` parse threw `SyntaxError` and propagated past the breaker, leaving `authFailed=false` and re-firing the storm. Both methods now detect `response.status === 401` BEFORE attempting `.json()` and throw the typed `AxonFlowHttpError(401, ...)` directly. Repro: pointing the plugin at a fake HTTP server returning `text/plain` 401 fires 2 POSTs pre-fix; 1 POST post-fix.
+
+- **401 detection centralized at the fetch chokepoint** so all ~19 fetch sites in `AxonFlowClient` flip the breaker, not just the four high-volume entry points (`auditToolCall` / `auditLLMCall` / `mcpCheckInput` / `mcpCheckOutput`). Pre-fix, bad creds still caused 401 storms on `searchAuditEvents`, `explainDecision`, the overrides lifecycle endpoints, `/health`, `listRecentDecisionsStrict`, and `callMCPTool` — just at lower volume than the audit endpoint. Post-fix, the single `if (response.status === 401) this.markAuthFailed()` block in `fetchWithTimeout` engages the breaker on the first 401 from ANY endpoint; the four high-volume entry points keep their early-return short-circuit at the TOP of the method, which prevents the next network call entirely. The per-method `if (response.status === 401) markAuthFailed()` blocks inside the non-2xx branches of `mcpCheckInput` / `mcpCheckOutput` / `auditToolCall` / `auditLLMCall` are removed (the centralized hook covers them) so there's a single wiring pattern across the file.
+
+### Lineage
+
+This patch closes two HIGH findings from a hostile review of the v2.6.0 fix in [PR #138](https://github.com/getaxonflow/axonflow-openclaw-plugin/pull/138) (merged `fc129e2741049a07cb4455587b9cf7faf12e74d2`). The thrown `AxonFlowHttpError(401, ...)` shape is byte-compatible with what `governance.ts:isAxonFlowAuthError` consumes (status-based path, not message-based), so `config.onError` semantics are unchanged.
+
 ## [2.6.0] - 2026-05-20 — Auth-failure circuit breaker to prevent 401 storms
 
 ### Fixed
