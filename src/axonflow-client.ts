@@ -261,6 +261,15 @@ export class AxonFlowClient {
   // short-circuit every subsequent governed/audit call without round-
   // tripping. Process-local — a new AxonFlowClient instance (e.g. after
   // config reload) starts fresh.
+  //
+  // 2026-05-20 follow-up hardening: 401 detection is centralized in
+  // fetchWithTimeout so EVERY fetch site (~19 endpoints — search, explain,
+  // overrides, health, listRecentDecisions, callMCPTool, etc.) flips the
+  // flag, not just the four high-volume entry points that short-circuit
+  // on the NEXT call. mcpCheckInput / mcpCheckOutput also detect 401
+  // BEFORE response.json() so a non-JSON 401 body (text/plain from
+  // ALB / nginx / WAF / API Gateway) doesn't throw SyntaxError and
+  // propagate past the typed-error contract.
   private authFailed: boolean = false;
   // Companion to authFailed — guards `console.warn` so the operator sees
   // the failure exactly once per process lifetime, even if multiple
@@ -372,7 +381,10 @@ export class AxonFlowClient {
    * Test-only / introspection helper; production callers do NOT need to
    * branch on this — the four governed/audit entry points consult the
    * private `authFailed` flag directly and short-circuit BEFORE issuing
-   * the network call.
+   * the network call. Detection is centralized in `fetchWithTimeout` so
+   * EVERY caller (~19 fetch sites) participates in flag-flipping, even
+   * if only the four high-volume entry points short-circuit on the next
+   * call.
    */
   isAuthFailed(): boolean {
     return this.authFailed;
@@ -432,14 +444,31 @@ export class AxonFlowClient {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
+    let response: Response;
     try {
-      return await fetch(url, {
+      response = await fetch(url, {
         ...init,
         signal: controller.signal,
       });
     } finally {
       clearTimeout(timeoutId);
     }
+    // Issue #2275 follow-up — centralize 401 detection at the single fetch
+    // chokepoint so the breaker engages regardless of which entry point
+    // is responsible for the network call. Pre-fix, only four of ~19
+    // fetch sites checked status === 401 — bad creds caused 401 storms
+    // on every other endpoint (search, explain, overrides, health,
+    // listRecentDecisions, etc.) just at lower volume than the audit
+    // endpoint. With this centralized hook, every call site benefits.
+    //
+    // Idempotent: markAuthFailed() guards its own warn emit via the
+    // authWarningEmitted flag, so concurrent 401s from sibling methods
+    // all land in the same single warn even though we don't gate
+    // markAuthFailed() itself behind !this.authFailed here.
+    if (response.status === 401) {
+      this.markAuthFailed();
+    }
+    return response;
   }
 
   async mcpCheckInput(
@@ -481,6 +510,21 @@ export class AxonFlowClient {
       }),
     });
 
+    // Issue #2275 follow-up — detect 401 BEFORE response.json() so a
+    // non-JSON 401 body (text/plain "Unauthorized" from ALB / nginx /
+    // WAF / API Gateway infra layers) doesn't throw SyntaxError and
+    // propagate past the breaker. fetchWithTimeout already flipped
+    // the authFailed flag for any 401; we just need to surface the
+    // typed error in the same shape the JSON-body path would have.
+    if (response.status === 401) {
+      throw new AxonFlowHttpError(
+        401,
+        response.statusText,
+        {},
+        "check-input",
+      );
+    }
+
     const data = (await response.json()) as Record<string, unknown>;
 
     // V1 Plugin Pro envelope detection runs BEFORE the policy-block
@@ -514,15 +558,9 @@ export class AxonFlowClient {
     }
 
     if (!response.ok) {
-      // Issue #2275 — flip the circuit breaker BEFORE throwing so any
-      // sibling call that observes the thrown error doesn't race ahead
-      // and issue another fetch. We only short-circuit on 401 (a
-      // credentials problem the operator must fix); other non-2xx
-      // statuses are transient and the existing fail-open / fail-closed
-      // path in governance.ts handles them per config.onError.
-      if (response.status === 401) {
-        this.markAuthFailed();
-      }
+      // 401 already handled above (pre-json branch). Any other non-2xx
+      // status here is transient and the existing fail-open / fail-
+      // closed path in governance.ts handles them per config.onError.
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
@@ -569,6 +607,19 @@ export class AxonFlowClient {
       }),
     });
 
+    // Issue #2275 follow-up — detect 401 BEFORE response.json() (see
+    // mcpCheckInput for full rationale). Mirror the exact AxonFlowHttpError
+    // shape so the governance.ts classifier behaves identically across
+    // input + output paths.
+    if (response.status === 401) {
+      throw new AxonFlowHttpError(
+        401,
+        response.statusText,
+        {},
+        "check-output",
+      );
+    }
+
     const data = (await response.json()) as Record<string, unknown>;
 
     // V1 Plugin Pro envelope detection — see mcpCheckInput for rationale.
@@ -596,10 +647,9 @@ export class AxonFlowClient {
     }
 
     if (!response.ok) {
-      // Issue #2275 — flip the circuit breaker on 401 (see mcpCheckInput).
-      if (response.status === 401) {
-        this.markAuthFailed();
-      }
+      // 401 already handled above (pre-json branch). Any other non-2xx
+      // status here is transient and the existing fail-open / fail-
+      // closed path in governance.ts handles them per config.onError.
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
@@ -642,7 +692,11 @@ export class AxonFlowClient {
     }
     const url = `${this.endpoint}/api/v1/audit/tool-call`;
     try {
-      const response = await this.fetchWithTimeout(url, {
+      // Issue #2275 follow-up — the centralized 401 detection in
+      // fetchWithTimeout flips the authFailed flag for us; no need for
+      // an explicit per-call response.status check here. Response value
+      // is intentionally discarded (fire-and-forget audit semantics).
+      await this.fetchWithTimeout(url, {
         method: "POST",
         headers: this.baseHeaders(),
         body: JSON.stringify({
@@ -655,12 +709,6 @@ export class AxonFlowClient {
           duration_ms: durationMs,
         }),
       });
-      // Issue #2275 — observe 401 on the fire-and-forget path WITHOUT
-      // re-throwing. The audit hook contract is non-blocking; we just
-      // need to flip the flag so the next call short-circuits.
-      if (response.status === 401) {
-        this.markAuthFailed();
-      }
     } catch {
       // Audit failures are non-fatal
     }
@@ -688,7 +736,9 @@ export class AxonFlowClient {
     }
     const url = `${this.endpoint}/api/v1/audit/tool-call`;
     try {
-      const response = await this.fetchWithTimeout(url, {
+      // Issue #2275 follow-up — centralized 401 detection in
+      // fetchWithTimeout handles the breaker flip. See auditToolCall.
+      await this.fetchWithTimeout(url, {
         method: "POST",
         headers: this.baseHeaders(),
         body: JSON.stringify({
@@ -700,9 +750,6 @@ export class AxonFlowClient {
           duration_ms: latencyMs,
         }),
       });
-      if (response.status === 401) {
-        this.markAuthFailed();
-      }
     } catch {
       // Audit failures are non-fatal
     }
