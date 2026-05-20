@@ -2,9 +2,22 @@
 
 ## [Unreleased]
 
-### Documentation
+## [2.6.0] - 2026-05-20 — Auth-failure circuit breaker to prevent 401 storms
 
-- **README + integration guide: `ClawHub archive integrity mismatch` workaround.** Documented the OpenClaw CLI regression that causes `openclaw plugins install @axonflow/openclaw` to fail with a SHA-256 mismatch on CLI versions before 2026.5.7 (confirmed on 2026.4.27). Both registries serve byte-correct artifacts matching the manifest pin; the bug is in the CLI's internal hash computation. Fixed upstream in OpenClaw 2026.5.7 — `npm install -g openclaw@latest` to upgrade. Local-tgz fallback (`npm pack` → `openclaw plugins install ./<tgz>`) bypasses the broken path on older CLIs.
+### Fixed
+
+- **Process-local 401 circuit breaker (closes [axonflow-enterprise#2275](https://github.com/getaxonflow/axonflow-enterprise/issues/2275)).** When the plugin is configured with bad credentials (expired or mistyped `clientId` / `clientSecret`), every `after_tool_call` hook used to fire a POST to `/api/v1/audit/tool-call`, receive a 401, and silently swallow the error. Over a typical long-lived OpenClaw session this multiplied into hundreds of 401s/day per misconfigured install — the upstream issue cites `716 × 401 in 24h` against a single source IP with User-Agent `node`.
+
+  **Fix.** The `AxonFlowClient` now carries a process-local `authFailed` flag. The first time any of the four auth-bearing entry points (`auditToolCall`, `auditLLMCall`, `mcpCheckInput`, `mcpCheckOutput`) observes an HTTP 401 from the platform, the flag flips to `true` and a one-time `console.warn` surfaces to the operator:
+
+  ```
+  [AxonFlow] Authentication failed (HTTP 401). Audit calls disabled
+  for this session. Refresh credentials via the OpenClaw runtime config.
+  ```
+
+  Every subsequent call from the same client instance short-circuits BEFORE issuing the fetch — no further network traffic until the OpenClaw runtime instantiates a new client (e.g. on config reload). The audit methods keep their fire-and-forget contract (still don't throw); the governance methods (`mcpCheckInput` / `mcpCheckOutput`) throw the same `AxonFlowHttpError` shape that a real 401 would have produced, so `governance.ts`'s `isAxonFlowAuthError` classifier + `config.onError` path applies uniformly.
+
+  **Not affected.** Transient errors (5xx, network failures) do NOT flip the breaker — the existing fail-open path in `governance.ts` keeps handling them as before. Each new `AxonFlowClient` instance starts fresh (no cross-instance state leak).
 
 ## [2.5.0] - 2026-05-19 — Terminology: `tenant_id` → `client_id` in user-facing output
 
