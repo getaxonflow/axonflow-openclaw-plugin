@@ -16,7 +16,7 @@
 > - **Self-serve:** free 90-day [plugin evaluation license](https://getaxonflow.com/plugins/evaluation-license/?utm_source=readme_plugin_openclaw_eval)
 > - **Hands-on:** [Design Partner Program](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw) with either **6 months of self-hosted / in-VPC Enterprise** at no cost or **3 months of AxonFlow-managed Enterprise SaaS** with SLO-backed support, up to **50,000 write requests / 1,000,000 total requests per month**
 >
-> Priority support, architecture review, and roadmap input are included for selected partners. We reply within 48 hours.
+> Priority support, architecture review, incident-readiness review, and roadmap input are included for selected partners. We reply within 48 hours.
 
 ---
 
