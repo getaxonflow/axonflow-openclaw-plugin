@@ -3,8 +3,10 @@
  * AxonFlow OpenClaw plugin status CLI.
  *
  * Surfaces the values a user needs in order to:
- *   - paste their `tenant_id` into the Stripe checkout custom field when
- *     buying AxonFlow Pro (W4 paid Pro v1 launch flow);
+ *   - paste their `client_id` (formerly `tenant_id`; same value, see
+ *     v2.5.0 CHANGELOG) into the Stripe checkout custom field when
+ *     buying AxonFlow Pro — the Stripe form's field is still labeled
+ *     "AxonFlow tenant ID" until that surface rebrands separately;
  *   - confirm which AxonFlow endpoint the plugin would talk to;
  *   - confirm whether a Pro license token is currently wired through
  *     this process (env or pluginConfig).
@@ -45,7 +47,7 @@ import {
 function usage() {
   process.stderr.write(
     "Usage:\n" +
-      "  axonflow-openclaw-status           Print status (tenant_id, endpoint, tier).\n" +
+      "  axonflow-openclaw-status           Print status (client_id, endpoint, tier).\n" +
       "  axonflow-openclaw-status --json    Print status as JSON.\n" +
       "  axonflow-openclaw-status --help    Show this message.\n",
   );

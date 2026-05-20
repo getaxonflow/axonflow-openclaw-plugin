@@ -300,7 +300,10 @@ describe("buildStatusReport", () => {
     expect(report.endpoint).toBe("https://my-axonflow.corp");
   });
 
-  it("reports tenant_id from the persisted registration file", () => {
+  it("reports client_id (and legacy tenant_id alias) from the persisted registration file", () => {
+    // The on-disk JSON file still uses the legacy `tenant_id` key for
+    // file-format compat with v1.4.x and earlier installs — this fixture
+    // models that compat invariant explicitly.
     fs.writeFileSync(
       path.join(tmpDir, "try-registration.json"),
       JSON.stringify({
@@ -311,13 +314,16 @@ describe("buildStatusReport", () => {
       }),
     );
     const report = buildStatusReport({ configDirOverride: tmpDir });
+    expect(report.client_id).toBe("cs_real_tenant_xyz");
+    // Legacy alias preserved so v1.4.x JSON consumers don't break.
     expect(report.tenant_id).toBe("cs_real_tenant_xyz");
     expect(report.registration_present).toBe(true);
     expect(report.registration_file).toBe(path.join(tmpDir, "try-registration.json"));
   });
 
-  it("reports tenant_id null + registration_present false when file is missing", () => {
+  it("reports client_id null + registration_present false when file is missing", () => {
     const report = buildStatusReport({ configDirOverride: tmpDir });
+    expect(report.client_id).toBeNull();
     expect(report.tenant_id).toBeNull();
     expect(report.registration_present).toBe(false);
   });
@@ -325,14 +331,16 @@ describe("buildStatusReport", () => {
   it("uses sentinel registration path when configDir cannot be resolved", () => {
     const report = buildStatusReport({ configDirOverride: "" });
     expect(report.registration_file).toMatch(/AXONFLOW_CONFIG_DIR/);
+    expect(report.client_id).toBeNull();
     expect(report.tenant_id).toBeNull();
     expect(report.registration_present).toBe(false);
   });
 });
 
 describe("formatStatusReport", () => {
-  it("renders free tier with upgrade URL", () => {
+  it("renders free tier with client_id label + bridge note + upgrade URL", () => {
     const out = formatStatusReport({
+      client_id: "cs_t1",
       tenant_id: "cs_t1",
       endpoint: "https://try.getaxonflow.com",
       tier: "free",
@@ -343,7 +351,13 @@ describe("formatStatusReport", () => {
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
     });
-    expect(out).toContain("tenant_id:  cs_t1");
+    // v1.5.0 terminology: new label is `client_id:`, bridge note connects
+    // it to the legacy term so v1.4.x users aren't confused.
+    expect(out).toContain("client_id:  cs_t1");
+    expect(out).toContain("(formerly tenant_id)");
+    // v1.5.0 invariant: status MUST NOT use `tenant_id:` as the primary
+    // labeled field. Bridge parenthetical "(formerly tenant_id)" is OK.
+    expect(out).not.toMatch(/^\s*tenant_id:\s+cs_/m);
     expect(out).toContain("Stripe checkout custom field");
     expect(out).toContain("tier:       Free (no Pro license configured)");
     expect(out).toContain("upgrade:    https://getaxonflow.com/pricing/");
@@ -352,6 +366,7 @@ describe("formatStatusReport", () => {
 
   it("renders Pro tier with expiry date + days remaining when exp is parseable", () => {
     const out = formatStatusReport({
+      client_id: "cs_t2",
       tenant_id: "cs_t2",
       endpoint: "https://try.getaxonflow.com",
       tier: "pro",
@@ -374,6 +389,7 @@ describe("formatStatusReport", () => {
 
   it("renders Pro tier with 'could not parse token' fallback when exp is missing", () => {
     const out = formatStatusReport({
+      client_id: "cs_t2",
       tenant_id: "cs_t2",
       endpoint: "https://try.getaxonflow.com",
       tier: "pro",
@@ -391,6 +407,7 @@ describe("formatStatusReport", () => {
 
   it("renders Pro-expired tier with renew CTA embedded in the tier line", () => {
     const out = formatStatusReport({
+      client_id: "cs_t3",
       tenant_id: "cs_t3",
       endpoint: "https://try.getaxonflow.com",
       tier: "pro_expired",
@@ -412,8 +429,9 @@ describe("formatStatusReport", () => {
     expect(out).not.toMatch(/AXON-[A-Za-z0-9._-]{8,}/);
   });
 
-  it("renders an unregistered tenant_id with the recovery hint", () => {
+  it("renders an unregistered client_id (with bridge note) and recovery hint", () => {
     const out = formatStatusReport({
+      client_id: null,
       tenant_id: null,
       endpoint: "https://try.getaxonflow.com",
       tier: "free",
@@ -425,6 +443,7 @@ describe("formatStatusReport", () => {
       registration_present: false,
     });
     expect(out).toContain("(not registered)");
+    expect(out).toContain("(formerly tenant_id)");
     expect(out).toContain("axonflow-openclaw-recover");
     expect(out).toContain("/tmp/x/try-registration.json");
   });

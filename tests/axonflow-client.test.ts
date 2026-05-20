@@ -542,6 +542,280 @@ describe("AxonFlowClient", () => {
     });
   });
 
+  describe("auth-failure circuit breaker (issue #2275)", () => {
+    // The plugin's audit hook is fire-and-forget: every after_tool_call
+    // POSTs /api/v1/audit/tool-call and the catch block silently swallows
+    // errors. When the configured credentials are wrong, every tool call
+    // produces a 401 — which is what generated the 716 × 401 / 24h storm
+    // in axonflow-enterprise#2275. Fix: once we observe a 401, flip the
+    // process-local `authFailed` flag and short-circuit subsequent calls.
+
+    let warnSpy: jest.SpyInstance;
+    beforeEach(() => {
+      warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warnSpy.mockRestore();
+    });
+
+    it("auditToolCall on 401 sets authFailed flag and skips subsequent fetches", async () => {
+      // First call: real 401 from the wire. The fetch IS issued so the
+      // client observes the response status; the audit method itself
+      // doesn't throw (fire-and-forget contract preserved).
+      mockFetch.mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }));
+      const client = makeClient();
+      await client.auditToolCall("web_fetch", { url: "https://x.com" });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(client.isAuthFailed()).toBe(true);
+
+      // Second + third calls: short-circuited before the fetch. mockFetch
+      // call count stays at 1 — this is the actual fix for the 401 storm.
+      mockFetch.mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }));
+      await client.auditToolCall("tool_b", {});
+      await client.auditToolCall("tool_c", {});
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // Operator sees exactly one warn.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0]?.[0]).toMatch(/Authentication failed.*HTTP 401/);
+    });
+
+    it("auditLLMCall on 401 sets authFailed flag and skips subsequent fetches", async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }));
+      const client = makeClient();
+      await client.auditLLMCall(
+        "anthropic", "claude-sonnet-4-6", "q", "r",
+        { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, 0,
+      );
+      expect(client.isAuthFailed()).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // Subsequent llm-audit calls short-circuit.
+      await client.auditLLMCall(
+        "anthropic", "claude-sonnet-4-6", "q2", "r2",
+        { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, 0,
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // Cross-method short-circuit: auditToolCall also no-ops now.
+      await client.auditToolCall("tool_z", {});
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("mcpCheckInput on 401 short-circuits subsequent calls without fetching", async () => {
+      const { AxonFlowHttpError } = await import("../src/axonflow-client.js");
+
+      // First call: real 401 from the wire. Throws AxonFlowHttpError
+      // (existing behavior) AND flips the flag.
+      mockFetch.mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }));
+      const client = makeClient();
+      await expect(client.mcpCheckInput("test", "stmt")).rejects.toBeInstanceOf(
+        AxonFlowHttpError,
+      );
+      expect(client.isAuthFailed()).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // Second call: should NOT issue a fetch. Still throws the same
+      // AxonFlowHttpError shape so governance.ts's onError path fires.
+      try {
+        await client.mcpCheckInput("test", "stmt2");
+        throw new Error("expected throw");
+      } catch (err) {
+        expect(err).toBeInstanceOf(AxonFlowHttpError);
+        expect((err as InstanceType<typeof AxonFlowHttpError>).status).toBe(401);
+      }
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("mcpCheckOutput on 401 short-circuits subsequent calls without fetching", async () => {
+      const { AxonFlowHttpError } = await import("../src/axonflow-client.js");
+      mockFetch.mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }));
+      const client = makeClient();
+      await expect(client.mcpCheckOutput("test", "data")).rejects.toBeInstanceOf(
+        AxonFlowHttpError,
+      );
+      expect(client.isAuthFailed()).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      await expect(client.mcpCheckOutput("test", "data2")).rejects.toBeInstanceOf(
+        AxonFlowHttpError,
+      );
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("console.warn is emitted exactly once across multiple 401s from different methods", async () => {
+      const client = makeClient();
+      // Five 401s in a row from a mix of entry points.
+      mockFetch.mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }));
+      await client.auditToolCall("a", {});
+
+      // auditLLMCall short-circuits — no fetch, no second warn.
+      await client.auditLLMCall(
+        "anthropic", "claude", "q", "r",
+        { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, 0,
+      );
+
+      // mcpCheckInput also short-circuits, throws but no second warn.
+      await expect(client.mcpCheckInput("t", "s")).rejects.toThrow();
+
+      // mcpCheckOutput likewise.
+      await expect(client.mcpCheckOutput("t", "d")).rejects.toThrow();
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("each new AxonFlowClient instance starts fresh", async () => {
+      // The process-local flag must not leak across clients — if the
+      // host hot-reloads its config with fresh credentials, the new
+      // client instance starts from a clean slate.
+      mockFetch.mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }));
+      const c1 = makeClient();
+      await c1.auditToolCall("a", {});
+      expect(c1.isAuthFailed()).toBe(true);
+
+      const c2 = makeClient();
+      expect(c2.isAuthFailed()).toBe(false);
+
+      mockFetch.mockResolvedValueOnce(jsonResponse(200, { success: true }));
+      await c2.auditToolCall("b", {});
+      // c2 issued its own fetch — confirmed by the fact that this 200
+      // response was consumed (call count moves from 1 to 2).
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(c2.isAuthFailed()).toBe(false);
+    });
+
+    it("non-401 errors do NOT trip the breaker (transient 5xx must keep retrying)", async () => {
+      // 500/503 are transient — governance.ts intentionally fails OPEN
+      // on them and the next governed call should re-attempt the
+      // network. Flipping the breaker on 5xx would cause a single
+      // transient outage to permanently disable audit for the session.
+      mockFetch.mockResolvedValueOnce(jsonResponse(500, { error: "Internal" }));
+      const client = makeClient();
+      await client.auditToolCall("a", {});
+      expect(client.isAuthFailed()).toBe(false);
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      // Next call should still issue a fetch.
+      mockFetch.mockResolvedValueOnce(jsonResponse(200, { success: true }));
+      await client.auditToolCall("b", {});
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("concurrent 401s emit exactly one warn (race-free under Node single-thread)", async () => {
+      // Three concurrent audit POSTs all returning 401: at most one
+      // warn must surface. Node's single-threaded event loop means the
+      // resolve→sync-code window between markAuthFailed checks is
+      // race-free, but the assertion guards against future refactors
+      // that introduce real async between the flag set and warn emit.
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }))
+        .mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }))
+        .mockResolvedValueOnce(jsonResponse(401, { error: "Unauthorized" }));
+      const client = makeClient();
+      await Promise.all([
+        client.auditToolCall("a", {}),
+        client.auditToolCall("b", {}),
+        client.auditToolCall("c", {}),
+      ]);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(client.isAuthFailed()).toBe(true);
+    });
+
+    // ============================================================
+    // 2026-05-20 follow-up: hostile-review HIGH findings
+    // (axonflow-enterprise#2275 follow-up).
+    //
+    // HIGH-1 — non-JSON 401 body throws SyntaxError BEFORE the
+    //   per-method `if (response.status === 401)` block.
+    // HIGH-2 — only 4 of ~19 fetch sites flip the breaker; the
+    //   other ~15 (searchAuditEvents / explainDecision / overrides
+    //   lifecycle / strict variants / health / etc.) leak 401
+    //   storms at lower volume.
+    // ============================================================
+
+    it("mcpCheckInput on 401 with non-JSON body throws AxonFlowHttpError(401) — not SyntaxError", async () => {
+      const { AxonFlowHttpError } = await import("../src/axonflow-client.js");
+      // Real-world ALB / nginx / WAF / API Gateway behavior: 401 with
+      // Content-Type: text/plain + body "Unauthorized\n". Pre-fix, the
+      // client did `await response.json()` BEFORE the status check, so
+      // the SyntaxError thrown by .json() propagated past the breaker
+      // and `authFailed` stayed false. Post-fix, status is checked first
+      // and AxonFlowHttpError(401, ...) is thrown without ever touching
+      // the response body.
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: { get: () => null },
+        json: () => Promise.reject(new SyntaxError("Unexpected token U")),
+        text: () => Promise.resolve("Unauthorized\n"),
+      });
+      const client = makeClient();
+      try {
+        await client.mcpCheckInput("test", "stmt");
+        throw new Error("expected throw");
+      } catch (err) {
+        // Must NOT be a SyntaxError — must be the typed AxonFlowHttpError.
+        expect(err).toBeInstanceOf(AxonFlowHttpError);
+        expect((err as InstanceType<typeof AxonFlowHttpError>).status).toBe(401);
+        expect((err as Error).name).toBe("AxonFlowHttpError");
+        expect((err as Error).message).toContain("check-input");
+      }
+      // Breaker engaged after exactly one wire call.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(client.isAuthFailed()).toBe(true);
+    });
+
+    it("mcpCheckOutput on 401 with non-JSON body throws AxonFlowHttpError(401) — not SyntaxError", async () => {
+      const { AxonFlowHttpError } = await import("../src/axonflow-client.js");
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: { get: () => null },
+        json: () => Promise.reject(new SyntaxError("Unexpected token U")),
+        text: () => Promise.resolve("Unauthorized\n"),
+      });
+      const client = makeClient();
+      try {
+        await client.mcpCheckOutput("test", "data");
+        throw new Error("expected throw");
+      } catch (err) {
+        expect(err).toBeInstanceOf(AxonFlowHttpError);
+        expect((err as InstanceType<typeof AxonFlowHttpError>).status).toBe(401);
+        expect((err as Error).name).toBe("AxonFlowHttpError");
+        expect((err as Error).message).toContain("check-output");
+      }
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(client.isAuthFailed()).toBe(true);
+    });
+
+    it("centralized breaker engages on non-governed endpoints too (searchAuditEvents)", async () => {
+      // Pre-fix: only auditToolCall / auditLLMCall / mcpCheckInput /
+      // mcpCheckOutput wired the breaker. Bad creds therefore caused
+      // 401 storms on every other endpoint (search, explain, overrides,
+      // health, etc.) just at lower volume. Post-fix: the centralized
+      // hook in fetchWithTimeout flips the flag for ALL fetch sites,
+      // so the NEXT audit / governance call short-circuits without
+      // round-tripping.
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+      const client = makeClient();
+      const result = await client.searchAuditEvents();
+      // The lossy searchAuditEvents method itself preserves its existing
+      // shape (returns `{ entries: [], total: 0, error: "HTTP 401" }`)
+      // but the centralized hook flipped the breaker as a side effect.
+      expect(result.error).toBe("HTTP 401");
+      expect(client.isAuthFailed()).toBe(true);
+
+      // Now a subsequent audit call MUST short-circuit — proves the
+      // centralized path engaged. Without the centralized fetchWithTimeout
+      // hook, this second call would re-issue a fetch.
+      mockFetch.mockResolvedValueOnce(jsonResponse(200, { success: true }));
+      await client.auditToolCall("tool-after-search-401", {});
+      expect(mockFetch).toHaveBeenCalledTimes(1); // still 1 — second call skipped
+    });
+  });
+
   describe("X-User-Email forwarding (Plugin Batch 1)", () => {
     it("emits X-User-Email when userEmail is set on config", async () => {
       mockFetch.mockResolvedValueOnce(

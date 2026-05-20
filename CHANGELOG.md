@@ -8,6 +8,49 @@
 
 - **README + integration guide: `ClawHub archive integrity mismatch` workaround.** Documented the OpenClaw CLI regression that causes `openclaw plugins install @axonflow/openclaw` to fail with a SHA-256 mismatch on CLI versions before 2026.5.7 (confirmed on 2026.4.27). Both registries serve byte-correct artifacts matching the manifest pin; the bug is in the CLI's internal hash computation. Fixed upstream in OpenClaw 2026.5.7 — `npm install -g openclaw@latest` to upgrade. Local-tgz fallback (`npm pack` → `openclaw plugins install ./<tgz>`) bypasses the broken path on older CLIs.
 
+## [2.6.1] - 2026-05-20 — Harden auth-failure circuit breaker (non-JSON body + centralized fetch chokepoint)
+
+### Fixed
+
+- **Non-JSON 401 body bypassed the breaker** (follow-up to [axonflow-enterprise#2275](https://github.com/getaxonflow/axonflow-enterprise/issues/2275); tracked as [#2275 follow-up](https://github.com/getaxonflow/axonflow-enterprise/issues/2275)). `mcpCheckInput` and `mcpCheckOutput` did `const data = await response.json()` BEFORE checking `response.status === 401`. A real-world 401 from an infrastructure layer (ALB / nginx / WAF / API Gateway) returns `Content-Type: text/plain` + body `Unauthorized\n` — the `.json()` parse threw `SyntaxError` and propagated past the breaker, leaving `authFailed=false` and re-firing the storm. Both methods now detect `response.status === 401` BEFORE attempting `.json()` and throw the typed `AxonFlowHttpError(401, ...)` directly. Repro: pointing the plugin at a fake HTTP server returning `text/plain` 401 fires 2 POSTs pre-fix; 1 POST post-fix.
+
+- **401 detection centralized at the fetch chokepoint** so all ~19 fetch sites in `AxonFlowClient` flip the breaker, not just the four high-volume entry points (`auditToolCall` / `auditLLMCall` / `mcpCheckInput` / `mcpCheckOutput`). Pre-fix, bad creds still caused 401 storms on `searchAuditEvents`, `explainDecision`, the overrides lifecycle endpoints, `/health`, `listRecentDecisionsStrict`, and `callMCPTool` — just at lower volume than the audit endpoint. Post-fix, the single `if (response.status === 401) this.markAuthFailed()` block in `fetchWithTimeout` engages the breaker on the first 401 from ANY endpoint; the four high-volume entry points keep their early-return short-circuit at the TOP of the method, which prevents the next network call entirely. The per-method `if (response.status === 401) markAuthFailed()` blocks inside the non-2xx branches of `mcpCheckInput` / `mcpCheckOutput` / `auditToolCall` / `auditLLMCall` are removed (the centralized hook covers them) so there's a single wiring pattern across the file.
+
+### Lineage
+
+This patch closes two HIGH findings from a hostile review of the v2.6.0 fix in [PR #138](https://github.com/getaxonflow/axonflow-openclaw-plugin/pull/138) (merged `fc129e2741049a07cb4455587b9cf7faf12e74d2`). The thrown `AxonFlowHttpError(401, ...)` shape is byte-compatible with what `governance.ts:isAxonFlowAuthError` consumes (status-based path, not message-based), so `config.onError` semantics are unchanged.
+
+## [2.6.0] - 2026-05-20 — Auth-failure circuit breaker to prevent 401 storms
+
+### Fixed
+
+- **Process-local 401 circuit breaker (closes [axonflow-enterprise#2275](https://github.com/getaxonflow/axonflow-enterprise/issues/2275)).** When the plugin is configured with bad credentials (expired or mistyped `clientId` / `clientSecret`), every `after_tool_call` hook used to fire a POST to `/api/v1/audit/tool-call`, receive a 401, and silently swallow the error. Over a typical long-lived OpenClaw session this multiplied into hundreds of 401s/day per misconfigured install — the upstream issue cites `716 × 401 in 24h` against a single source IP with User-Agent `node`.
+
+  **Fix.** The `AxonFlowClient` now carries a process-local `authFailed` flag. The first time any of the four auth-bearing entry points (`auditToolCall`, `auditLLMCall`, `mcpCheckInput`, `mcpCheckOutput`) observes an HTTP 401 from the platform, the flag flips to `true` and a one-time `console.warn` surfaces to the operator:
+
+  ```
+  [AxonFlow] Authentication failed (HTTP 401). Audit calls disabled
+  for this session. Refresh credentials via the OpenClaw runtime config.
+  ```
+
+  Every subsequent call from the same client instance short-circuits BEFORE issuing the fetch — no further network traffic until the OpenClaw runtime instantiates a new client (e.g. on config reload). The audit methods keep their fire-and-forget contract (still don't throw); the governance methods (`mcpCheckInput` / `mcpCheckOutput`) throw the same `AxonFlowHttpError` shape that a real 401 would have produced, so `governance.ts`'s `isAxonFlowAuthError` classifier + `config.onError` path applies uniformly.
+
+  **Not affected.** Transient errors (5xx, network failures) do NOT flip the breaker — the existing fail-open path in `governance.ts` keeps handling them as before. Each new `AxonFlowClient` instance starts fresh (no cross-instance state leak).
+
+## [2.5.0] - 2026-05-19 — Terminology: `tenant_id` → `client_id` in user-facing output
+
+### Changed
+
+- **`axonflow-openclaw-status` output: `tenant_id:` label is now `client_id:`.** Same value, new user-facing term. Aligns OpenClaw plugin output with the rest of AxonFlow's v9 terminology (the `org_id` ↔ `client_id` ↔ deployment-license-identity three-identifier model — see [axonflow-enterprise#2230](https://github.com/getaxonflow/axonflow-enterprise/issues/2230)). For this release, the output carries a parenthetical bridge note (`(formerly tenant_id)`) so existing users connect the old and new terms without surprise. The bridge note will be removed in v3.0.0.
+
+  **Cosmetic only — no config change is required.** The on-disk registration file at `$AXONFLOW_CONFIG_DIR/try-registration.json` continues to use the `tenant_id` JSON key (file-format compat with installed base); only the human-readable status output reads `client_id`. Wire-level `X-Axonflow-Client` header is unchanged. The agent-side MCP tool `axonflow_get_tenant_id` keeps its name (callable both as muscle-memory "what's my tenant ID?" and the new "what's my client ID?" — both return the same identifier).
+
+  **JSON consumer compat: `axonflow-openclaw-status --json` populates BOTH `client_id` and the legacy `tenant_id` key** with the same value. The `StatusReport` TypeScript interface exposes both as `string | null` fields. v2.4.x consumers scripting around `.tenant_id` keep working unchanged; new consumers SHOULD prefer `.client_id`. The legacy `tenant_id` alias will be removed in v3.0.0.
+
+  **Action required for users who scripted around the old text output:** if your tooling greps for `tenant_id:` in `axonflow-openclaw-status` stdout, update to grep for `client_id:` (or switch to `--json` mode which still emits the legacy `tenant_id` key).
+
+- **README install-flow examples** updated to use `client_id` terminology consistently. The "Activate Pro tier" walkthrough notes that Stripe Checkout's custom field is still labeled "AxonFlow tenant ID" until that form is updated separately.
+
 ## [2.4.0] - 2026-05-09 — Decision History API + policy_version recorded on every decision + telemetry simplification
 
 ### Added

@@ -248,6 +248,33 @@ export class AxonFlowClient {
   // wording + buy URL via this logger and stamp a throttle deadline so
   // subsequent governed calls can short-circuit locally.
   private upgradePromptLogger: UpgradePromptLogger | null = null;
+  // Issue #2275 — process-local 401 circuit breaker.
+  //
+  // Symptom: 716 × HTTP 401 in 24 hours against /api/v1/audit/tool-call
+  // from a single source IP with User-Agent "node". Root cause: the
+  // fire-and-forget audit methods (auditToolCall / auditLLMCall) silently
+  // swallow ALL errors, so a misconfigured-credentials install keeps
+  // firing audit POSTs on every tool execution. Over a long-lived
+  // OpenClaw process this multiplies into hundreds of 401s/day.
+  //
+  // Fix: once any auth-bearing call observes a 401, flip the flag and
+  // short-circuit every subsequent governed/audit call without round-
+  // tripping. Process-local — a new AxonFlowClient instance (e.g. after
+  // config reload) starts fresh.
+  //
+  // 2026-05-20 follow-up hardening: 401 detection is centralized in
+  // fetchWithTimeout so EVERY fetch site (~19 endpoints — search, explain,
+  // overrides, health, listRecentDecisions, callMCPTool, etc.) flips the
+  // flag, not just the four high-volume entry points that short-circuit
+  // on the NEXT call. mcpCheckInput / mcpCheckOutput also detect 401
+  // BEFORE response.json() so a non-JSON 401 body (text/plain from
+  // ALB / nginx / WAF / API Gateway) doesn't throw SyntaxError and
+  // propagate past the typed-error contract.
+  private authFailed: boolean = false;
+  // Companion to authFailed — guards `console.warn` so the operator sees
+  // the failure exactly once per process lifetime, even if multiple
+  // methods cross the 401 boundary concurrently.
+  private authWarningEmitted: boolean = false;
   constructor(config: AxonFlowPluginConfig) {
     // Strip trailing slashes without regex (avoids ReDoS on polynomial patterns)
     let ep = config.endpoint;
@@ -347,6 +374,43 @@ export class AxonFlowClient {
     return isThrottleActive();
   }
 
+  /**
+   * Issue #2275 — process-local auth-failure circuit breaker.
+   *
+   * Returns true once any auth-bearing call has observed an HTTP 401.
+   * Test-only / introspection helper; production callers do NOT need to
+   * branch on this — the four governed/audit entry points consult the
+   * private `authFailed` flag directly and short-circuit BEFORE issuing
+   * the network call. Detection is centralized in `fetchWithTimeout` so
+   * EVERY caller (~19 fetch sites) participates in flag-flipping, even
+   * if only the four high-volume entry points short-circuit on the next
+   * call.
+   */
+  isAuthFailed(): boolean {
+    return this.authFailed;
+  }
+
+  /**
+   * Issue #2275 — flip the circuit breaker.
+   *
+   * Called from any entry point that observes a real HTTP 401 from the
+   * platform. Idempotent: only emits the operator-visible warning the
+   * first time it's invoked per process lifetime (guarded by the
+   * companion `authWarningEmitted` flag). Concurrent 401s from sibling
+   * methods all land in the same single warn — both the flag-set and
+   * the warn-emit are synchronous and not awaited, so they're race-free
+   * inside Node's single-threaded event loop.
+   */
+  private markAuthFailed(): void {
+    this.authFailed = true;
+    if (!this.authWarningEmitted) {
+      this.authWarningEmitted = true;
+      console.warn(
+        "[AxonFlow] Authentication failed (HTTP 401). Audit calls disabled for this session. Refresh credentials via the OpenClaw runtime config.",
+      );
+    }
+  }
+
   private baseHeaders(): Record<string, string> {
     // Tenant is derived from Basic auth credentials on the server side (RFC 6749).
     // X-Tenant-ID header is no longer sent — server knows tenant from auth.
@@ -380,14 +444,31 @@ export class AxonFlowClient {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
 
+    let response: Response;
     try {
-      return await fetch(url, {
+      response = await fetch(url, {
         ...init,
         signal: controller.signal,
       });
     } finally {
       clearTimeout(timeoutId);
     }
+    // Issue #2275 follow-up — centralize 401 detection at the single fetch
+    // chokepoint so the breaker engages regardless of which entry point
+    // is responsible for the network call. Pre-fix, only four of ~19
+    // fetch sites checked status === 401 — bad creds caused 401 storms
+    // on every other endpoint (search, explain, overrides, health,
+    // listRecentDecisions, etc.) just at lower volume than the audit
+    // endpoint. With this centralized hook, every call site benefits.
+    //
+    // Idempotent: markAuthFailed() guards its own warn emit via the
+    // authWarningEmitted flag, so concurrent 401s from sibling methods
+    // all land in the same single warn even though we don't gate
+    // markAuthFailed() itself behind !this.authFailed here.
+    if (response.status === 401) {
+      this.markAuthFailed();
+    }
+    return response;
   }
 
   async mcpCheckInput(
@@ -395,6 +476,21 @@ export class AxonFlowClient {
     statement: string,
     operation: string = "execute",
   ): Promise<MCPCheckInputResponse> {
+    // Issue #2275 — auth-failure circuit breaker. Once any auth-bearing
+    // call has observed a 401, short-circuit subsequent governance
+    // checks WITHOUT round-tripping. Throws the same AxonFlowHttpError
+    // shape that a real 401 would produce so governance.ts's
+    // isAxonFlowAuthError classifier + config.onError path applies
+    // uniformly regardless of whether the 401 came from the wire or
+    // from this local cache.
+    if (this.authFailed) {
+      throw new AxonFlowHttpError(
+        401,
+        "Unauthorized",
+        { error: "Authentication previously failed; circuit breaker open" },
+        "check-input",
+      );
+    }
     // V1 Plugin Pro back-off: when a recent governed call returned a
     // 429 / 403 envelope, the throttle stamp suppresses outbound traffic
     // until the deadline. Fall open immediately so the user's tool isn't
@@ -413,6 +509,21 @@ export class AxonFlowClient {
         operation,
       }),
     });
+
+    // Issue #2275 follow-up — detect 401 BEFORE response.json() so a
+    // non-JSON 401 body (text/plain "Unauthorized" from ALB / nginx /
+    // WAF / API Gateway infra layers) doesn't throw SyntaxError and
+    // propagate past the breaker. fetchWithTimeout already flipped
+    // the authFailed flag for any 401; we just need to surface the
+    // typed error in the same shape the JSON-body path would have.
+    if (response.status === 401) {
+      throw new AxonFlowHttpError(
+        401,
+        response.statusText,
+        {},
+        "check-input",
+      );
+    }
 
     const data = (await response.json()) as Record<string, unknown>;
 
@@ -447,6 +558,9 @@ export class AxonFlowClient {
     }
 
     if (!response.ok) {
+      // 401 already handled above (pre-json branch). Any other non-2xx
+      // status here is transient and the existing fail-open / fail-
+      // closed path in governance.ts handles them per config.onError.
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
@@ -470,6 +584,15 @@ export class AxonFlowClient {
     connectorType: string,
     message: string,
   ): Promise<MCPCheckOutputResponse> {
+    // Issue #2275 — auth-failure circuit breaker (mirrors mcpCheckInput).
+    if (this.authFailed) {
+      throw new AxonFlowHttpError(
+        401,
+        "Unauthorized",
+        { error: "Authentication previously failed; circuit breaker open" },
+        "check-output",
+      );
+    }
     // V1 Plugin Pro back-off — same rationale as mcpCheckInput.
     if (isThrottleActive()) {
       return { allowed: true, policies_evaluated: 0 };
@@ -483,6 +606,19 @@ export class AxonFlowClient {
         message,
       }),
     });
+
+    // Issue #2275 follow-up — detect 401 BEFORE response.json() (see
+    // mcpCheckInput for full rationale). Mirror the exact AxonFlowHttpError
+    // shape so the governance.ts classifier behaves identically across
+    // input + output paths.
+    if (response.status === 401) {
+      throw new AxonFlowHttpError(
+        401,
+        response.statusText,
+        {},
+        "check-output",
+      );
+    }
 
     const data = (await response.json()) as Record<string, unknown>;
 
@@ -511,6 +647,9 @@ export class AxonFlowClient {
     }
 
     if (!response.ok) {
+      // 401 already handled above (pre-json branch). Any other non-2xx
+      // status here is transient and the existing fail-open / fail-
+      // closed path in governance.ts handles them per config.onError.
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
@@ -542,8 +681,21 @@ export class AxonFlowClient {
     error?: string,
     durationMs?: number,
   ): Promise<void> {
+    // Issue #2275 — auth-failure circuit breaker. Fire-and-forget audit
+    // is the documented call site that produced the 716 × 401 / 24h
+    // storm — every after_tool_call hook fires a POST, and the catch
+    // block below silently swallowed every 401. Short-circuit here so a
+    // misconfigured-credentials install stops generating network traffic
+    // after the first failure for the rest of the process lifetime.
+    if (this.authFailed) {
+      return;
+    }
     const url = `${this.endpoint}/api/v1/audit/tool-call`;
     try {
+      // Issue #2275 follow-up — the centralized 401 detection in
+      // fetchWithTimeout flips the authFailed flag for us; no need for
+      // an explicit per-call response.status check here. Response value
+      // is intentionally discarded (fire-and-forget audit semantics).
       await this.fetchWithTimeout(url, {
         method: "POST",
         headers: this.baseHeaders(),
@@ -578,8 +730,14 @@ export class AxonFlowClient {
     tokenUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
     latencyMs: number,
   ): Promise<void> {
+    // Issue #2275 — auth-failure circuit breaker (mirrors auditToolCall).
+    if (this.authFailed) {
+      return;
+    }
     const url = `${this.endpoint}/api/v1/audit/tool-call`;
     try {
+      // Issue #2275 follow-up — centralized 401 detection in
+      // fetchWithTimeout handles the breaker flip. See auditToolCall.
       await this.fetchWithTimeout(url, {
         method: "POST",
         headers: this.baseHeaders(),
