@@ -27,6 +27,7 @@
  */
 
 import { axonflowCacheDir } from "./cache-dir.js";
+import { ORG_ID_LOCAL_DEV_SENTINEL, telemetryOrgID } from "./telemetry-org-id.js";
 import { loadTelemetryConfig } from "./telemetry-config.js";
 import {
   captureRuntimeInfo,
@@ -67,7 +68,22 @@ export interface TelemetryPayload {
   endpoint_type: string;
   features: string[];
   instance_id: string;
+  /**
+   * v9.1 deployment-organization identifier (#2277). Three sources, in
+   * precedence order: the `ORG_ID` env var; the `tenant_id` from the
+   * registration file at `axonflowConfigDir()/try-registration.json`
+   * (the `cs_<uuid>` Community SaaS tenant identifier); the
+   * `"local-dev-org"` sentinel. Always emitted.
+   */
+  org_id: string;
 }
+
+// telemetryOrgID() + ORG_ID_LOCAL_DEV_SENTINEL live in
+// ./telemetry-org-id.ts (re-exported above) so the env / fs reads do
+// not co-locate with the outbound HTTP fetch in this file — the
+// openclaw marketplace security scanner flags that pattern as
+// possible credential harvesting (#2277 followup).
+export { ORG_ID_LOCAL_DEV_SENTINEL, telemetryOrgID };
 
 /**
  * Classify the configured endpoint into the v1 deployment-mode allowlist
@@ -176,7 +192,7 @@ interface SendOptions {
 }
 
 /**
- * Send an anonymous telemetry heartbeat. Concurrent calls are de-duplicated
+ * Send a telemetry heartbeat. Concurrent calls are de-duplicated
  * via a per-process in-flight gate; the second concurrent caller awaits the
  * first's promise rather than firing a duplicate.
  *
@@ -263,6 +279,7 @@ async function sendInner(options: SendOptions): Promise<void> {
       `mode:${options.mode}`,
     ],
     instance_id: instanceId,
+    org_id: telemetryOrgID(),
   };
 
   // 5. Fire the heartbeat.

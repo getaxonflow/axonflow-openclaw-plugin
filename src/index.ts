@@ -174,8 +174,12 @@ export function registerAxonFlowGovernance(api: {
   // locked wording + buy URL through the host's standard logger.
   // (umbrella axonflow-enterprise#1958, sub-issue #1965)
   clientRef.current.setUpgradePromptLogger(api.logger);
+  // Capture the bootstrap promise so we can chain telemetry off of it
+  // (telemetry needs the registration file written first to read
+  // tenant_id → org_id, per v9.1 #2277).
+  let bootstrapPromise: Promise<unknown> | null = null;
   if (config.mode === "community-saas") {
-    void bootstrapCommunitySaas({
+    bootstrapPromise = bootstrapCommunitySaas({
       endpoint: config.endpoint,
       pluginVersion: VERSION,
       // Surface the first-load consent disclosure through the plugin
@@ -233,6 +237,7 @@ export function registerAxonFlowGovernance(api: {
       // Silent — bootstrap should never block plugin registration. The
       // governance handlers will fail-open or fail-closed per onError config.
     });
+    void bootstrapPromise;
   }
 
   // Startup health check (fire-and-forget, non-blocking)
@@ -299,14 +304,34 @@ export function registerAxonFlowGovernance(api: {
 
   // Telemetry — 7-day heartbeat (fire-and-forget; opt out with
   // AXONFLOW_TELEMETRY=off). The promise is intentionally not awaited.
-  void sendTelemetryPing({
-    endpoint: config.endpoint,
-    pluginVersion: VERSION,
-    hookCount: 5,
-    highRiskToolCount: (config.highRiskTools ?? []).length,
-    onError: config.onError ?? "block",
-    mode: config.mode,
-  });
+  //
+  // For community-saas mode we fire AFTER the registration-bootstrap promise
+  // resolves (rather than concurrently with it) so the v9.1 org_id field
+  // can read the freshly-written try-registration.json's tenant_id. The
+  // bootstrap promise was captured into `bootstrapPromise` at start of the
+  // community-saas branch above; for self-hosted mode there is no bootstrap
+  // and we send immediately.
+  if (config.mode === "community-saas" && bootstrapPromise !== null) {
+    void bootstrapPromise.then(() => {
+      void sendTelemetryPing({
+        endpoint: config.endpoint,
+        pluginVersion: VERSION,
+        hookCount: 5,
+        highRiskToolCount: (config.highRiskTools ?? []).length,
+        onError: config.onError ?? "block",
+        mode: config.mode,
+      });
+    });
+  } else {
+    void sendTelemetryPing({
+      endpoint: config.endpoint,
+      pluginVersion: VERSION,
+      hookCount: 5,
+      highRiskToolCount: (config.highRiskTools ?? []).length,
+      onError: config.onError ?? "block",
+      mode: config.mode,
+    });
+  }
 }
 
 /**
