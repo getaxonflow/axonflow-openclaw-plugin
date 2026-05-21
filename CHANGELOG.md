@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`org_id` field in the telemetry heartbeat body (v9.1 preflight, [axonflow-enterprise#2277](https://github.com/getaxonflow/axonflow-enterprise/issues/2277)).** Brings OpenClaw plugin telemetry up to parity with the platform's `startup_telemetry.go` emitter — every heartbeat now identifies which deployment-organization emitted it. Three sources in precedence order:
+  1. The `ORG_ID` env var when set.
+  2. The `tenant_id` from `axonflowConfigDir()/try-registration.json` (the `cs_<uuid>` Community SaaS tenant identifier — same file the Community-SaaS bootstrap writes on first registration).
+  3. The `local-dev-org` sentinel.
+
+  Exposed as `telemetryOrgID()` + `ORG_ID_LOCAL_DEV_SENTINEL`. Always emitted on the wire. Receiver-side already accepts the field with `omitempty` for backward compat. Honors `AXONFLOW_TELEMETRY=off`.
+
+  **Timing fix:** in community-saas mode, telemetry now fires AFTER the async bootstrap promise resolves (rather than concurrently). Without this, the heartbeat could land before `try-registration.json` was written and `telemetryOrgID()` would fall through to the sentinel. Bash plugins don't have this race because their bootstrap is synchronous; the OpenClaw fix matches what those plugins effectively do already.
+
+  Locked in by an extension to the canonical wire-shape harness at `tests/heartbeat-real-stack/run_real_stack.mjs`: the captured ping body's `org_id` MUST match the `cs_<uuid>` tenant_id from the registration file. 16 cold-start + 3 warm-cache contracts (was 15+3); 100% pass.
+
+### Changed
+
+- **`sendTelemetryPing` JSDoc** softened from "Send an anonymous telemetry heartbeat" to "Send a telemetry heartbeat" — alongside the v9.1 `org_id` addition, the operator-supplied `ORG_ID` on self-hosted is not anonymized.
+
 ## [2.6.1] - 2026-05-20 — Harden auth-failure circuit breaker (non-JSON body + centralized fetch chokepoint)
 
 ### Fixed
