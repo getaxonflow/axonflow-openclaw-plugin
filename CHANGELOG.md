@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-05-20 — Harden auth-failure circuit breaker (non-JSON 401 body + centralized fetch chokepoint) + `org_id` in telemetry heartbeat
+
 ### Added
 
 - **`org_id` field in the telemetry heartbeat body.** Brings the
@@ -32,19 +34,6 @@
   do not have this race because their bootstrap is synchronous; the
   OpenClaw fix brings parity.
 
-### Changed
-
-- **`sendTelemetryPing` JSDoc** softened from "Send an anonymous
-  telemetry heartbeat" to "Send a telemetry heartbeat" — alongside the
-  `org_id` addition, the operator-supplied `ORG_ID` on self-hosted is
-  not anonymized.
-
-### Tracking
-
-- [#2277](https://github.com/getaxonflow/axonflow-enterprise/issues/2277)
-
-## [2.6.1] - 2026-05-20 — Harden auth-failure circuit breaker (non-JSON 401 body + centralized fetch chokepoint)
-
 ### Fixed
 
 - **Non-JSON 401 body no longer bypasses the breaker.** Two governance
@@ -69,9 +58,12 @@
   short-circuit at the top of the method, which prevents the next
   network call entirely.
 
-### Tracking
+### Changed
 
-- [#2275](https://github.com/getaxonflow/axonflow-enterprise/issues/2275)
+- **`sendTelemetryPing` JSDoc** softened from "Send an anonymous
+  telemetry heartbeat" to "Send a telemetry heartbeat" — alongside the
+  `org_id` addition, the operator-supplied `ORG_ID` on self-hosted is
+  not anonymized.
 
 ## [2.6.0] - 2026-05-20 — Auth-failure circuit breaker to prevent 401 storms
 
@@ -106,10 +98,6 @@
   flip the breaker — the existing fail-open path in `governance.ts`
   keeps handling them as before. Each new client instance starts fresh
   (no cross-instance state leak).
-
-### Tracking
-
-- [#2275](https://github.com/getaxonflow/axonflow-enterprise/issues/2275)
 
 ## [2.5.0] - 2026-05-19 — Terminology: `tenant_id` → `client_id` in user-facing output
 
@@ -151,10 +139,6 @@
   terminology consistently. The "Activate Pro tier" walkthrough notes
   that Stripe Checkout's custom field is still labeled "AxonFlow
   tenant ID" until that form is updated separately.
-
-### Tracking
-
-- [#2230](https://github.com/getaxonflow/axonflow-enterprise/issues/2230)
 
 ## [2.4.0] - 2026-05-09 — Decision History API + policy_version recorded on every decision + telemetry simplification
 
@@ -568,7 +552,6 @@ This release scrubs every published file and extends the pre-publish guard to sc
 
 - The OpenClaw `>=2026.4.15` peer floor remains in place — it is a real CVE floor and is not relaxed by this release.
 
-
 ## [2.0.2] - 2026-04-30 — Static-scan refactor + initial pre-publish guard (compiled JS only)
 
 The first ClawHub static-analyzer ruleset bump on the v2.0 line. v2.0.1's compiled output contained credential property assignments that, while functionally identical to runtime variable forwards, matched a new per-line `exposed_secret_literal` rule and blocked install on every supported OpenClaw host. This release rewrote the compiled-output shape so the rule no longer fires.
@@ -588,7 +571,6 @@ The first ClawHub static-analyzer ruleset bump on the v2.0 line. v2.0.1's compil
 ### Security
 
 - The OpenClaw `>=2026.4.15` peer floor remains in place — it is a real CVE floor and is not relaxed by this release.
-
 
 ## [2.0.1] - 2026-04-30 — Restore ClawHub install + explicit Community-SaaS consent surface
 
@@ -614,7 +596,6 @@ ClawHub's static-analysis scanner blocked install of `@axonflow/openclaw@2.0.0` 
 ### Security
 
 - The OpenClaw `>=2026.4.15` peer floor remains in place — it is a real CVE floor (Feishu webhook + card-action validation fail-open in OpenClaw `<2026.4.15`, [GHSA-xh72-v6v9-mwhc](https://github.com/getaxonflow/axonflow-openclaw-plugin/security/advisories/GHSA-cqmh-pcgr-q42f)) and is not relaxed by this release. Anyone running an older OpenClaw should upgrade their host.
-
 
 ## [2.0.0] - 2026-04-29 — Production, quality, and security hardening — upgrade encouraged
 
@@ -659,7 +640,6 @@ The full set of platform-side security fixes shipped alongside this release — 
 ### Security
 
 - Cache and config directories tightened to `0700` on every plugin init (was: only set on directory creation via `mkdirSync({ mode: 0o700 })`, which left existing 0755 dirs unchanged).
-
 
 ## [1.3.2] - 2026-04-22
 
