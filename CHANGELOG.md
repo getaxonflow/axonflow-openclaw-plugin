@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [2.6.1] - 2026-05-20 — Harden auth-failure circuit breaker (non-JSON 401 body + centralized fetch chokepoint) + `org_id` in telemetry heartbeat
+## [2.6.1] - 2026-05-22 — Harden auth-failure circuit breaker (non-JSON 401 body + centralized fetch chokepoint) + `org_id` in telemetry heartbeat
 
 ### Added
 
