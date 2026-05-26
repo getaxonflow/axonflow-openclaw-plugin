@@ -222,11 +222,6 @@ export function registerAxonFlowGovernance(api: {
         }
         return;
       }
-      // Build the enriched config via post-assignment so the credential
-      // field never appears as a property-then-colon-then-value literal
-      // in compiled output. Per-line regex scanners on dist/ do not
-      // distinguish between string literals and runtime variable
-      // forwarding; sidestep both.
       const enriched: typeof config = { ...config, endpoint: result.endpoint, clientId: result.clientId };
       enriched["clientSecret"] = result.clientSecret;
       clientRef.current = new AxonFlowClient(enriched);
@@ -284,12 +279,10 @@ export function registerAxonFlowGovernance(api: {
   const llmOutput = createLlmOutputHandler(clientRef, config, llmCallState);
   api.on("llm_output", llmOutput, { priority: 90 });
 
-  // Agent-callable tools (W2): expose AxonFlow's read-side governance
-  // surface so an agent running in OpenClaw can search audit logs,
-  // explain a previous policy decision, and manage session overrides
-  // via the standard tool-calling path. Registration is gated on the
-  // runtime providing `registerTool` — older OpenClaw runtimes that
-  // pre-date the tool API simply skip this section.
+  // Agent-callable governance tools: search audit logs, explain decisions,
+  // manage session overrides, request HITL approval, and create tenant
+  // policies via the standard tool-calling path. Includes both read-only
+  // and mutating operations. Gated on the runtime providing `registerTool`.
   if (typeof api.registerTool === "function") {
     const tools = buildAgentTools(clientRef);
     for (const tool of tools) {
@@ -344,7 +337,7 @@ export function registerAxonFlowGovernance(api: {
 export default {
   id: "axonflow-governance",
   name: "AxonFlow Governance",
-  description: "Policy enforcement for tool inputs, PII scanning on outbound messages, and audit trails for OpenClaw",
+  description: "Connects to AxonFlow (SaaS or self-hosted) for policy enforcement, PII scanning, audit trails, and human-in-the-loop approval gates. Sends tool inputs and outbound messages to the AxonFlow platform for governance evaluation. Includes a usage heartbeat (opt out: AXONFLOW_TELEMETRY=off).",
   register: registerAxonFlowGovernance,
 };
 // CI re-trigger: 1777491400

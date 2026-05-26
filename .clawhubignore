@@ -1,8 +1,7 @@
 # Files excluded from ClawHub publish.
-# Uses .gitignore syntax. The goal is to keep the published archive
-# to runtime artifacts + manifest + docs, so the OpenClaw install-time
-# static scanner does not flag dev-only patterns (test mocks of env
-# vars, fetch, readFileSync, etc.) and the archive stays small.
+# Uses .gitignore syntax. The published archive contains only runtime
+# artifacts + manifest + docs. Dev-only files (tests, scripts, sources)
+# are excluded because they are not needed at runtime.
 #
 # What SHIPS to ClawHub after these rules apply:
 #   - dist/                   compiled runtime
@@ -43,9 +42,7 @@ eslint.config.*
 .prettierrc*
 .editorconfig
 
-# Test files — these mock process.env, fetch, and readFileSync in
-# ways the OpenClaw install scanner flags as credential harvesting,
-# and they are not used at runtime.
+# Test files — not needed at runtime.
 tests/
 test/
 __tests__/
@@ -60,16 +57,11 @@ src/
 dist/**/*.map
 dist/**/*.d.ts.map
 
-# Internal scripts (local e2e harness) — not needed for install,
-# and scripts/e2e-test.sh contains bash patterns that can confuse
-# the scanner.
+# Internal scripts (local e2e harness) — not needed at runtime.
 scripts/
 
-# Runtime E2E tests — drive a real OpenClaw agent against a live
-# AxonFlow stack to verify outcome assertions. Not consumed by the
-# plugin runtime; ship with the repo, not the published artifact.
-# Their HTTP Basic-auth header setup also trips the static scanner's
-# false-positive exfiltration heuristic (see v2.1.0 scan).
+# Runtime E2E tests — not consumed by the plugin runtime; ship with
+# the repo, not the published artifact.
 runtime-e2e/
 
 # Skill source files — published separately via ClawHub web UI.

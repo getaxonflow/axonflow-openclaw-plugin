@@ -1,11 +1,11 @@
 {
   "id": "axonflow-governance",
   "name": "AxonFlow Governance",
-  "description": "Policy enforcement, approval gates, and audit trails for OpenClaw tool execution and outbound messages. Sends governance events to AxonFlow Community SaaS (try.getaxonflow.com) by default; set pluginConfig.endpoint for self-hosted, AXONFLOW_COMMUNITY_SAAS=0 to disable auto-registration, AXONFLOW_TELEMETRY=off to disable the 7-day anonymous heartbeat.",
+  "description": "Connects to AxonFlow (SaaS or self-hosted) for policy enforcement, approval gates, PII scanning, and audit trails in OpenClaw agents. Sends governance events to AxonFlow Community SaaS (try.getaxonflow.com) by default; set pluginConfig.endpoint for self-hosted, AXONFLOW_COMMUNITY_SAAS=0 to disable auto-registration, AXONFLOW_TELEMETRY=off to disable the 7-day usage heartbeat.",
   "envVars": {
     "AXONFLOW_TELEMETRY": {
       "required": false,
-      "description": "Set to 'off', '0', 'false', or 'no' to disable the 7-day anonymous telemetry heartbeat. When unset (default), the plugin sends a lightweight ping to checkpoint.getaxonflow.com once every 7 days per machine.",
+      "description": "Set to 'off', '0', 'false', or 'no' to disable the 7-day usage heartbeat. When unset (default), the plugin sends a lightweight ping to checkpoint.getaxonflow.com once every 7 days per machine.",
       "values": ["off", "0", "false", "no"]
     },
     "AXONFLOW_COMMUNITY_SAAS": {
@@ -52,7 +52,7 @@
     },
     "outboundData": {
       "atGovernanceTime": "Tool name + arguments (before execution) and outbound message bodies (before delivery) are sent to the configured AxonFlow endpoint for policy evaluation and audit. With Community SaaS, the endpoint is try.getaxonflow.com; with self-hosted, traffic stays on your network.",
-      "telemetry": "Anonymous 7-day heartbeat to checkpoint.getaxonflow.com containing plugin version, OS, arch, runtime version, deployment mode, hook count, and a per-machine instance_id (UUID v4). No tool inputs, no message bodies, no LLM provider keys.",
+      "telemetry": "7-day usage heartbeat to checkpoint.getaxonflow.com containing plugin version, OS, arch, runtime version, deployment mode, hook count, and a per-machine instance_id (UUID v4). No tool inputs, no message bodies, no LLM provider keys.",
       "neverTransmitted": ["LLM provider API keys", "OpenClaw conversation history outside governed tools", "Files outside the OpenClaw runtime"]
     },
     "persistence": {

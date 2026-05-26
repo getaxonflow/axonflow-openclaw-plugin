@@ -110,10 +110,31 @@ describe("extractRecoveryToken", () => {
     ).toBe("abc123def");
   });
 
-  it("extracts the token from any URL with a token query param", () => {
+  it("extracts the token from a URL with extra query params", () => {
     expect(
-      extractRecoveryToken("https://example.com/landing?other=x&token=tok-xyz&extra=y"),
+      extractRecoveryToken("https://try.getaxonflow.com/landing?other=x&token=tok-xyz&extra=y"),
     ).toBe("tok-xyz");
+  });
+
+  it("rejects URLs from unrecognized hosts", () => {
+    expect(() =>
+      extractRecoveryToken("https://evil.com/phishing?token=stolen"),
+    ).toThrow(/not a recognized AxonFlow endpoint/);
+    expect(() =>
+      extractRecoveryToken("http://evil.com/phishing?token=stolen"),
+    ).toThrow(/not a recognized AxonFlow endpoint/);
+  });
+
+  it("rejects subdomain-suffix attacks", () => {
+    expect(() =>
+      extractRecoveryToken("https://try.getaxonflow.com.evil.com/?token=stolen"),
+    ).toThrow(/not a recognized AxonFlow endpoint/);
+  });
+
+  it("rejects unrecognized getaxonflow.com subdomains", () => {
+    expect(() =>
+      extractRecoveryToken("https://staging.getaxonflow.com/?token=x"),
+    ).toThrow(/not a recognized AxonFlow endpoint/);
   });
 
   it("supports http:// URLs (local dev)", () => {
@@ -122,13 +143,27 @@ describe("extractRecoveryToken", () => {
     );
   });
 
+  it("supports getaxonflow.com with port", () => {
+    expect(
+      extractRecoveryToken("https://try.getaxonflow.com:8443/recover?token=with-port"),
+    ).toBe("with-port");
+  });
+
+  it("supports 127.0.0.1 with token", () => {
+    expect(extractRecoveryToken("http://127.0.0.1:8080/recover?token=ipv4")).toBe("ipv4");
+  });
+
+  it("supports IPv6 loopback with token", () => {
+    expect(extractRecoveryToken("http://[::1]:8080/recover?token=ipv6")).toBe("ipv6");
+  });
+
   it("rejects empty input", () => {
     expect(() => extractRecoveryToken("")).toThrow(/token .* is required/);
     expect(() => extractRecoveryToken("   ")).toThrow(/token .* is required/);
   });
 
   it("rejects URLs without a token query parameter", () => {
-    expect(() => extractRecoveryToken("https://example.com/landing")).toThrow(
+    expect(() => extractRecoveryToken("https://try.getaxonflow.com/landing")).toThrow(
       /no `token` query parameter/,
     );
   });

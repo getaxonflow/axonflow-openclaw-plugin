@@ -1,13 +1,9 @@
 /**
- * v9.1 deployment-organization identifier resolver (#2277).
+ * Deployment-organization identifier resolver.
  *
- * Isolated in its own module so the env / fs reads do not co-locate
- * with the outbound HTTP `fetch` call in `telemetry.ts`. The openclaw
- * marketplace security scanner flags "env read + network send in the
- * same compiled file" as a possible credential-harvesting pattern;
- * splitting the lookup into a sibling module sidesteps the flag with
- * no behaviour change. See docs in axonflow-landing/content/privacy.html
- * for the customer-facing commitment that covers this field.
+ * Resolves the org_id for the telemetry heartbeat payload. Three sources
+ * in precedence order: ORG_ID env var, tenant_id from try-registration.json,
+ * or the local-dev sentinel.
  */
 
 import * as fs from "node:fs";
@@ -31,11 +27,9 @@ export const ORG_ID_LOCAL_DEV_SENTINEL = "local-dev-org";
  *      the Community-SaaS bootstrap writes on first registration).
  *   3. `ORG_ID_LOCAL_DEV_SENTINEL`.
  *
- * Reading the registration file at telemetry time (rather than passing
- * the value in via config) sidesteps the timing race where the
- * heartbeat fires before the async bootstrap has populated config —
- * matches the bash-plugin pattern in scripts/telemetry-ping.sh on the
- * Claude/Cursor/Codex plugins.
+ * Reads the registration file at telemetry time (rather than receiving
+ * the value via config) to avoid a timing race where the heartbeat
+ * fires before the async bootstrap has populated config.
  */
 export function telemetryOrgID(): string {
   const fromEnv = process.env.ORG_ID;

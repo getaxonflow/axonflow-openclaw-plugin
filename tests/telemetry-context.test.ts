@@ -1,10 +1,9 @@
 /**
  * Unit tests for telemetry-context.ts.
  *
- * Covers the env-read + fs-read paths that were split out of telemetry.ts
- * to dodge the OpenClaw scanner's per-file env+fetch / fs+fetch
- * heuristics. Branch coverage matters here because every catch path in
- * these helpers is a real failure mode users hit (missing cache dir,
+ * Covers the env-read + fs-read paths that were split out of
+ * telemetry.ts. Branch coverage matters here because every catch path
+ * in these helpers is a real failure mode users hit (missing cache dir,
  * unreadable stamp file, chmod-on-Windows no-op, etc).
  */
 

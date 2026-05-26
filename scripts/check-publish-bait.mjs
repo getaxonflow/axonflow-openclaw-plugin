@@ -1,46 +1,24 @@
 #!/usr/bin/env node
 /**
- * Static guard: forbid known regex-bait shapes anywhere in the published
- * tarball, not just compiled JavaScript.
+ * Static guard: forbid sensitive property patterns anywhere in the
+ * published tarball.
  *
- * Background. Per-line static analyzers commonly flag credential-shaped
- * property literals as "exposed secret literal", regardless of whether
- * the right-hand side is a string literal or a runtime variable
- * reference. The OpenClaw scanner (run by ClawHub at publish time)
- * shipped a ruleset on 2026-04-30 that introduced this rule and blocked
- * install of v2.0.1; v2.0.2 cleaned the compiled output but left
- * documentation in markdown that demonstrated the shape literally,
- * which the same rule flagged from `CHANGELOG.md` and continued to
- * block install. The takeaway is that the analyzer scans every file in
- * the published tarball — markdown, manifest, plain text — and the
- * gate is whichever-is-worst across files.
+ * Walks every file that ships to npm (defined by `package.json` `files`)
+ * and fails the build if any property-name-then-colon-then-value shape
+ * matches a credential key pattern. This catches patterns that static
+ * analyzers flag regardless of whether the value is a literal or a
+ * runtime variable reference.
  *
- * This guard walks the same set of files that ship to npm — defined by
- * `package.json` `files` — and fails the build on any bait shape. It is
- * independent of the OpenClaw scanner version: it asserts on the shape
- * we know trips per-line scanners regardless of which ruleset is on
- * `latest` at scan time.
- *
- * Bait shapes checked:
- *   - clientSecret followed by colon-then-non-whitespace
- *   - apiKey, api_key, password, secret with the same shape
+ * Checked keys: clientSecret, apiKey, api_key, password, secret.
  *
  * False-positive boundaries:
- *   - .d.ts files inside dist/ are skipped — those are TypeScript
- *     declaration files, not executable JavaScript, and `clientSecret`
- *     declared as a type in a declaration is the type definition we
- *     WANT to publish.
- *   - Comment lines in compiled JavaScript (// or *-prefixed) are
- *     downgraded to a non-blocking warning rather than failing the
- *     build, because removing every property-shape mention from
- *     comments would also strip useful API docs. Static scanners we
- *     have observed do not flag inside comments, but the warning
- *     surfaces them so a future regression can be addressed
- *     proactively.
+ *   - .d.ts files inside dist/ are skipped (type declarations).
+ *   - Comment lines in compiled JavaScript are downgraded to a
+ *     non-blocking warning.
  *
  * Exit codes:
- *   0   PASS — no bait shapes found.
- *   1   FAIL — at least one bait shape found in a published file.
+ *   0   PASS — no findings.
+ *   1   FAIL — at least one finding in a published file.
  *   2   SETUP ERROR — a configured target is missing (run `npm run build` first).
  */
 
@@ -164,7 +142,7 @@ if (findings.length > 0) {
     process.stderr.write(`  ${f.file}:${f.lineNum}  [${f.key}]  ${f.line}\n`);
   }
   process.stderr.write(
-    "\nThese property-name-then-colon-then-value shapes trip per-line scanner regex even when the value is documentation, prose, or a runtime variable. For compiled JavaScript, refactor to bracket-notation post-assignment. For markdown / manifest documentation, describe the keys by name and link to the Configuration section instead of embedding placeholder values inline.\n",
+    "\nThese property-name-then-colon-then-value shapes are flagged by static analyzers even when the value is documentation, prose, or a runtime variable. For compiled JavaScript, refactor to bracket-notation post-assignment. For markdown / manifest documentation, describe the keys by name and link to the Configuration section instead of embedding placeholder values inline.\n",
   );
   process.exit(FAIL);
 }

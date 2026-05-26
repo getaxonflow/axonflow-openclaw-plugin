@@ -1,14 +1,11 @@
 /**
- * Agent-callable tool registrations (W2: read-side governance surface).
+ * Agent-callable governance tools.
  *
- * Wraps the AxonFlowClient read methods (search audit, explain decision,
- * list/create/revoke override) as OpenClaw `AgentTool`s so that an agent
- * running in OpenClaw can invoke them autonomously via tool-calling.
- *
- * Tools are registered through `api.registerTool(...)` in `index.ts`.
- * The runtime e2e test under `tests/e2e/runtime-tools-smoke.mjs`
- * exercises each tool via its `execute()` function — the same path
- * OpenClaw's tool dispatcher uses — against a live AxonFlow stack.
+ * Exposes AxonFlow governance operations as OpenClaw `AgentTool`s so an
+ * agent can invoke them autonomously via tool-calling. Includes both
+ * read-only tools (audit search, explain decision, list overrides) and
+ * mutating tools (create/revoke override, create tenant policy, request
+ * HITL approval). Registered through `api.registerTool(...)` in index.ts.
  *
  * Tool naming convention: `axonflow_<verb>_<object>` (e.g.
  * `axonflow_audit_search`). The prefix avoids name collisions with

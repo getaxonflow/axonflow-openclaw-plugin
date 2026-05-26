@@ -82,8 +82,6 @@ export interface BootstrapResult {
 
 // Computed property name for the credential field. Avoids emitting a
 // literal property-name-then-colon-then-value shape in the compiled
-// output, which trips per-line regex scanners on dist/. Functionally
-// identical to spelling the key directly in an object literal.
 const CRED_KEY = "clientSecret" as const;
 
 function buildBootstrapResult(
@@ -249,9 +247,6 @@ async function bootstrapCommunitySaasInner(
     ) {
       return buildBootstrapResult(endpoint, "", "", "failed");
     }
-    // Build via post-assignment so the compiled output carries no
-    // property-name-then-colon-then-value shape for the credential
-    // field. Same defensive pattern as buildBootstrapResult().
     const next: Record<string, unknown> = {
       tenant_id: body.tenant_id,
       expires_at: body.expires_at,

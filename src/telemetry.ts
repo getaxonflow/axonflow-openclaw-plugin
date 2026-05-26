@@ -1,29 +1,16 @@
 /**
- * Anonymous usage telemetry — 7-day heartbeat (TypeScript).
+ * Usage telemetry — 7-day heartbeat.
  *
- * Sends an anonymous POST to checkpoint.getaxonflow.com on plugin
- * initialization, at most once every 7 days per machine.
+ * Sends a POST to checkpoint.getaxonflow.com on plugin initialization,
+ * at most once every 7 days per machine. Payload includes: plugin
+ * version, OS/arch, Node version, deployment mode, org_id, a persistent
+ * per-machine instance_id, and hook configuration summary. Does not
+ * include message contents, tool arguments, or policy data.
  *
- * Design rules (per feedback_telemetry_heartbeat_design_rules.md):
- *   1. Stamp-on-delivery, not stamp-on-attempt. Stamp file mtime
- *      advances ONLY after the HTTP POST returns 2xx. A transient
- *      network failure does not silence telemetry for 7 days.
- *   2. In-flight gate via a per-process Promise. Concurrent plugin
- *      loads do not race to send duplicate pings.
- *   3. Opt-out check FIRST, before any rate-limit or filesystem ops.
- *      AXONFLOW_TELEMETRY=off is re-evaluated every call.
- *   4. mtime as the freshness source; stamp body holds instance_id.
- *   5. Atomic stamp write: tmp + rename.
- *   6. Persistent instance_id across heartbeats.
- *   7. Defensive against future-dated stamps (clock skew → treat absent).
- *   8. Cross-platform cache dir resolution (cache-dir.ts).
+ * Opt out: set AXONFLOW_TELEMETRY=off (also accepts 0, false, no).
  *
- * Configuration resolution (opt-out flags, checkpoint URL) lives in
- * telemetry-config.ts. Environment + filesystem reads (harness probe
- * endpoint, stamp inspection, atomic stamp write) live in
- * telemetry-context.ts. This module is the network-only side of the
- * heartbeat: it imports plain values from the context modules and only
- * issues HTTP requests.
+ * Configuration lives in telemetry-config.ts; stamp file management
+ * in telemetry-context.ts; org_id resolution in telemetry-org-id.ts.
  */
 
 import { axonflowCacheDir } from "./cache-dir.js";
@@ -79,10 +66,7 @@ export interface TelemetryPayload {
 }
 
 // telemetryOrgID() + ORG_ID_LOCAL_DEV_SENTINEL live in
-// ./telemetry-org-id.ts (re-exported above) so the env / fs reads do
-// not co-locate with the outbound HTTP fetch in this file — the
-// openclaw marketplace security scanner flags that pattern as
-// possible credential harvesting (#2277 followup).
+// ./telemetry-org-id.ts (re-exported above).
 export { ORG_ID_LOCAL_DEV_SENTINEL, telemetryOrgID };
 
 /**
@@ -224,9 +208,7 @@ async function sendInner(options: SendOptions): Promise<void> {
   const now = options.now ?? (() => new Date());
   const nowMs = now().getTime();
 
-  // 3. mtime check, defensive against future-dated stamps. The stamp read
-  //    is done in telemetry-context.ts so this module stays free of fs
-  //    read calls co-located with fetch.
+  // 3. mtime check, defensive against future-dated stamps.
   const stamp = readStampMetadata(stampFile);
   if (stamp.exists && stamp.mtimeMs > 0 && stamp.mtimeMs <= nowMs) {
     const age = nowMs - stamp.mtimeMs;
@@ -241,9 +223,7 @@ async function sendInner(options: SendOptions): Promise<void> {
       ? priorInstanceId
       : generateInstanceId();
 
-  // 4. Detect platform version (best-effort). The harness override is
-  //    resolved in telemetry-context.ts so AXONFLOW_HARNESS env reads do
-  //    not co-locate with fetch in this file.
+  // 4. Detect platform version (best-effort).
   const probeEndpoint = resolveProbeEndpoint(options.endpoint);
   let platformVersion: string | null = null;
   try {
