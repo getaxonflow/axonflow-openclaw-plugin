@@ -36,8 +36,8 @@
  *     2 — request step failed
  *     3 — verify step failed
  *     4 — persist step failed (verified token, but couldn't write the
- *         credential file — credentials are still printed to stdout so the
- *         user can save them manually)
+ *         credential file — non-sensitive fields printed to stdout;
+ *         secret is NOT printed, re-run to retry persistence)
  */
 
 import * as readline from "node:readline";
@@ -208,8 +208,12 @@ async function runVerify(token, endpoint, timeoutMs) {
     process.stderr.write(
       "\nCredentials are valid; save them manually and add to your plugin config:\n",
     );
-    // Print as JSON on stdout so a caller can capture them.
-    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    const { secret, ...safe } = result;
+    process.stdout.write(JSON.stringify(safe, null, 2) + "\n");
+    process.stderr.write(
+      "\n  The secret was NOT printed to stdout. Re-run the recovery flow\n" +
+        "  to persist credentials to disk automatically.\n",
+    );
     process.exit(4);
   }
   process.stderr.write(`\n✓ Credentials persisted to:\n  ${savedAt}\n`);
@@ -217,9 +221,8 @@ async function runVerify(token, endpoint, timeoutMs) {
     "\n  Reload your OpenClaw runtime — the plugin will pick up the recovered\n" +
       "  registration on next init. No further config change needed.\n",
   );
-  // Also print structured result on stdout so scripts / runtime tests can
-  // capture it without parsing the human-readable lines on stderr.
-  process.stdout.write(JSON.stringify({ saved_at: savedAt, ...result }) + "\n");
+  const { secret, ...safe } = result;
+  process.stdout.write(JSON.stringify({ saved_at: savedAt, ...safe }) + "\n");
   process.exit(0);
 }
 
