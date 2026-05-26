@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [2.6.4] - 2026-05-27 — Dependency floor bump + audit non-blocking fix
+
+### Security
+
+- **Peer dependency floors raised past known CVEs.** `@axonflow/sdk` floor raised from `>=4.3.0` to `>=7.0.0` (fixes GHSA-mph8-9v29-pm42). `openclaw` floor raised from `>=2026.4.15` to `>=2026.5.22` (past 10 disclosed CVEs including CVE-2026-44116, CVE-2026-45002, CVE-2026-45003).
+
+### Fixed
+
+- **Audit hook is now truly fire-and-forget.** The `after_tool_call` handler previously `await`ed the audit POST, which could delay tool execution if the audit backend was slow. Now uses `void` + `.then()` so audit never blocks the tool pipeline.
+
 ## [2.6.3] - 2026-05-26 — Data minimization
 
 ### Security

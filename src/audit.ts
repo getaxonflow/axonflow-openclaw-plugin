@@ -32,17 +32,14 @@ export function createAfterToolCallHandler(
       return;
     }
 
-    try {
-      await clientRef.current.auditToolCall(
-        event.toolName,
-        event.params,
-        event.result,
-        event.error,
-        event.durationMs,
-      );
-      recordAuditEventSent();
-    } catch {
+    void clientRef.current.auditToolCall(
+      event.toolName,
+      event.params,
+      event.result,
+      event.error,
+      event.durationMs,
+    ).then(() => recordAuditEventSent()).catch(() => {
       // Fire-and-forget: audit failures must not interfere with tool pipeline
-    }
+    });
   };
 }
