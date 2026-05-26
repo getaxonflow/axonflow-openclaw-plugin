@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [2.6.3] - 2026-05-26 — Data minimization
+
+### Security
+
+- **Recovery CLI no longer prints secrets to stdout.** The `secret` field is excluded from both the success and persist-failure JSON output. Credentials are written only to the persisted file (mode 0o600). Non-sensitive fields (tenant_id, endpoint, expires_at, email) are still printed for scripting.
+
+### Changed
+
+- **Tool audit input truncation.** String values in tool parameters longer than 500 characters are truncated before sending to the audit endpoint, matching the existing truncation applied to tool results and LLM prompts.
+
 ## [2.6.2] - 2026-05-26 — Transparency and security audit cleanup
 
 ### Security

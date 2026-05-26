@@ -236,6 +236,14 @@ const noopUpgradePromptLogger: UpgradePromptLogger = {
   error: () => {},
 };
 
+function truncateStringValues(obj: Record<string, unknown>, maxLen: number): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    out[k] = typeof v === "string" && v.length > maxLen ? v.slice(0, maxLen) + "…" : v;
+  }
+  return out;
+}
+
 export class AxonFlowClient {
   private readonly endpoint: string;
   private readonly authHeader: string;
@@ -702,7 +710,7 @@ export class AxonFlowClient {
         body: JSON.stringify({
           tool_name: toolName,
           tool_type: "openclaw",
-          input: params,
+          input: truncateStringValues(params, 500),
           output: result != null ? { result: JSON.stringify(result).slice(0, 500) } : undefined,
           success: error == null,
           error_message: error,
