@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      DO_NOT_TRACK: '1'
+      AXONFLOW_TELEMETRY: 'off'
       AXONFLOW_ENDPOINT: http://localhost:8080
       AXONFLOW_CLIENT_ID: demo-client
       AXONFLOW_CLIENT_SECRET: demo-secret

@@ -77,7 +77,7 @@ function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, {
     stdio: opts.silent ? 'pipe' : 'inherit',
     cwd: opts.cwd || REPO_ROOT,
-    env: { ...process.env, DO_NOT_TRACK: '1', ...(opts.env || {}) },
+    env: { ...process.env, AXONFLOW_TELEMETRY: 'off', ...(opts.env || {}) },
     encoding: 'utf8',
   });
   if (r.status !== 0) {

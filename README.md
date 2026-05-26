@@ -47,11 +47,11 @@ The plugin governs tool calls and outbound messages by sending each one to an Ax
 > 2. **Community Edition with an [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/)** — for production use with real users or clients on the open core; adds production-fit limits and license-gated features. Free 90-day [evaluation license](https://getaxonflow.com/plugins/evaluation-license).
 > 3. **[AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/)** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries. Contact [hello@getaxonflow.com](mailto:hello@getaxonflow.com).
 >
-> To skip Community SaaS entirely: set `pluginConfig.endpoint` to a self-hosted AxonFlow URL. That alone flips the plugin into self-hosted mode — the Community SaaS auto-bootstrap is not attempted, and no env var is required. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for the Docker Compose setup. For air-gapped environments where AxonFlow is not yet reachable but you want to suppress the bootstrap attempt, set `AXONFLOW_COMMUNITY_SAAS=0`; set `AXONFLOW_TELEMETRY=off` to also disable the anonymous 7-day heartbeat.
+> To skip Community SaaS entirely: set `pluginConfig.endpoint` to a self-hosted AxonFlow URL. That alone flips the plugin into self-hosted mode — the Community SaaS auto-bootstrap is not attempted, and no env var is required. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for the Docker Compose setup. For air-gapped environments where AxonFlow is not yet reachable but you want to suppress the bootstrap attempt, set `AXONFLOW_COMMUNITY_SAAS=0`; set `AXONFLOW_TELEMETRY=off` to also disable the 7-day usage heartbeat.
 
 ### Self-hosted (recommended for any real use)
 
-Point the plugin at an AxonFlow instance you run. Nothing leaves your network except the anonymous 7-day heartbeat (which can also be disabled). Configure three values in `pluginConfig`:
+Point the plugin at an AxonFlow instance you run. Nothing leaves your network except the usage heartbeat (which can also be disabled). Configure three values in `pluginConfig`:
 
 - `endpoint` — the URL of your AxonFlow agent gateway (for example `https://axonflow.your-corp.example.com`).
 - `clientId` — the AxonFlow tenant identifier issued to your deployment.
@@ -71,7 +71,7 @@ The plugin's zero-config fallback. Install the plugin without setting `pluginCon
 |---|---|
 | Tool name + arguments before each governed call | LLM provider API keys |
 | Outbound message bodies before delivery (PII/secret scan) | OpenClaw conversation history outside governed tools |
-| Anonymous 7-day heartbeat (plugin version, OS, runtime) | Files outside the OpenClaw runtime |
+| Usage heartbeat (plugin version, OS, runtime, instance ID) | Files outside the OpenClaw runtime |
 
 The endpoint runs against shared Ollama models, rate-limits at 20 req/min · 500 req/day per tenant, and is offered "as is" on a best-effort basis with no SLA, no warranties, no commitment to retention or deletion timelines, and may be modified or discontinued without notice. Read the [Try AxonFlow — Free Trial Server](https://docs.getaxonflow.com/docs/deployment/community-saas/) page for the full disclosure, including [data retention](https://docs.getaxonflow.com/docs/deployment/community-saas/#limitations-and-disclaimers) and [registration mechanics](https://docs.getaxonflow.com/docs/deployment/community-saas/#registration).
 
@@ -93,7 +93,7 @@ The plugin recognizes the following environment variables. All are optional with
 | Variable | Effect |
 |---|---|
 | `AXONFLOW_ENDPOINT` | Override the AxonFlow agent gateway endpoint. Wins over `pluginConfig.endpoint` when both are set. When unset and `AXONFLOW_COMMUNITY_SAAS` is not opted out, the plugin auto-bootstraps against `https://try.getaxonflow.com`. For self-hosted deployments, set this (or `pluginConfig.endpoint`) to your AxonFlow URL. |
-| `AXONFLOW_TELEMETRY=off` | Disables the 7-day anonymous heartbeat to `checkpoint.getaxonflow.com`. Accepted off-values: `off`, `0`, `false`, `no`. |
+| `AXONFLOW_TELEMETRY=off` | Disables the 7-day usage heartbeat to `checkpoint.getaxonflow.com`. Accepted off-values: `off`, `0`, `false`, `no`. |
 | `AXONFLOW_COMMUNITY_SAAS=0` | Disables auto-registration with `try.getaxonflow.com`. You must then set `pluginConfig.endpoint` (or `AXONFLOW_ENDPOINT`) for the plugin to enforce policy. Accepted off-values: `0`, `false`, `off`, `no`. |
 | `AXONFLOW_CACHE_DIR` | Overrides the per-user cache dir (telemetry stamp, rate-limit backoff). Defaults to `$XDG_CACHE_HOME/axonflow` (Linux), `~/Library/Caches/axonflow` (macOS), `%LOCALAPPDATA%\axonflow` (Windows). |
 | `AXONFLOW_CONFIG_DIR` | Overrides the per-user config dir (Community-SaaS registration file, disclosure stamp). Defaults to OS conventions: `$XDG_CONFIG_HOME/axonflow` (Linux), `~/Library/Application Support/axonflow` (macOS), `%APPDATA%\axonflow` (Windows). |
@@ -550,15 +550,25 @@ The [policies directory](./policies) ships research-backed starter policies addr
 
 ## Telemetry
 
-The plugin sends a one-time anonymous ping on initialization so AxonFlow can understand adoption and environment shape. Includes plugin version, OS/arch, Node.js version, AxonFlow platform version, hook configuration summary. **Never** includes message contents, tool arguments, or policy data.
+The plugin sends a usage heartbeat once every 7 days so AxonFlow can understand adoption and environment shape. Includes plugin version, OS/arch, Node.js version, AxonFlow platform version, deployment mode, endpoint type, org_id, and hook configuration summary. Also includes a persistent per-machine instance ID (UUID v4). **Never** includes message contents, tool arguments, or policy data.
 
 Opt out: set `AXONFLOW_TELEMETRY=off` in the environment OpenClaw runs in.
 
 ### Scope of `AXONFLOW_TELEMETRY=off`
 
-`AXONFLOW_TELEMETRY=off` disables the anonymous heartbeat described above. On **self-hosted** and **in-VPC** deployments, that heartbeat is the only data the plugin sends to AxonFlow, so setting `=off` means we receive nothing. On **Community SaaS** (`try.getaxonflow.com`) the hosted service also processes operational data — registrations, audit logs, policy enforcement records, workflow state, plan data, and request-header metadata aggregated for usage analytics — as part of running the platform; that operational data flow is governed by the [Privacy Policy](https://getaxonflow.com/privacy/), not by `AXONFLOW_TELEMETRY`.
+`AXONFLOW_TELEMETRY=off` disables the usage heartbeat described above. On **self-hosted** and **in-VPC** deployments, that heartbeat is the only data the plugin sends to AxonFlow, so setting `=off` means we receive nothing. On **Community SaaS** (`try.getaxonflow.com`) the hosted service also processes operational data — registrations, audit logs, policy enforcement records, workflow state, plan data, and request-header metadata aggregated for usage analytics — as part of running the platform; that operational data flow is governed by the [Privacy Policy](https://getaxonflow.com/privacy/), not by `AXONFLOW_TELEMETRY`.
 
-`DO_NOT_TRACK` is **not** honored as an opt-out for AxonFlow telemetry. It is commonly inherited from host tools and developer environments, which makes it an unreliable expression of user intent.
+### Network calls this plugin makes
+
+| Call | When | What is sent | Opt out |
+|---|---|---|---|
+| Governance check | Every governed tool call / outbound message | Tool name + arguments, message body | Core functionality |
+| Audit log | After each tool execution / LLM call | Tool name, result summary (truncated), prompt summary (first 500 chars), token usage, latency | Core functionality |
+| Health check | On plugin init | Nothing (GET request) | Fire-and-forget |
+| Usage heartbeat | Once per 7 days | Plugin version, OS, arch, Node version, platform version, deployment mode, endpoint type, org_id, hook config summary, persistent instance ID | `AXONFLOW_TELEMETRY=off` (also accepts `0`, `false`, `no`) |
+| Platform version probe | During heartbeat (if not opted out) | Nothing (GET to /health) | Disabled when `AXONFLOW_TELEMETRY=off` |
+| Version compatibility check | On plugin init | Plugin version | Fire-and-forget |
+| Community SaaS registration | First run (community-saas mode only) | Machine label (plugin version + OS) | `AXONFLOW_COMMUNITY_SAAS=0` or self-hosted endpoint |
 
 ---
 

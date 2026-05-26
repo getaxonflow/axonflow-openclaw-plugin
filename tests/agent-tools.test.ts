@@ -1,6 +1,6 @@
 /**
  * Unit tests for the agent-callable tool definitions registered with
- * OpenClaw via `api.registerTool` (W2: read-side governance surface).
+ * OpenClaw via `api.registerTool` (governance tools).
  *
  * Tests exercise each tool's `execute()` end-to-end against a stubbed
  * AxonFlowClient so we cover happy path, validation rejections, and

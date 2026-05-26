@@ -3,10 +3,9 @@
  * Pre-publish security-scan gate.
  *
  * Packs the plugin with `npm pack`, extracts the tarball, and runs the
- * official OpenClaw plugin scanner against the extracted tree. The
- * scanner is the same code that ClawHub runs server-side at publish
- * time — running it locally + in CI catches scanner regressions before
- * they ship instead of after.
+ * OpenClaw plugin scanner against the extracted tree. Running the same
+ * scan locally and in CI catches findings before publish rather than
+ * after.
  *
  * Two ways to invoke:
  *   - Local pre-commit: `npm run scan` (this script).

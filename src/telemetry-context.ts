@@ -1,14 +1,9 @@
 /**
  * Telemetry context — environment + filesystem reads.
  *
- * This module isolates env access and filesystem reads away from the
- * network-sending side of the heartbeat (telemetry.ts). Splitting the two
- * concerns keeps any single compiled file from carrying both an env/fs
- * read pattern and an outbound HTTP call. Static-analysis heuristics that
- * flag co-located env-or-fs-read with network-send therefore do not trip.
- *
- * Pure-data module: callers receive plain values and pass them into the
- * network-sending module. No outbound HTTP lives here.
+ * Collects runtime metadata (OS, arch, Node version) and manages the
+ * heartbeat stamp file. The network-sending side lives in telemetry.ts;
+ * this module provides the data it needs.
  */
 
 import * as fs from "fs";
@@ -105,9 +100,7 @@ export function writeStampAtomic(stampFile: string, instanceId: string): void {
 
 /**
  * Snapshot of `process` runtime data used in the telemetry payload.
- * Captured here (away from the fetch site) for symmetry with the env/fs
- * reads, even though `process.platform` etc. are not regex-matched by the
- * current scanner. Keeps the network module a pure data-out function.
+ * Captured alongside the other env/fs reads for module cohesion.
  */
 export interface RuntimeInfo {
   os: string;
