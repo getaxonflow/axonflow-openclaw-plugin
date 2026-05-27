@@ -2,6 +2,21 @@
   "id": "axonflow-governance",
   "name": "AxonFlow Governance",
   "description": "Connects to AxonFlow (SaaS or self-hosted) for policy enforcement, approval gates, PII scanning, and audit trails in OpenClaw agents. Sends governance events to AxonFlow Community SaaS (try.getaxonflow.com) by default; set pluginConfig.endpoint for self-hosted, AXONFLOW_COMMUNITY_SAAS=0 to disable auto-registration, AXONFLOW_TELEMETRY=off to disable the 7-day usage heartbeat.",
+  "contracts": {
+    "tools": [
+      "axonflow_audit_search",
+      "axonflow_explain_decision",
+      "axonflow_list_recent_decisions",
+      "axonflow_list_overrides",
+      "axonflow_create_override",
+      "axonflow_revoke_override",
+      "axonflow_get_tenant_id",
+      "axonflow_request_approval",
+      "axonflow_create_tenant_policy",
+      "axonflow_get_cost_estimate",
+      "axonflow_list_pro_features"
+    ]
+  },
   "envVars": {
     "AXONFLOW_TELEMETRY": {
       "required": false,
