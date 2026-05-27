@@ -2,6 +2,26 @@
 
 ## @axonflow/governance-policies
 
+### 2.5.0 (2026-05-27)
+
+Catches the skill up with plugin v2.6.4. Addresses three security-audit findings on v2.4.2 (ASI04, ASI03, ASI02) and adds Plugin Pro tier content.
+
+**Install command pins `@axonflow/openclaw@2.6.4`** instead of `@latest`. Closes ASI04 — the pinned version matches the reviewed plugin artifact on ClawHub.
+
+**Inline YAML config block removed.** Credential configuration described in prose with a link to the Configuration reference docs page. Closes ASI03 — no credential placeholders in the skill content.
+
+**Body text simplified.** Removed "authoring policies, or wiring up decision explainability and approval workflows" from the intro paragraph. Frontmatter description rewritten to focus on setup rather than governance actions. Closes ASI02.
+
+**Plugin Pro tier section added.** Compact Free-vs-Pro comparison table (5 rows) with a link to the pricing page. Highlights: 200 → 2,000 events/day, 3 → 30 day retention, 4 → 50 custom policies, LLM cost pre-flight.
+
+**Plugin floor bumped** from `@axonflow/openclaw` 2.4.0 to **2.6.4** — the v2.6.x line includes peer dependency floor bumps past disclosed CVEs, audit data minimization, recovery host validation, and auth-failure circuit breaker.
+
+**OpenClaw floor bumped** from 2026.4.15 to **2026.5.22** — matching the plugin's peer dependency floor past 10 disclosed CVEs.
+
+**License correction.** Plugin license corrected from "BSL 1.1" to "MIT" (the platform is BSL 1.1; the plugin has always been MIT).
+
+Base: v2.4.2 slim template with targeted fixes for the three quoted trigger phrases + additive Pro table + license correction.
+
 ### 2.4.2 (2026-05-09)
 
 Slim rewrite. Skill content reduced from ~354 lines to ~62 lines, leading with product features and pushing implementation detail to docs links. Same shape of patch as v2.0.2 — close ClawScan / VirusTotal Concern findings by **removing** the trigger phrases entirely rather than rephrasing them. v2.4.1 attempted phrase-level rewords and ClawScan re-tipped from Benign → Review with the same finding categories v2.0.2 already closed (`Memory and Context Poisoning`, `Insecure Inter-Agent Communication`); v2.4.2 applies the v2.0.2 pattern correctly this time.
