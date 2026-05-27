@@ -83,3 +83,14 @@ jobs:
 
       - name: Run install-smoke harness
         run: node tests/install-smoke/run.mjs
+
+      - name: Verify plugin doctor has zero diagnostics
+        run: |
+          set -euo pipefail
+          DOCTOR_OUT=$(openclaw plugins doctor 2>&1 || true)
+          if echo "$DOCTOR_OUT" | grep -q "axonflow-governance"; then
+            echo "::error::openclaw plugins doctor reported diagnostics for axonflow-governance:"
+            echo "$DOCTOR_OUT" | grep "axonflow-governance"
+            exit 1
+          fi
+          echo "OK: plugins doctor clean for axonflow-governance"

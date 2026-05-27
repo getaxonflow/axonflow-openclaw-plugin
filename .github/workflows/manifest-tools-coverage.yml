@@ -1,0 +1,68 @@
+name: manifest-tools-coverage
+
+# Catch drift between tools registered in src/agent-tools.ts and the
+# contracts.tools declaration in openclaw.plugin.json. Prevents the
+# v2.6.4 incident where 11 tools were registered via api.registerTool()
+# but never surfaced to the LLM because contracts.tools was missing.
+#
+# Two sources must stay in sync:
+#   1. Tool name strings in src/agent-tools.ts (runtime registration)
+#   2. openclaw.plugin.json contracts.tools (manifest declaration)
+
+on:
+  pull_request:
+    paths:
+      - 'src/agent-tools.ts'
+      - 'openclaw.plugin.json'
+      - '.github/workflows/manifest-tools-coverage.yml'
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Verify contracts.tools matches agent-tools.ts
+        run: |
+          set -euo pipefail
+
+          # 1) Tool names from source (the name: "axonflow_*" lines in agent-tools.ts)
+          grep -oE 'name: "axonflow_[a-z_]+"' src/agent-tools.ts \
+            | sed 's/name: "//;s/"//' \
+            | sort \
+            > /tmp/source-tools.txt
+          echo "Source tools (src/agent-tools.ts):"
+          cat /tmp/source-tools.txt
+          echo ""
+
+          # 2) Manifest contracts.tools
+          python3 -c "
+          import json, sys
+          d = json.load(open('openclaw.plugin.json'))
+          contracts = d.get('contracts', {})
+          tools = contracts.get('tools', [])
+          if not tools:
+              print('::error::openclaw.plugin.json is missing contracts.tools — agent tools will be invisible to the LLM')
+              sys.exit(1)
+          for t in sorted(tools):
+              print(t)
+          " > /tmp/manifest-tools.txt
+          echo "Manifest tools (openclaw.plugin.json contracts.tools):"
+          cat /tmp/manifest-tools.txt
+          echo ""
+
+          # Drift check
+          if ! diff -q /tmp/source-tools.txt /tmp/manifest-tools.txt >/dev/null; then
+            echo "::error::contracts.tools drift between src/agent-tools.ts and openclaw.plugin.json:"
+            diff /tmp/source-tools.txt /tmp/manifest-tools.txt || true
+            echo ""
+            echo "::error::Resolution: every tool registered in buildAgentTools() must appear in openclaw.plugin.json contracts.tools. Without this, OpenClaw will not surface the tool to the LLM."
+            exit 1
+          fi
+          echo "OK: source tools == manifest contracts.tools ($(wc -l < /tmp/source-tools.txt | tr -d ' ') entries)"
