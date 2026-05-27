@@ -21,17 +21,17 @@ Requires OpenClaw 2026.5.22+ and `@axonflow/openclaw` 2.6.4+.
 
 | Feature | Read more |
 |---|---|
-| 80+ built-in governance policies | [Policies](https://docs.getaxonflow.com/docs/governance/policies/) |
+| 80+ built-in governance policies | [Policies](https://docs.getaxonflow.com/docs/policies/overview/) |
 | Decision explainability | [Explainability](https://docs.getaxonflow.com/docs/governance/explainability/) |
 | Session overrides | [Overrides](https://docs.getaxonflow.com/docs/governance/overrides/) |
 | PII detection and redaction | [Compliance](https://docs.getaxonflow.com/docs/compliance/) |
-| Decision history | [Explainability](https://docs.getaxonflow.com/docs/governance/explainability/) |
+| Decision history | [Decisions](https://docs.getaxonflow.com/docs/governance/decisions/) |
 | Compliance and audit trail | [Compliance](https://docs.getaxonflow.com/docs/compliance/) |
 | Pricing and tiers | [Pricing](https://getaxonflow.com/pricing/) |
 
 ## Connect to AxonFlow
 
-Configure `pluginConfig` in your `openclaw.config.yaml` with `endpoint`, `clientId`, and `clientSecret`. Store credentials in a secret manager and do not commit them to source control. See [Configuration reference](https://docs.getaxonflow.com/docs/configuration/).
+Configure `pluginConfig` in your `openclaw.config.yaml` with `endpoint`, `clientId`, and `clientSecret`. Store credentials in a secret manager and do not commit them to source control. See [Configuration reference](https://docs.getaxonflow.com/docs/integration/openclaw/).
 
 Setup guides:
 - [Self-Hosted Deployment](https://docs.getaxonflow.com/docs/deployment/self-hosted/) (recommended for production)
@@ -56,10 +56,10 @@ Ready-to-use templates: [policies/](https://github.com/getaxonflow/axonflow-open
 ## Reference
 
 - [AxonFlow docs](https://docs.getaxonflow.com/)
-- [Plugin reference](https://docs.getaxonflow.com/docs/plugins/openclaw/)
+- [Plugin reference](https://docs.getaxonflow.com/docs/integration/openclaw/)
 - [Plugin GitHub](https://github.com/getaxonflow/axonflow-openclaw-plugin)
 - [Platform GitHub](https://github.com/getaxonflow/axonflow)
 
 ## License
 
-Plugin: MIT. Platform: BSL 1.1. See [licensing](https://docs.getaxonflow.com/docs/licensing/).
+Plugin: MIT. Platform: BSL 1.1. See [licensing](https://docs.getaxonflow.com/docs/deployment/licensing/).
