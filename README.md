@@ -462,6 +462,19 @@ plugins:
     onError: block
 ```
 
+### Social automation agent — reviewed live actions
+
+Use this pattern when an OpenClaw social plugin separates local catalog or discovery tools from live account actions. Keep free/local lookup tools outside approval gates, but require review for tools that can publish content, send direct messages, spend credits, export audience data, create monitors or webhooks, or run recurring workflows.
+
+```yaml
+plugins:
+  @axonflow/openclaw:
+    endpoint: http://localhost:8080
+    highRiskTools: [social_post, social_dm, social_export, social_monitor]
+    excludedTools: [social_catalog]
+    onError: block
+```
+
 ### Self-healing infrastructure agent — highest risk
 
 ```yaml
@@ -472,7 +485,7 @@ plugins:
     onError: block  # auth-error path and message_sending fail-closed; see Fail behavior above
 ```
 
-More examples — content/social agents, data analysts, RAG pipelines — in the [integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/#use-case-configuration-examples).
+More examples — content/social agents, data analysts, RAG pipelines, and named ecosystem plugin recipes — in the [integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/#use-case-configuration-examples).
 
 ---
 

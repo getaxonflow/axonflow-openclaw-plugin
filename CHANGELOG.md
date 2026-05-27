@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- **README use-case recipe for catalog-backed social automation.** Added a focused OpenClaw configuration pattern that keeps local/free catalog tools outside approval gates while requiring review for live social/account tools that can publish content, send direct messages, spend credits, export audience data, create monitors or webhooks, or run recurring workflows.
+
 ## [2.6.4] - 2026-05-27 — Dependency floor bump + audit non-blocking fix
 
 ### Security
