@@ -1,7 +1,7 @@
 {
   "name": "@axonflow/openclaw",
-  "version": "2.6.1",
-  "description": "Policy enforcement, approval gates, and audit trails for OpenClaw — govern tool inputs before execution, scan outbound messages for PII/secrets, and record agent activity for review and compliance",
+  "version": "2.6.4",
+  "description": "Connects to AxonFlow (SaaS or self-hosted) for policy enforcement, PII scanning, approval gates, and audit trails in OpenClaw agents",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -68,11 +68,11 @@
     "url": "https://github.com/getaxonflow/axonflow-openclaw-plugin/issues"
   },
   "peerDependencies": {
-    "@axonflow/sdk": ">=4.3.0",
-    "openclaw": ">=2026.4.15"
+    "@axonflow/sdk": ">=7.0.0",
+    "openclaw": ">=2026.5.22"
   },
   "overrides": {
-    "openclaw": ">=2026.4.15",
+    "openclaw": ">=2026.5.22",
     "@anthropic-ai/sdk": ">=0.91.1"
   },
   "devDependencies": {

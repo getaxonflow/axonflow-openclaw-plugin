@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runtime proof for the v1 telemetry-schema heartbeat payload (#2008).
 #
-# The plugin's anonymous heartbeat now carries four v1-schema fields:
-# telemetry_type, deployment_mode, endpoint_type, profile. The
+# The plugin's heartbeat now carries five v1-schema fields (post-#2277):
+# telemetry_type, deployment_mode, endpoint_type, profile, org_id. The
 # canonical wire-shape proof for these lives at
 # tests/heartbeat-real-stack/run_real_stack.mjs — that harness drives
 # the public registerAxonFlowGovernance entry point against a Python

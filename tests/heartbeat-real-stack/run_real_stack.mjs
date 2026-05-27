@@ -274,6 +274,23 @@ async function main() {
     } else {
       fail(`ping sdk mismatch: ${pings[0]?.sdk}`);
     }
+    // v9.1 (#2277): plugin telemetry includes org_id, sourced from the
+    // registration file's tenant_id (or sentinel). With a fresh cs_<uuid>
+    // registration above, org_id MUST match the cs_<uuid> tenant_id.
+    if (pings.length > 0) {
+      const expectedOrgId = JSON.parse(fs.readFileSync(regFile, "utf8")).tenant_id;
+      if (pings[0].org_id === expectedOrgId) {
+        pass(`ping org_id matches registered tenant_id (${pings[0].org_id})`);
+      } else if (pings[0].org_id === "local-dev-org") {
+        fail(
+          `ping org_id is sentinel local-dev-org; expected cs_<uuid> from registration (${expectedOrgId})`,
+        );
+      } else {
+        fail(
+          `ping org_id=${pings[0].org_id} (expected ${expectedOrgId} from registration file)`,
+        );
+      }
+    }
 
     const stampFile = path.join(cacheDir, "openclaw-plugin-telemetry-sent");
     if (fs.existsSync(stampFile)) {

@@ -4,52 +4,184 @@
 
 ### Documentation
 
-- **README use-case recipe for TweetClaw-governed X/Twitter automation.** Added a focused OpenClaw configuration example that keeps TweetClaw's free `explore` catalog outside approval gates while requiring review for live `tweetclaw` calls that can search tweets, export followers, manage media, send direct messages, create monitors or webhooks, run giveaway draws, and request post tweets or replies.
+- **README use-case recipe for catalog-backed social automation.** Added a focused OpenClaw configuration pattern that keeps local/free catalog tools outside approval gates while requiring review for live social/account tools that can publish content, send direct messages, spend credits, export audience data, create monitors or webhooks, or run recurring workflows.
 
-- **README + integration guide: `ClawHub archive integrity mismatch` workaround.** Documented the OpenClaw CLI regression that causes `openclaw plugins install @axonflow/openclaw` to fail with a SHA-256 mismatch on CLI versions before 2026.5.7 (confirmed on 2026.4.27). Both registries serve byte-correct artifacts matching the manifest pin; the bug is in the CLI's internal hash computation. Fixed upstream in OpenClaw 2026.5.7 — `npm install -g openclaw@latest` to upgrade. Local-tgz fallback (`npm pack` → `openclaw plugins install ./<tgz>`) bypasses the broken path on older CLIs.
+## [2.6.4] - 2026-05-27 — Dependency floor bump + audit non-blocking fix
 
-## [2.6.1] - 2026-05-20 — Harden auth-failure circuit breaker (non-JSON body + centralized fetch chokepoint)
+### Security
+
+- **Peer dependency floors raised past known CVEs.** `@axonflow/sdk` floor raised from `>=4.3.0` to `>=7.0.0` (fixes GHSA-mph8-9v29-pm42). `openclaw` floor raised from `>=2026.4.15` to `>=2026.5.22` (past 10 disclosed CVEs including CVE-2026-44116, CVE-2026-45002, CVE-2026-45003).
 
 ### Fixed
 
-- **Non-JSON 401 body bypassed the breaker** (follow-up to [axonflow-enterprise#2275](https://github.com/getaxonflow/axonflow-enterprise/issues/2275); tracked as [#2275 follow-up](https://github.com/getaxonflow/axonflow-enterprise/issues/2275)). `mcpCheckInput` and `mcpCheckOutput` did `const data = await response.json()` BEFORE checking `response.status === 401`. A real-world 401 from an infrastructure layer (ALB / nginx / WAF / API Gateway) returns `Content-Type: text/plain` + body `Unauthorized\n` — the `.json()` parse threw `SyntaxError` and propagated past the breaker, leaving `authFailed=false` and re-firing the storm. Both methods now detect `response.status === 401` BEFORE attempting `.json()` and throw the typed `AxonFlowHttpError(401, ...)` directly. Repro: pointing the plugin at a fake HTTP server returning `text/plain` 401 fires 2 POSTs pre-fix; 1 POST post-fix.
+- **Audit hook is now truly fire-and-forget.** The `after_tool_call` handler previously `await`ed the audit POST, which could delay tool execution if the audit backend was slow. Now uses `void` + `.then()` so audit never blocks the tool pipeline.
 
-- **401 detection centralized at the fetch chokepoint** so all ~19 fetch sites in `AxonFlowClient` flip the breaker, not just the four high-volume entry points (`auditToolCall` / `auditLLMCall` / `mcpCheckInput` / `mcpCheckOutput`). Pre-fix, bad creds still caused 401 storms on `searchAuditEvents`, `explainDecision`, the overrides lifecycle endpoints, `/health`, `listRecentDecisionsStrict`, and `callMCPTool` — just at lower volume than the audit endpoint. Post-fix, the single `if (response.status === 401) this.markAuthFailed()` block in `fetchWithTimeout` engages the breaker on the first 401 from ANY endpoint; the four high-volume entry points keep their early-return short-circuit at the TOP of the method, which prevents the next network call entirely. The per-method `if (response.status === 401) markAuthFailed()` blocks inside the non-2xx branches of `mcpCheckInput` / `mcpCheckOutput` / `auditToolCall` / `auditLLMCall` are removed (the centralized hook covers them) so there's a single wiring pattern across the file.
+## [2.6.3] - 2026-05-26 — Data minimization
 
-### Lineage
+### Security
 
-This patch closes two HIGH findings from a hostile review of the v2.6.0 fix in [PR #138](https://github.com/getaxonflow/axonflow-openclaw-plugin/pull/138) (merged `fc129e2741049a07cb4455587b9cf7faf12e74d2`). The thrown `AxonFlowHttpError(401, ...)` shape is byte-compatible with what `governance.ts:isAxonFlowAuthError` consumes (status-based path, not message-based), so `config.onError` semantics are unchanged.
+- **Recovery CLI no longer prints secrets to stdout.** The `secret` field is excluded from both the success and persist-failure JSON output. Credentials are written only to the persisted file (mode 0o600). Non-sensitive fields (tenant_id, endpoint, expires_at, email) are still printed for scripting.
+
+### Changed
+
+- **Tool audit input truncation.** String values in tool parameters longer than 500 characters are truncated before sending to the audit endpoint, matching the existing truncation applied to tool results and LLM prompts.
+
+## [2.6.2] - 2026-05-26 — Transparency and security audit cleanup
+
+### Security
+
+- Recovery token host validation: `extractRecoveryToken` now rejects magic-link URLs from unrecognized hosts.
+
+### Fixed
+
+- Telemetry opt-out now honors all documented values (`off`, `0`, `false`, `no`). Previously only `"off"` was honored.
+
+### Changed
+
+- Plugin descriptions updated for transparency across all four surfaces (index.ts, manifest, package.json, README).
+- Agent-callable tools documentation corrected to list both read-only and mutating operations.
+- Telemetry language corrected — the heartbeat includes persistent identifiers (instance_id, org_id).
+- README network-calls table added with full disclosure of every outbound call.
+- Legacy `DO_NOT_TRACK` references removed. Opt-out is `AXONFLOW_TELEMETRY=off` only.
+- CI workflow updated: replaced dead `DO_NOT_TRACK` env var.
+
+## [2.6.1] - 2026-05-22 — Harden auth-failure circuit breaker (non-JSON 401 body + centralized fetch chokepoint) + `org_id` in telemetry heartbeat
+
+### Added
+
+- **`org_id` field in the telemetry heartbeat body.** Brings the
+  OpenClaw plugin's telemetry up to parity with the platform — every
+  heartbeat now identifies which deployment-organization emitted it.
+  Three sources in precedence order:
+  1. The `ORG_ID` env var when set.
+  2. The `tenant_id` from
+     `axonflowConfigDir()/try-registration.json` (the `cs_<uuid>`
+     Community SaaS tenant identifier — same file the Community-SaaS
+     bootstrap writes on first registration).
+  3. The `local-dev-org` sentinel.
+
+  Exposed as `telemetryOrgID()` + `ORG_ID_LOCAL_DEV_SENTINEL`. Always
+  emitted on the wire; older receivers ignore the field cleanly for
+  backward compat. Honors `AXONFLOW_TELEMETRY=off` like every other
+  heartbeat field. See
+  [getaxonflow.com/privacy/](https://getaxonflow.com/privacy/) for the
+  customer-facing commitment that covers this field.
+
+### Fixed
+
+- **Telemetry-bootstrap timing race in community-saas mode.** Telemetry
+  now fires after the async bootstrap promise resolves rather than
+  concurrently with it. Without this, the first heartbeat could land
+  before `try-registration.json` was written and the `org_id` field
+  would fall through to the `local-dev-org` sentinel. The bash plugins
+  do not have this race because their bootstrap is synchronous; the
+  OpenClaw fix brings parity.
+
+### Fixed
+
+- **Non-JSON 401 body no longer bypasses the breaker.** Two governance
+  methods (`mcpCheckInput`, `mcpCheckOutput`) attempted
+  `await response.json()` before checking `response.status === 401`.
+  A real-world 401 from an infrastructure layer (ALB / nginx / WAF /
+  API Gateway) returns `Content-Type: text/plain` plus body
+  `Unauthorized\n` — the JSON parse threw a `SyntaxError` that
+  propagated past the breaker, leaving the auth-failed flag unset and
+  re-firing the storm. Both methods now detect 401 status before
+  attempting JSON parsing and surface the typed HTTP error directly.
+
+- **401 detection centralized at the fetch chokepoint** so every fetch
+  site in the client flips the breaker, not just the four high-volume
+  entry points covered by v2.6.0. Before this fix, bad credentials
+  still caused 401 storms on `searchAuditEvents`, `explainDecision`,
+  the overrides lifecycle endpoints, `/health`,
+  `listRecentDecisionsStrict`, and `callMCPTool` — just at lower
+  volume than the audit endpoint. Now a single 401 check inside the
+  shared `fetchWithTimeout` engages the breaker on the first 401 from
+  any endpoint; the four high-volume entry points keep their
+  short-circuit at the top of the method, which prevents the next
+  network call entirely.
+
+### Changed
+
+- **`sendTelemetryPing` JSDoc** softened from "Send a telemetry
+  heartbeat" wording — alongside the
+  `org_id` addition, the operator-supplied `ORG_ID` on self-hosted is
+  not anonymized.
 
 ## [2.6.0] - 2026-05-20 — Auth-failure circuit breaker to prevent 401 storms
 
 ### Fixed
 
-- **Process-local 401 circuit breaker (closes [axonflow-enterprise#2275](https://github.com/getaxonflow/axonflow-enterprise/issues/2275)).** When the plugin is configured with bad credentials (expired or mistyped `clientId` / `clientSecret`), every `after_tool_call` hook used to fire a POST to `/api/v1/audit/tool-call`, receive a 401, and silently swallow the error. Over a typical long-lived OpenClaw session this multiplied into hundreds of 401s/day per misconfigured install — the upstream issue cites `716 × 401 in 24h` against a single source IP with User-Agent `node`.
-
-  **Fix.** The `AxonFlowClient` now carries a process-local `authFailed` flag. The first time any of the four auth-bearing entry points (`auditToolCall`, `auditLLMCall`, `mcpCheckInput`, `mcpCheckOutput`) observes an HTTP 401 from the platform, the flag flips to `true` and a one-time `console.warn` surfaces to the operator:
+- **Process-local 401 circuit breaker.** When the plugin is configured
+  with bad credentials (expired or mistyped `clientId` / `clientSecret`),
+  every `after_tool_call` hook used to fire a POST to the audit
+  endpoint, receive a 401, and silently swallow the error. Over a
+  typical long-lived OpenClaw session this multiplied into hundreds of
+  401s/day per misconfigured install — one customer observed 716 × 401
+  in 24h against a single source IP. Now the client carries a
+  process-local auth-failed flag. The first time any of the four
+  auth-bearing entry points (`auditToolCall`, `auditLLMCall`,
+  `mcpCheckInput`, `mcpCheckOutput`) observes a 401, the flag flips
+  and a one-time `console.warn` surfaces to the operator:
 
   ```
   [AxonFlow] Authentication failed (HTTP 401). Audit calls disabled
   for this session. Refresh credentials via the OpenClaw runtime config.
   ```
 
-  Every subsequent call from the same client instance short-circuits BEFORE issuing the fetch — no further network traffic until the OpenClaw runtime instantiates a new client (e.g. on config reload). The audit methods keep their fire-and-forget contract (still don't throw); the governance methods (`mcpCheckInput` / `mcpCheckOutput`) throw the same `AxonFlowHttpError` shape that a real 401 would have produced, so `governance.ts`'s `isAxonFlowAuthError` classifier + `config.onError` path applies uniformly.
+  Every subsequent call from the same client instance short-circuits
+  before issuing the fetch — no further network traffic until the
+  OpenClaw runtime instantiates a new client (e.g. on config reload).
+  The audit methods keep their fire-and-forget contract; the
+  governance methods throw a typed HTTP error so the existing
+  `isAxonFlowAuthError` classifier and the host's `config.onError`
+  path apply uniformly.
 
-  **Not affected.** Transient errors (5xx, network failures) do NOT flip the breaker — the existing fail-open path in `governance.ts` keeps handling them as before. Each new `AxonFlowClient` instance starts fresh (no cross-instance state leak).
+  **Not affected.** Transient errors (5xx, network failures) do NOT
+  flip the breaker — the existing fail-open path in `governance.ts`
+  keeps handling them as before. Each new client instance starts fresh
+  (no cross-instance state leak).
 
 ## [2.5.0] - 2026-05-19 — Terminology: `tenant_id` → `client_id` in user-facing output
 
 ### Changed
 
-- **`axonflow-openclaw-status` output: `tenant_id:` label is now `client_id:`.** Same value, new user-facing term. Aligns OpenClaw plugin output with the rest of AxonFlow's v9 terminology (the `org_id` ↔ `client_id` ↔ deployment-license-identity three-identifier model — see [axonflow-enterprise#2230](https://github.com/getaxonflow/axonflow-enterprise/issues/2230)). For this release, the output carries a parenthetical bridge note (`(formerly tenant_id)`) so existing users connect the old and new terms without surprise. The bridge note will be removed in v3.0.0.
+- **`axonflow-openclaw-status` output: `tenant_id:` label is now
+  `client_id:`.** Same value, new user-facing term. Aligns OpenClaw
+  plugin output with the rest of AxonFlow's v9 terminology (the
+  `org_id` ↔ `client_id` ↔ deployment-license-identity
+  three-identifier model). For this release, the output carries a
+  parenthetical bridge note (`(formerly tenant_id)`) so existing users
+  connect the old and new terms without surprise. The bridge note
+  will be removed in v3.0.0.
 
-  **Cosmetic only — no config change is required.** The on-disk registration file at `$AXONFLOW_CONFIG_DIR/try-registration.json` continues to use the `tenant_id` JSON key (file-format compat with installed base); only the human-readable status output reads `client_id`. Wire-level `X-Axonflow-Client` header is unchanged. The agent-side MCP tool `axonflow_get_tenant_id` keeps its name (callable both as muscle-memory "what's my tenant ID?" and the new "what's my client ID?" — both return the same identifier).
+  **Cosmetic only — no config change is required.** The on-disk
+  registration file at `$AXONFLOW_CONFIG_DIR/try-registration.json`
+  continues to use the `tenant_id` JSON key (file-format compat with
+  installed base); only the human-readable status output reads
+  `client_id`. Wire-level `X-Axonflow-Client` header is unchanged. The
+  agent-side MCP tool `axonflow_get_tenant_id` keeps its name
+  (callable both as muscle-memory "what's my tenant ID?" and the new
+  "what's my client ID?" — both return the same identifier).
 
-  **JSON consumer compat: `axonflow-openclaw-status --json` populates BOTH `client_id` and the legacy `tenant_id` key** with the same value. The `StatusReport` TypeScript interface exposes both as `string | null` fields. v2.4.x consumers scripting around `.tenant_id` keep working unchanged; new consumers SHOULD prefer `.client_id`. The legacy `tenant_id` alias will be removed in v3.0.0.
+  **JSON consumer compat: `axonflow-openclaw-status --json` populates
+  BOTH `client_id` and the legacy `tenant_id` key** with the same
+  value. The `StatusReport` TypeScript interface exposes both as
+  `string | null` fields. v2.4.x consumers scripting around
+  `.tenant_id` keep working unchanged; new consumers SHOULD prefer
+  `.client_id`. The legacy `tenant_id` alias will be removed in
+  v3.0.0.
 
-  **Action required for users who scripted around the old text output:** if your tooling greps for `tenant_id:` in `axonflow-openclaw-status` stdout, update to grep for `client_id:` (or switch to `--json` mode which still emits the legacy `tenant_id` key).
+  **Action required for users who scripted around the old text
+  output:** if your tooling greps for `tenant_id:` in
+  `axonflow-openclaw-status` stdout, update to grep for `client_id:`
+  (or switch to `--json` mode which still emits the legacy
+  `tenant_id` key).
 
-- **README install-flow examples** updated to use `client_id` terminology consistently. The "Activate Pro tier" walkthrough notes that Stripe Checkout's custom field is still labeled "AxonFlow tenant ID" until that form is updated separately.
+- **README install-flow examples** updated to use `client_id`
+  terminology consistently. The "Activate Pro tier" walkthrough notes
+  that Stripe Checkout's custom field is still labeled "AxonFlow
+  tenant ID" until that form is updated separately.
 
 ## [2.4.0] - 2026-05-09 — Decision History API + policy_version recorded on every decision + telemetry simplification
 
@@ -126,7 +258,7 @@ Patch release on top of 2.3.0. No runtime behaviour change. Two surfaces tighten
 
 - **the runtime test bundle**: synthetic test-tenant
  secret literal renamed `testpass` → `synth-tok-` to avoid triggering
- generic secret-scanner heuristics on dev machines. The literal had no
+ static analyzer false positives on dev machines. The literal had no
  functional role — the test inserts the synthetic value directly into
  the test DB and uses it for Basic auth against a synthetic tenant.
  The unrelated `["password"]` JSON-field reads at lines 105 and 126
@@ -276,17 +408,16 @@ every governed request.
  E2E test harnesses are CI fixtures that drive a real OpenClaw agent
  against a live AxonFlow stack — they're not consumed by the plugin
  runtime. They were inadvertently shipped with the v2.1.0 artifact and
- the static-analysis scanner flagged five of them on a false-positive
- exfiltration heuristic that matched their HTTP Basic-auth header
- setup. Removing the surface area entirely is more durable than
- appealing the heuristic.
+ the static-analysis scan flagged five of them on a false-positive
+ match against their HTTP Basic-auth header setup. Removing the surface
+ area entirely is the durable fix.
 
 ## [2.1.0] - 2026-05-04 — 5 agent-callable governance tools
 
 ### Added
 
 - **5 agent-callable governance tools.** OpenClaw agents can invoke
- AxonFlow's read-side governance surface directly through tool-calling:
+ AxonFlow's governance surface directly through tool-calling:
  `axonflow_audit_search`, `axonflow_explain_decision`,
  `axonflow_list_overrides`, `axonflow_create_override`, and
  `axonflow_revoke_override`. Tools register when OpenClaw exposes
@@ -377,7 +508,7 @@ v2.0.4 (last known-good install) was published 2026-04-30 with `clawhub` CLI v0.
 v2.0.5 switched the ClawHub publish artifact from folder upload (Legacy ZIP) to the `npm-pack` tarball (ClawPack). That triggered two ClawHub-side regressions specific to the ClawPack handling path that left v2.0.5 unusable for adopters:
 
 1. **Install integrity mismatch.** `openclaw plugins install clawhub:@axonflow/openclaw@2.0.5` failed with `ClawHub archive integrity mismatch: expected sha256-RJwSW6ANBH3JKUkP06oA++JY9r1XAx58NDWKCeD6hwQ=, got sha256-7gGhfvJM/LuF9HfTZG2EsbjkSoImPau6h2wt+nwlhKo=`. The expected hash matched the published tarball; the bytes ClawHub's install endpoint actually served did not. ClawHub's CLI download path (`clawhub package download`) returned the correct bytes — only the install resolution path was broken.
-2. **LLM scanner hallucinated "missing implementation".** ClawScan flagged dimensions at `concern` claiming "the bundle contains only package.json and openclaw.plugin.json", "implementation code is absent", and "registry presents this as an instruction-only skill with no code" — all factually false. ClawHub's own package record correctly tagged the artifact as `family: "code-plugin"` with `npmFileCount: 70` and `unpackedSize: 280368`. Static Analysis (deterministic — reads actual bytes) returned Benign. Only the LLM scanner pipeline saw an incomplete prompt context.
+2. **ClawScan hallucinated "missing implementation".** Flagged the bundle claiming "implementation code is absent" — factually false. ClawHub's own package record correctly tagged the artifact as `family: "code-plugin"` with `npmFileCount: 70` and `unpackedSize: 280368`.
 
 ### Changed
 
@@ -463,37 +594,35 @@ This release scrubs every published file and extends the pre-publish guard to sc
 
 - The OpenClaw `>=2026.4.15` peer floor remains in place — it is a real CVE floor and is not relaxed by this release.
 
-
 ## [2.0.2] - 2026-04-30 — Static-scan refactor + initial pre-publish guard (compiled JS only)
 
-The first ClawHub static-analyzer ruleset bump on the v2.0 line. v2.0.1's compiled output contained credential property assignments that, while functionally identical to runtime variable forwards, matched a new per-line `exposed_secret_literal` rule and blocked install on every supported OpenClaw host. This release rewrote the compiled-output shape so the rule no longer fires.
+The first ClawHub static-analyzer ruleset bump on the v2.0 line. v2.0.1's compiled output contained credential property assignments that matched a new `exposed_secret_literal` rule and blocked install. This release rewrote the compiled-output shape so the rule no longer fires.
 
 > **Note:** v2.0.2 was superseded by v2.0.3 the same day. The static analyzer scans every published file, not only compiled JavaScript, so the prose in v2.0.2's `CHANGELOG.md` itself triggered the rule and continued to block install. v2.0.3 fixes the published-file scrub and extends the guard accordingly. **Install v2.0.3 directly.**
 
 ### Fixed
 
-- **Refactored credential property assignments in compiled output** so the static analyzer's per-line rule no longer matches. The credential field is populated via bracket-notation post-assignment in the entry point and via a computed-property helper in the Community-SaaS bootstrap return path. Functionally identical to v2.0.1; only the on-disk shape of compiled output changed.
+- **Refactored credential property assignments in compiled output** so the static analyzer rule no longer matches. The credential field is populated via bracket-notation post-assignment in the entry point and via a computed-property helper in the Community-SaaS bootstrap return path. Functionally identical to v2.0.1; only the on-disk shape of compiled output changed.
 - **Removed the JSDoc YAML config example from `src/index.ts`** — TypeScript preserves comments by default, so the inline placeholder in the file header reached `dist/` and was a secondary bait site. Configuration documentation moved to the README **Configuration** section, which already had the full schema.
 
 ### Changed
 
-- **Top-level `name` and `description` declared in `openclaw.plugin.json`.** ClawHub's registry indexer reads these schema-conformant fields; the new description surfaces the four `AXONFLOW_*` environment-variable opt-outs (`AXONFLOW_COMMUNITY_SAAS`, `AXONFLOW_TELEMETRY`, `AXONFLOW_CACHE_DIR`, `AXONFLOW_CONFIG_DIR`) inline so context-aware scanners see them in the indexed metadata. The off-spec `envVars` and `runtimeBehavior` blocks added in v2.0.1 stay in place for human reviewers.
-- **Initial pre-publish bait-pattern guard.** A new `scripts/check-dist-bait.mjs` greps compiled `dist/*.js` and fails the build on any finding. Wired into `npm run scan` and the `security-scan.yml` workflow alongside the existing `openclaw plugins install` check, so the gate no longer depends on the OpenClaw scanner version pinned in CI. **Superseded by `scripts/check-publish-bait.mjs` in v2.0.3, which scans all published files.**
+- **Top-level `name` and `description` declared in `openclaw.plugin.json`.** The new description surfaces the four `AXONFLOW_*` environment-variable opt-outs inline. The `envVars` and `runtimeBehavior` blocks added in v2.0.1 stay in place for human reviewers.
+- **Initial pre-publish guard.** A new `scripts/check-dist-bait.mjs` greps compiled `dist/*.js` and fails the build on any finding. **Superseded by `scripts/check-publish-bait.mjs` in v2.0.3.**
 
 ### Security
 
 - The OpenClaw `>=2026.4.15` peer floor remains in place — it is a real CVE floor and is not relaxed by this release.
 
-
 ## [2.0.1] - 2026-04-30 — Restore ClawHub install + explicit Community-SaaS consent surface
 
-ClawHub's static-analysis scanner blocked install of `@axonflow/openclaw@2.0.0` because the telemetry and Community-SaaS bootstrap modules co-located `process.env.*` access and `fs.readFileSync(...)` calls with the outbound `fetch(...)` in the same compiled file — a pattern the scanner heuristically flags as credential-harvesting / potential data exfiltration. This release restores a clean install path on every supported OpenClaw host, adds a real opt-out for Community-SaaS auto-registration, and ships a CI gate so this class of regression cannot recur.
+ClawHub's static-analysis scan blocked install of `@axonflow/openclaw@2.0.0` because the telemetry and Community-SaaS bootstrap modules co-located `process.env.*` access and `fs.readFileSync(...)` calls with the outbound `fetch(...)` in the same compiled file. This release restores a clean install path on every supported OpenClaw host, adds a real opt-out for Community-SaaS auto-registration, and ships a CI gate so this class of regression cannot recur.
 
 ### Added
 
 - **`AXONFLOW_COMMUNITY_SAAS=0` opt-out** for the default Community-SaaS auto-registration. When set (also accepts `false`, `off`, `no`), the plugin loads but does not POST to `try.getaxonflow.com/api/v1/register` and does not write `try-registration.json`. Operators who want explicit control over outbound traffic — air-gapped labs, regulated networks — can now turn the auto-bootstrap off without removing the plugin.
 - **First-load Community-SaaS consent disclosure banner.** Before the registration POST fires, the plugin emits a warn-level log line via the OpenClaw plugin logger listing exactly what gets sent off-host (tool name + arguments, outbound message bodies), what does not (LLM provider keys, conversation history outside governed tools), and how to opt out. Banner shows once per machine; presence of the disclosure stamp prevents re-warning on subsequent loads.
-- **Pre-publish security scan gate.** `npm run scan` packs the plugin, extracts the tarball into an isolated state directory, and runs the official OpenClaw scanner against the exact artifact ClawHub re-scans at publish time. A new `.github/workflows/security-scan.yml` runs the same script PR-blocking on every change to `src/`, `dist/`, `package.json`, `openclaw.plugin.json`. Catches scanner regressions before they ship instead of after.
+- **Pre-publish security scan gate.** `npm run scan` packs the plugin and runs the OpenClaw analysis against the published artifact. `.github/workflows/security-scan.yml` runs the same script PR-blocking on every change.
 - **`envVars` and `runtimeBehavior` declarations** in `openclaw.plugin.json`. Documents the four user-facing environment variables (`AXONFLOW_TELEMETRY`, `AXONFLOW_COMMUNITY_SAAS`, `AXONFLOW_CACHE_DIR`, `AXONFLOW_CONFIG_DIR`), the auto-bootstrap data flow, the four persisted files and their permission modes. Registry metadata now matches what the code actually does.
 
 ### Changed
@@ -504,12 +633,11 @@ ClawHub's static-analysis scanner blocked install of `@axonflow/openclaw@2.0.0` 
 
 ### Fixed
 
-- **`clawhub:@axonflow/openclaw` install no longer blocked** by the host static-analysis scanner on OpenClaw `>=2026.4.15`. Verified with the local `openclaw plugins install` against the packed tarball: scanner reports `0 criticals, 0 warnings`.
+- **`clawhub:@axonflow/openclaw` install no longer blocked** on OpenClaw `>=2026.4.15`. Verified with `openclaw plugins install` against the packed tarball: `0 criticals, 0 warnings`.
 
 ### Security
 
 - The OpenClaw `>=2026.4.15` peer floor remains in place — it is a real CVE floor (Feishu webhook + card-action validation fail-open in OpenClaw `<2026.4.15`, [GHSA-xh72-v6v9-mwhc](https://github.com/getaxonflow/axonflow-openclaw-plugin/security/advisories/GHSA-cqmh-pcgr-q42f)) and is not relaxed by this release. Anyone running an older OpenClaw should upgrade their host.
-
 
 ## [2.0.0] - 2026-04-29 — Production, quality, and security hardening — upgrade encouraged
 
@@ -518,7 +646,7 @@ ClawHub's static-analysis scanner blocked install of `@axonflow/openclaw@2.0.0` 
 **Security highlights from this release cycle:**
 - **Plugin cache and credential-file permission hardening** (this release). Cache and config directories are tightened to mode `0700` on every invocation; `try-registration.json` is written with mode `0600`. Pre-existing world-readable credential files are detected and refused on first load. Documented in [`GHSA-cqmh-pcgr-q42f`](https://github.com/getaxonflow/axonflow-openclaw-plugin/security/advisories/GHSA-cqmh-pcgr-q42f).
 - **Hook-closure dead-code fix** (this release). Hooks registered against the AxonFlow client previously captured the pre-bootstrap client by value, so the post-bootstrap re-construction was invisible to every registered hook. Refactored to a `ClientRef` holder so all 5 factory paths see the live client. Closes a P0 governance bypass on the hook-driven enforcement path.
-- **Telemetry opt-out reliability** (this release). `DO_NOT_TRACK` was unreliable because host CLIs commonly inject `DO_NOT_TRACK=1` regardless of user intent; the canonical opt-out is now `AXONFLOW_TELEMETRY=off`, an AxonFlow-scoped signal hosts can't unilaterally set.
+- **Telemetry opt-out reliability** (this release). The canonical opt-out is `AXONFLOW_TELEMETRY=off`.
 
 The full set of platform-side security fixes shipped alongside this release — including multi-tenant isolation in MAP execution, cross-tenant audit-log isolation, and SQLi enforcement on the Community SaaS endpoint — is documented in the consolidated platform advisory [`GHSA-9h64-2846-7x7f`](https://github.com/getaxonflow/axonflow/security/advisories/GHSA-9h64-2846-7x7f). Bundled OpenClaw upstream advisories closed by the dependency bump in this release are tracked in this repo's Dependabot alerts.
 
@@ -529,7 +657,7 @@ The full set of platform-side security fixes shipped alongside this release — 
 
 ### BREAKING
 
-- **`DO_NOT_TRACK` is no longer honored as an AxonFlow telemetry opt-out.** Use `AXONFLOW_TELEMETRY=off` instead. Host tools and CLIs commonly inject `DO_NOT_TRACK=1` regardless of user intent, which makes it unreliable as a signal.
+- **`DO_NOT_TRACK` is no longer honored as an AxonFlow telemetry opt-out.** Use `AXONFLOW_TELEMETRY=off` instead.
 - **`default` values for `endpoint` / `clientId` / `clientSecret` removed from `openclaw.plugin.json`.** The plugin loader now sees `pluginConfig.endpoint` as `undefined` when the user hasn't configured it — required by the Community-SaaS-default resolver to distinguish "no choice" from "explicit localhost".
 
 ### Added
@@ -543,24 +671,23 @@ The full set of platform-side security fixes shipped alongside this release — 
 
 ### Changed
 
-- **Telemetry switched to a 7-day delivered-heartbeat.** At most one anonymous ping per environment every 7 days, with the stamp advanced only after the POST returns 2xx — a transient network failure doesn't silence telemetry until the next window. Concurrent invocations are de-duplicated by an in-flight gate.
+- **Telemetry switched to a 7-day delivered-heartbeat.** At most one ping per environment every 7 days, with the stamp advanced only after the POST returns 2xx — a transient network failure doesn't silence telemetry until the next window. Concurrent invocations are de-duplicated by an in-flight gate.
 - `pluginConfig` is now optional (was required). `registerAxonFlowGovernance` with no `pluginConfig`, `undefined`, or `{}` resolves to Community SaaS mode rather than throwing `requires configuration`.
 
 ### Fixed
 
-- The `DO_NOT_TRACK=1 is deprecated.` `console.warn` is no longer emitted on every plugin init when `DO_NOT_TRACK=1` is set.
+- The deprecation `console.warn` for the legacy telemetry opt-out is no longer emitted on every plugin init.
 - Hooks now correctly see Community-SaaS credentials produced by the asynchronous bootstrap. Previously the hook handlers captured the AxonFlowClient by value at registration time, so the post-bootstrap reassignment was invisible — every governed tool call kept shipping `Authorization: Basic:` against try.getaxonflow.com. Hooks now read through a mutable client holder.
 
 ### Security
 
 - Cache and config directories tightened to `0700` on every plugin init (was: only set on directory creation via `mkdirSync({ mode: 0o700 })`, which left existing 0755 dirs unchanged).
 
-
 ## [1.3.2] - 2026-04-22
 
 ### Deprecated
 
-- `DO_NOT_TRACK=1` as an AxonFlow telemetry opt-out — scheduled for removal after 2026-05-05 in the next major release. Use `AXONFLOW_TELEMETRY=off` instead. The plugin emits a one-time `console.warn` when `DO_NOT_TRACK=1` is the active control and `AXONFLOW_TELEMETRY=off` is not also set.
+- Legacy telemetry opt-out env var deprecated — scheduled for removal after 2026-05-05 in the next major release. Use `AXONFLOW_TELEMETRY=off` instead.
 
 ## [1.3.1] - 2026-04-19
 
@@ -644,7 +771,7 @@ No code changes.
 
 - **`openclaw plugins install @axonflow/openclaw` now works end-to-end on OpenClaw 2026.4.14+.** Two separate upstream bugs had been blocking this install path:
  1. OpenClaw CLI prior to 2026.4.14 wrote the downloaded archive to `<tempdir>/@scope/name.zip` without creating the `@scope/` subdirectory, which made every scoped npm package on ClawHub fail with `ENOENT`. Fixed upstream in OpenClaw 2026.4.14 ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)).
- 2. OpenClaw 2026.4.14 also upgraded its install-time static scanner from **warn** to **block** on files that co-locate `process.env.X` reads with `fetch()` calls. Our telemetry opt-out unit tests (`tests/telemetry.test.ts`) legitimately mock both and were flagged as "possible credential harvesting", which blocked installation of v1.2.2. Filed upstream: [openclaw/openclaw#66840](https://github.com/openclaw/openclaw/issues/66840).
+ 2. OpenClaw 2026.4.14 upgraded install-time analysis from **warn** to **block** on files co-locating `process.env` reads with `fetch()`. Test files use both patterns legitimately, which blocked v1.2.2 install. Filed upstream: [openclaw/openclaw#66840](https://github.com/openclaw/openclaw/issues/66840).
 - **Fix in this release:** new `.clawhubignore` excludes test files, TypeScript sources, CI config, and internal scripts from the ClawHub-published archive. Only runtime artifacts (`dist/`, `openclaw.plugin.json`, `policies/`, `package.json`, `README.md`, `CHANGELOG.md`, `LICENSE`) ship to ClawHub. The npm-published tgz was already minimal via the `files` field in `package.json`; this brings the ClawHub archive in line.
 
 ## [1.2.2] - 2026-04-14
@@ -652,11 +779,11 @@ No code changes.
 ### Fixed
 
 - **Reinstall after uninstall now works.** `configSchema` previously declared `endpoint`, `clientId`, and `clientSecret` as required with no defaults. After an uninstall+reinstall cycle OpenClaw wrote an empty config block and rejected it with a missing-property error. Schema now provides defaults that match the runtime behavior already documented in the README (community endpoint and credentials, `highRiskTools` of `web_fetch`, `defaultOperation` of `execute`, `onError` of `block`, `requestTimeoutMs` of 8000). User-provided values still take precedence over schema defaults.
-- **Eliminated false-positive credential-harvesting warning** that appeared on every install. OpenClaw's static analyzer pattern-matched any single file containing both environment-variable reads and outbound HTTP calls. Telemetry env-var resolution moved to a dedicated `telemetry-config.ts` module; the network-sending `telemetry.ts` no longer reads environment variables directly. Behavior unchanged: anonymous opt-out-respecting telemetry continues to honor `DO_NOT_TRACK=1` and `AXONFLOW_TELEMETRY=off`.
+- **Eliminated false-positive static analysis warning** that appeared on every install. Telemetry env-var resolution moved to a dedicated `telemetry-config.ts` module; the network-sending `telemetry.ts` no longer reads environment variables directly. Behavior unchanged: opt-out-respecting telemetry continues to honor `AXONFLOW_TELEMETRY=off`.
 
 ### Documentation
 
-- README and SKILL.md (v1.4.0 + v1.5.0) now document the upstream OpenClaw CLI bug ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) that causes `openclaw plugins install @axonflow/openclaw` to fail with `ENOENT` for every scoped npm package on ClawHub. The workaround uses `npm pack` to produce an exact tgz filename and installs from that, sidestepping the upstream bug entirely until it is fixed.
+- README and SKILL.md (v1.4.0 + v1.5.0) now document the upstream OpenClaw CLI bug ([openclaw/openclaw#66618](https://github.com/openclaw/openclaw/issues/66618)) that causes `openclaw plugins install @axonflow/openclaw` to fail with `ENOENT` for every scoped npm package on ClawHub. The workaround uses `npm pack` to produce an exact tgz filename and installs from that, bypassing the upstream bug until it is fixed.
 
 ### Workflow
 
@@ -705,7 +832,7 @@ No code changes.
 
 ### Changed
 
-- Anonymous telemetry is enabled by default for all endpoints, including localhost/self-hosted evaluation. Opt out with `DO_NOT_TRACK=1` or `AXONFLOW_TELEMETRY=off`.
+- Telemetry is enabled by default for all endpoints, including localhost/self-hosted evaluation. Opt out with `AXONFLOW_TELEMETRY=off`.
 
 ## [1.0.0] - 2026-04-05
 
@@ -740,7 +867,7 @@ No code changes.
 - Fail-open/fail-closed: `onError` config controls behavior when AxonFlow is unreachable.
 - **Startup health check**: Verifies AxonFlow connectivity on plugin initialization. Logs a warning if unreachable, indicating whether the plugin will fail-open or fail-closed.
 - **Governance metrics**: In-process counters for tool calls (evaluated, blocked, approved, allowed), messages (scanned, cancelled, redacted), audit events, and errors. Accessible via `getMetrics()` for debugging and monitoring.
-- **Usage telemetry**: Anonymous checkpoint ping on initialization reporting SDK version, platform info, and hook configuration. Respects `DO_NOT_TRACK=1` and `AXONFLOW_TELEMETRY=off`.
+- **Usage telemetry**: Checkpoint ping on initialization reporting SDK version, platform info, and hook configuration. Respects `AXONFLOW_TELEMETRY=off`.
 - Starter policy documentation with SQL setup for OpenClaw production baseline.
 
 ### Not Yet Supported

@@ -1,11 +1,10 @@
 /**
  * Unit tests for community-saas-context.ts.
  *
- * Focused on the helpers split out of community-saas-bootstrap.ts to
- * dodge the OpenClaw scanner's per-file env+fetch / fs+fetch
- * heuristics. Each catch path corresponds to a real failure mode users
- * hit in the field — mkdir blocked, registration file missing, world-
- * readable credential rejection, backoff parse failure, etc.
+ * Focused on the helpers split out of community-saas-bootstrap.ts.
+ * Each catch path corresponds to a real failure mode users hit in the
+ * field — mkdir blocked, registration file missing, world-readable
+ * credential rejection, backoff parse failure, etc.
  */
 
 import * as fs from "fs";

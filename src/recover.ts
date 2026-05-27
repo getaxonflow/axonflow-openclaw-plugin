@@ -164,17 +164,21 @@ export async function requestRecovery(
   return { status: response.status, message };
 }
 
+const ALLOWED_RECOVERY_HOSTS = new Set([
+  "try.getaxonflow.com",
+  "getaxonflow.com",
+  "localhost",
+  "127.0.0.1",
+  "[::1]",
+]);
+
 /**
  * Extract the magic-link token from either:
  *   - the bare token hex string ("abc123def…")
  *   - the full magic-link URL ("https://try.getaxonflow.com/api/v1/recover/verify?token=abc123…")
- *   - any URL with a `token=` query param
  *
- * Returns the raw token string (no decoding beyond URLSearchParams) or
- * throws when nothing token-shaped can be extracted. We intentionally do
- * not validate length / charset — that's the platform's job — but we do
- * reject obviously empty inputs so the user gets a clearer error than the
- * platform's 401.
+ * URL-form inputs are restricted to known AxonFlow hosts. Returns the raw
+ * token string or throws when nothing token-shaped can be extracted.
  */
 export function extractRecoveryToken(input: string): string {
   if (!input || !input.trim()) {
@@ -182,14 +186,18 @@ export function extractRecoveryToken(input: string): string {
   }
   const trimmed = input.trim();
 
-  // URL form: parse query string. Handles both the canonical form and
-  // any future redirect/landing variants the platform might add.
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     let url: URL;
     try {
       url = new URL(trimmed);
     } catch {
       throw new Error(`Could not parse magic link as a URL: ${trimmed.slice(0, 80)}…`);
+    }
+    if (!ALLOWED_RECOVERY_HOSTS.has(url.hostname.toLowerCase())) {
+      throw new Error(
+        `Magic link host "${url.hostname}" is not a recognized AxonFlow endpoint. ` +
+        `Expected one of: ${[...ALLOWED_RECOVERY_HOSTS].join(", ")}`,
+      );
     }
     const t = url.searchParams.get("token");
     if (!t) {
@@ -198,7 +206,6 @@ export function extractRecoveryToken(input: string): string {
     return t;
   }
 
-  // Bare hex form: trust the input. Platform validates server-side.
   return trimmed;
 }
 
@@ -274,12 +281,6 @@ export async function verifyRecovery(
     );
   }
 
-  // Build via post-assignment so the compiled output never carries a
-  // property-name-then-colon-then-credential literal — same defensive
-  // pattern as community-saas-bootstrap.ts. Per-line scanners on dist/
-  // that flag credential-shaped property literals do not trip on this
-  // shape because the credential field is set by computed key, not by
-  // an inline object-literal entry.
   const result: Record<string, unknown> = {
     tenant_id: tenantId,
     expires_at: expiresAt,

@@ -1,27 +1,15 @@
 name: Security Scan
 
-# Pre-publish gate: two layers, both PR-blocking.
+# Two-layer pre-publish guard, both PR-blocking.
 #
-# Layer 1 (`scripts/check-publish-bait.mjs`): static grep guard,
-# independent of any external scanner version. Walks every path that
-# ships to npm — `dist/`, `policies/`, `README.md`, `CHANGELOG.md`,
-# `LICENSE`, `openclaw.plugin.json` — and forbids known regex-bait
-# property shapes for credential-shaped keys. Catches the class of
-# scanner regression that blocked v2.0.1 install AND the documentation
-# regression that blocked v2.0.2: per-line rules that don't distinguish
-# runtime variable forwarding from hardcoded literals, and that scan
-# every file in the tarball, not just compiled JavaScript. This layer
-# fires regardless of which OpenClaw scanner ruleset is on `latest` —
-# defense in depth against ruleset drift.
+# Layer 1 (`scripts/check-publish-bait.mjs`): static grep guard that
+# walks every path shipping to npm and forbids property shapes known to
+# trip static analyzers. Independent of any external scanner version.
 #
-# Layer 2 (`scripts/scan-tarball.mjs`): runs the official OpenClaw
-# plugin scanner against the npm-pack tarball — exactly the artifact
-# ClawHub re-scans server-side at publish time. Catches today's flagged
-# patterns (env-then-fetch co-location, fs-then-fetch co-location,
-# shell-exec patterns in scripts that end up in the tarball). Invoked
-# via `openclaw plugins install <tarball>` with isolated state
-# (OPENCLAW_STATE_DIR=mktemp -d) so the run never pollutes a real
-# install.
+# Layer 2 (`scripts/scan-tarball.mjs`): runs the OpenClaw plugin
+# scanner against the npm-pack tarball — the same artifact ClawHub
+# scans at publish time. Invoked via `openclaw plugins install <tarball>`
+# with isolated state so the run never pollutes a real install.
 #
 # Both layers run via `npm run scan`, which chains
 # `npm run build && npm run check:publish-bait && node scripts/scan-tarball.mjs --no-build`.

@@ -3,7 +3,9 @@ import * as os from "os";
 import * as path from "path";
 import { readFileSync } from "fs";
 import {
+  ORG_ID_LOCAL_DEV_SENTINEL,
   sendTelemetryPing,
+  telemetryOrgID,
   _resetTelemetryInFlightForTests,
 } from "../src/telemetry.js";
 import { VERSION } from "../src/index.js";
@@ -266,5 +268,78 @@ describe("sendTelemetryPing", () => {
   it("silently handles fetch failure", async () => {
     mockFetch.mockRejectedValueOnce(new Error("network error"));
     await expect(sendTelemetryPing(baseOptions)).resolves.toBeUndefined();
+  });
+
+  // ---- v9.1 org_id (#2277) ----
+
+  describe("org_id (v9.1)", () => {
+    it("emits ORG_ID env on the wire when set (operator-supplied)", async () => {
+      process.env.ORG_ID = "acme-corp";
+      await sendTelemetryPing(baseOptions);
+      const checkpointCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+      );
+      const body = (checkpointCall![1] as RequestInit).body as string;
+      expect(JSON.parse(body).org_id).toBe("acme-corp");
+      // Wire-literal substring assertion defends against tag-removal mutations.
+      expect(body).toContain('"org_id":"acme-corp"');
+    });
+
+    it("emits cs_<uuid> tenant_id from registration file when ORG_ID unset", async () => {
+      // Write a synthetic registration file to the test-isolated config dir.
+      const configDir = process.env.AXONFLOW_CONFIG_DIR!;
+      fs.mkdirSync(configDir, { recursive: true });
+      const regFile = path.join(configDir, "try-registration.json");
+      const csId = "cs_e3a4b5c6-d7e8-4f90-a1b2-c3d4e5f6a7b8";
+      fs.writeFileSync(
+        regFile,
+        JSON.stringify({ endpoint: "https://try.getaxonflow.com", tenant_id: csId, secret: "x" }),
+        { mode: 0o600 },
+      );
+      await sendTelemetryPing(baseOptions);
+      const checkpointCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+      );
+      const body = (checkpointCall![1] as RequestInit).body as string;
+      expect(JSON.parse(body).org_id).toBe(csId);
+      expect(body).toContain(`"org_id":"${csId}"`);
+    });
+
+    it("emits local-dev-org sentinel when no ORG_ID and no registration file", async () => {
+      // Neither env nor registration file present (beforeEach wipes both).
+      await sendTelemetryPing(baseOptions);
+      const checkpointCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+      );
+      const body = (checkpointCall![1] as RequestInit).body as string;
+      expect(JSON.parse(body).org_id).toBe("local-dev-org");
+      expect(ORG_ID_LOCAL_DEV_SENTINEL).toBe("local-dev-org");
+    });
+
+    it("ORG_ID env wins over registration file (precedence contract)", async () => {
+      const configDir = process.env.AXONFLOW_CONFIG_DIR!;
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(configDir, "try-registration.json"),
+        JSON.stringify({ tenant_id: "cs_from_file" }),
+        { mode: 0o600 },
+      );
+      process.env.ORG_ID = "operator-override";
+      await sendTelemetryPing(baseOptions);
+      const checkpointCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+      );
+      const body = (checkpointCall![1] as RequestInit).body as string;
+      expect(JSON.parse(body).org_id).toBe("operator-override");
+    });
+
+    it("telemetryOrgID helper directly: env precedence + sentinel fallback", () => {
+      process.env.ORG_ID = "acme-corp";
+      expect(telemetryOrgID()).toBe("acme-corp");
+      process.env.ORG_ID = "";
+      expect(telemetryOrgID()).toBe("local-dev-org");
+      delete process.env.ORG_ID;
+      expect(telemetryOrgID()).toBe("local-dev-org");
+    });
   });
 });

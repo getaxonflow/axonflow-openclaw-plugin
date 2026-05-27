@@ -29,8 +29,8 @@
  * output, which made it trivially leakable via screen-share / copy-paste.
  * Same surface here, same defensive redaction.
  *
- * Pure data + stdlib only — no network, no fs writes, no env mutations.
- * Safe to call from any context (CLI, agent tool, library consumer).
+ * Read-only introspection — reads process.env and the registration file
+ * but performs no network calls and no writes.
  */
 
 import * as fs from "fs";

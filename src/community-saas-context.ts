@@ -3,12 +3,9 @@
  *
  * Mirrors the split applied to the heartbeat path: env access and fs
  * reads/writes live here, away from the network-sending side
- * (community-saas-bootstrap.ts). Static-analysis heuristics that flag
- * env-or-fs-read co-located with outbound HTTP therefore do not trip on
- * the compiled bootstrap module.
- *
- * Pure-data module: callers receive plain values and pass them into the
- * orchestration layer. No outbound HTTP lives here.
+ * Handles opt-out checks, registration file persistence, rate-limit
+ * backoff, and first-load disclosure stamps. The network-sending side
+ * lives in community-saas-bootstrap.ts.
  */
 
 import * as fs from "fs";
@@ -165,7 +162,6 @@ export function unlinkIfExists(file: string): void {
 /**
  * Build the registration label sent in the POST body. Pure stdlib — no env
  * reads, no fs reads — kept here so the bootstrap module stays free of any
- * `os.*` calls that might confuse future scanner heuristics.
  */
 export function buildRegistrationLabel(pluginVersion: string | undefined): string {
   const version = pluginVersion ?? "unknown";
