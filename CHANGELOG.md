@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.6.5] - 2026-05-28 — Fix agent tools invisible to LLM
+
+### Fixed
+
+- **Agent tools now visible to the LLM.** Added `contracts.tools` declaration to `openclaw.plugin.json`. Without this, OpenClaw 2026.5.x registered the 11 agent-callable tools at the plugin API level but never surfaced them to the model's tool schema — users could not call `axonflow_get_tenant_id`, `axonflow_audit_search`, or any other agent tool. Governance hooks (before_tool_call/after_tool_call) were unaffected.
+
 ### Documentation
 
 - **README use-case recipe for catalog-backed social automation.** Added a focused OpenClaw configuration pattern that keeps local/free catalog tools outside approval gates while requiring review for live social/account tools that can publish content, send direct messages, spend credits, export audience data, create monitors or webhooks, or run recurring workflows.

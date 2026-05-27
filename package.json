@@ -1,6 +1,6 @@
 {
   "name": "@axonflow/openclaw",
-  "version": "2.6.4",
+  "version": "2.6.5",
   "description": "Connects to AxonFlow (SaaS or self-hosted) for policy enforcement, PII scanning, approval gates, and audit trails in OpenClaw agents",
   "type": "module",
   "main": "dist/index.js",
