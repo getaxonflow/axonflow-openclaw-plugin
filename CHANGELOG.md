@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [2.6.6] - 2026-06-16: Security - peer dependency floor bump (hono, qs)
+
+### Security
+
+- **`openclaw` peer/override floor raised from `>=2026.5.22` to `>=2026.6.6`.** The `openclaw` harness ships its own `npm-shrinkwrap.json`, so its transitive tree is pinned by openclaw itself, not by this plugin's `overrides`. openclaw `2026.6.6` ships patched `hono@4.12.21` (CVE-2026-47673 / 47674 / 47675 / 47676) and `qs@6.15.2` (CVE-2026-8723), clearing five Dependabot alerts. Note: `protobufjs@8.4.0` stays pinned by openclaw's shrinkwrap (CVE-2026-48712 plus two moderate advisories); it is dev/test-only (not in the published `files` set, never imported by `dist/`), is not overridable by a downstream consumer, and clears automatically once openclaw bumps protobufjs upstream.
+- **Least-privilege workflow token.** Added a top-level `permissions: contents: read` block to `.github/workflows/manifest-envvars-coverage.yml`, closing the CodeQL `actions/missing-workflow-permissions` alert.
+
 ## [2.6.5] - 2026-05-28 — Fix agent tools invisible to LLM
 
 ### Fixed
