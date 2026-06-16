@@ -1,6 +1,6 @@
 {
   "name": "@axonflow/openclaw",
-  "version": "2.6.6",
+  "version": "2.6.7",
   "description": "Connects to AxonFlow (SaaS or self-hosted) for policy enforcement, PII scanning, approval gates, and audit trails in OpenClaw agents",
   "type": "module",
   "main": "dist/index.js",
@@ -27,7 +27,7 @@
   "scripts": {
     "clean": "rm -rf dist",
     "prebuild": "npm run clean",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "lint": "eslint src/ tests/",
     "test": "jest",
     "test:coverage": "jest --coverage",

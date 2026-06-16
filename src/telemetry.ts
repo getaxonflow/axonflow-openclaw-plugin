@@ -146,6 +146,19 @@ function generateInstanceId(): string {
   });
 }
 
+/**
+ * Best-effort enrichment for the usage heartbeat: read the configured
+ * AxonFlow platform's version so the heartbeat can record which platform
+ * build the plugin is talking to.
+ *
+ * This is part of the heartbeat, not a separate feature: it only runs after
+ * `sendInner` has already passed the `AXONFLOW_TELEMETRY` opt-out check, so
+ * setting `AXONFLOW_TELEMETRY=off` suppresses this probe along with the
+ * heartbeat itself. It is a single unauthenticated GET to the same endpoint
+ * the plugin already calls for policy enforcement, sends no request body,
+ * reads only the `version` field from the `/health` response, and swallows
+ * any error (returns null) so it can never block or fail the heartbeat.
+ */
 async function detectPlatformVersion(endpoint: string): Promise<string | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 2000);

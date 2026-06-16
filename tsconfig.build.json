@@ -1,0 +1,16 @@
+{
+  // Build config for the PUBLISHED package. Extends the dev tsconfig but
+  // turns off source/declaration maps. The published package ships dist/ but
+  // not src/, so maps would point at sources absent from the artifact, and
+  // *.js.map would inline the full TypeScript source via sourcesContent.
+  // Emitting runnable output only keeps the published package minimal.
+  //
+  // The dev tsconfig.json keeps maps on so ts-jest coverage instrumentation
+  // can map executed code back to the TypeScript source. `npm run build`
+  // points here; `npm test` uses tsconfig.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declarationMap": false,
+    "sourceMap": false
+  }
+}

@@ -7,6 +7,9 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
+    // Maps are emitted here for local dev + ts-jest coverage instrumentation.
+    // The published build uses tsconfig.build.json, which turns them off so
+    // they never ship in the package (see that file for the rationale).
     "declarationMap": true,
     "sourceMap": true,
     "strict": true,
