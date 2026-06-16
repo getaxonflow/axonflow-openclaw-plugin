@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+## [2.6.7] - 2026-06-16: Security audit hardening (includes 2.6.6 dependency floor)
+
+### Security
+
+- **Source maps no longer ship in the published package.** `declarationMap`
+  and `sourceMap` are now disabled in the build. The published package
+  contains `dist/` but not `src/`, so the emitted `*.js.map` / `*.d.ts.map`
+  files pointed at sources absent from the artifact and inlined the full
+  TypeScript source via `sourcesContent`. The published package now ships
+  runnable output only.
+
+### Documentation
+
+- **Platform-version heartbeat probe documented inline.** Added a doc
+  comment to `detectPlatformVersion` in `telemetry.ts` recording that the
+  `/health` version lookup runs only as part of the usage heartbeat (after
+  the `AXONFLOW_TELEMETRY` opt-out check, so `AXONFLOW_TELEMETRY=off`
+  suppresses it), sends no request body, reads only the `version` field, and
+  never blocks the heartbeat. Behaviour is unchanged; the README
+  network-calls table already discloses this probe.
+
+### Included from 2.6.6
+
+These entries shipped in 2.6.6 and are restated here so they remain visible
+on the latest release listing:
+
+- **`openclaw` peer/override floor raised from `>=2026.5.22` to `>=2026.6.6`.**
+  The `openclaw` harness ships its own `npm-shrinkwrap.json`, so its
+  transitive tree is pinned by openclaw itself, not by this plugin's
+  `overrides`. openclaw `2026.6.6` ships patched `hono@4.12.21`
+  (CVE-2026-47673 / 47674 / 47675 / 47676) and `qs@6.15.2` (CVE-2026-8723),
+  clearing five Dependabot alerts. `protobufjs@8.4.0` stays pinned by
+  openclaw's shrinkwrap (CVE-2026-48712 plus two moderate advisories); it is
+  dev/test-only (not in the published `files` set, never imported by
+  `dist/`), is not overridable by a downstream consumer, and clears
+  automatically once openclaw bumps protobufjs upstream.
+- **Least-privilege workflow token.** Added a top-level
+  `permissions: contents: read` block to
+  `.github/workflows/manifest-envvars-coverage.yml`.
+
 ## [2.6.6] - 2026-06-16: Security - peer dependency floor bump (hono, qs)
 
 ### Security
