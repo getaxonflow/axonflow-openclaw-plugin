@@ -22,7 +22,7 @@ jobs:
     name: Lint — no mocks in runtime-e2e/
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Run lint
         run: |
           if [ -x scripts/lint-no-mocks-in-runtime-e2e.sh ]; then
@@ -35,7 +35,7 @@ jobs:
     name: Runtime E2E required for user-facing changes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
