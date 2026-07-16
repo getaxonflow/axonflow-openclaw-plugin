@@ -2,6 +2,72 @@
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-07-17: Per-user token (X-User-Token) parity — validated fleet identity
+
+Fleet parity with `axonflow-claude-plugin` v1.10.0 (axonflow-enterprise#2945,
+epic #2919). The plugin previously identified the developer only via the
+forgeable `userEmail` config (`X-User-Email` header). On platforms with
+role-scoped fleet reads (AxonFlow 9.9.0+ RBAC train), a token-less caller's
+read tools (`axonflow_audit_search`, `axonflow_list_recent_decisions`, …)
+return **zero rows** by design. This release lets each developer present a
+minted per-user token so the platform resolves a **validated, non-forgeable**
+`{identity, role}`: role-scoped reads return the developer's own rows, and
+audit attribution keys on the token's canonical email — beating a forged
+`X-User-Email` label.
+
+### Added
+
+- **`pluginConfig.userToken` + `AXONFLOW_USER_TOKEN` env + `0600`
+  provisioning-file resolution** (`src/user-token.ts`). Canonical order:
+  `pluginConfig.userToken` → `AXONFLOW_USER_TOKEN` →
+  `~/.config/axonflow/user-token.json` (`{"token": "..."}`, mode `0600`
+  enforced on POSIX; the same cross-plugin provisioning path the Claude Code
+  plugin reads, deliberately NOT `$AXONFLOW_CONFIG_DIR` so a fleet
+  provisions one file per machine). A **malformed candidate at any source is
+  dropped, never sent** (the platform fails closed on a presented-but-invalid
+  token), with a warning that never contains the value, and resolution
+  **falls through to the next source** — a malformed higher-priority source
+  cannot suppress a valid lower-priority one (the claude-plugin#108 lesson).
+- **`X-User-Token` on every governed request** — added in
+  `AxonFlowClient.baseHeaders()`, the single choke point all ~19 governed
+  endpoints flow through (policy checks, output scans, audit writes,
+  explain/override/decision reads, and the `/api/v1/mcp-server` JSON-RPC
+  proxy behind the agent tools). Requests built outside `baseHeaders()`
+  (Community-SaaS `/register` bootstrap, `/health` probes, the telemetry
+  heartbeat, and the pre-auth recovery CLI) are pre-credential or
+  non-governed surfaces and deliberately carry no identity headers.
+- **Init canaries (value-free).** When a token is configured, one
+  `[AxonFlow] Per-user token configured (source: ...)` info line names the
+  resolution source; malformed/unsafe-permission candidates produce one
+  warning each. The token value itself is never logged, never echoed, and
+  never included in any diagnostic.
+- **`configSchema.properties.userToken` declared in
+  `openclaw.plugin.json`** — required for the loader to accept the new key
+  (the schema declares `additionalProperties: false`; an undeclared key
+  makes OpenClaw silently skip the entire plugin and run tool calls
+  ungoverned, the exact v2.0.4 `userEmail` incident). `uiHints.userToken`
+  is marked `sensitive: true`.
+
+### Unchanged (deliberately)
+
+- **Unconfigured installs are byte-identical to v2.6.7 on the wire** — no
+  empty header, no init line, no behavior change. This is the common fleet
+  state today and the upgrade is a no-op for it.
+- `userEmail` keeps working as the label path on platforms without per-user
+  token validation; when both are present, the platform prefers the token's
+  validated identity.
+- The ClawHub **skill is unchanged at v2.5.0** — it is documentation-only
+  (links to docs/pricing; it performs no HTTP calls against governed
+  endpoints), so it has no token to send.
+
+### Upgrade
+
+`openclaw plugins install @axonflow/openclaw@latest`. No action needed for
+existing installs. Fleet operators on AxonFlow 9.9.0+ who want per-developer
+read scoping: mint a token per developer (platform user-token mint API) and
+deliver it via `pluginConfig.userToken`, `AXONFLOW_USER_TOKEN`, or a
+`0600 ~/.config/axonflow/user-token.json`.
+
 ## [2.6.7] - 2026-06-16: Security audit hardening (includes 2.6.6 dependency floor)
 
 ### Security

@@ -250,6 +250,7 @@ export class AxonFlowClient {
   private readonly requestTimeoutMs: number;
   private readonly userEmail: string | undefined;
   private readonly licenseToken: string | undefined;
+  private readonly userToken: string | undefined;
   private readonly clientHeader: string;
   // V1 Plugin Pro upgrade-prompt sink — populated via setUpgradePromptLogger.
   // When set, V1 envelope detections on 429 / 403 surface the locked
@@ -310,6 +311,17 @@ export class AxonFlowClient {
     // "absent" with zero added cost.
     this.licenseToken = config.licenseToken && config.licenseToken.trim()
       ? config.licenseToken.trim()
+      : undefined;
+    // #2945 per-user token: resolved + wire-safety-validated upstream in
+    // resolveConfig (src/user-token.ts); a malformed candidate never reaches
+    // this constructor. When set, every governed request carries it as
+    // X-User-Token so the platform's fleet plane can resolve a VALIDATED
+    // {identity, role} for the developer (vs the forgeable X-User-Email
+    // label). When unset, the header is omitted entirely — requests are
+    // byte-identical to v2.6.7 and the platform keeps its existing
+    // least-privilege attribution path.
+    this.userToken = config.userToken && config.userToken.trim()
+      ? config.userToken.trim()
       : undefined;
     // ADR-050 §4: every governed request carries X-Axonflow-Client so the
     // agent can derive request scope (plugin/sdk/full) and validate it
@@ -441,6 +453,18 @@ export class AxonFlowClient {
     }
     if (this.licenseToken) {
       h["X-License-Token"] = this.licenseToken;
+    }
+    // #2945 (epic #2919): forward the minted per-user token when configured
+    // so the platform resolves a validated {identity, role} — role-scoped
+    // reads return the developer's own rows and audit attribution keys on
+    // the token's canonical email, beating a forged X-User-Email label.
+    // Omitted when unconfigured (no empty header — byte-identical wire
+    // behavior to v2.6.7). baseHeaders() is the single choke point every
+    // governed request flows through; request sites that deliberately do
+    // NOT use it (bootstrap /register, /health probes, telemetry heartbeat,
+    // recovery CLI) are pre-auth or non-governed and never carry identity.
+    if (this.userToken) {
+      h["X-User-Token"] = this.userToken;
     }
     return h;
   }

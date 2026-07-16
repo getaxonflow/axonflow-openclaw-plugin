@@ -5,6 +5,8 @@
  * (openclaw.plugin.json or runtime config).
  */
 
+import { resolveUserToken } from "./user-token.js";
+
 export interface AxonFlowPluginConfig {
   /** AxonFlow agent gateway endpoint (e.g., "http://localhost:8080"). */
   endpoint: string;
@@ -36,6 +38,51 @@ export interface AxonFlowPluginConfig {
    * fail-closed/open path applies.
    */
   licenseToken?: string;
+
+  /**
+   * Per-user authorization token forwarded on every governed request via
+   * X-User-Token (axonflow-enterprise#2945, epic #2919).
+   *
+   * The platform's fleet plane authenticates the TENANT with the shared
+   * Basic credential; this token yields a VALIDATED, non-forgeable
+   * {identity, role} for the developer behind the session, minted by an org
+   * admin via the platform mint API (enterprise#2930). With it, role-scoped
+   * reads (RBAC-3, enterprise#2922) return the developer's own rows instead
+   * of the token-less least-privilege default (zero rows post-#2936), and
+   * audit attribution keys on the token's validated email rather than the
+   * forgeable `userEmail` label.
+   *
+   * Resolution order (see src/user-token.ts):
+   *   1. pluginConfig.userToken
+   *   2. AXONFLOW_USER_TOKEN env var
+   *   3. ~/.config/axonflow/user-token.json (0600, cross-plugin
+   *      provisioning file shared with axonflow-claude-plugin)
+   *
+   * A malformed candidate is dropped (never sent — the platform fails
+   * closed on a presented-but-invalid token) and resolution falls through
+   * to the next source. Unset ⇒ the header is omitted entirely and every
+   * request is byte-identical to v2.6.7.
+   *
+   * The value is a credential: never logged, never echoed, and redacted
+   * from every diagnostic this plugin emits.
+   */
+  userToken?: string;
+
+  /**
+   * Which source `userToken` resolved from ("pluginConfig" | "env" |
+   * "file") — surfaced in the init canary so fleet operators can tell the
+   * provisioning channels apart. Set by `resolveConfig`; undefined when no
+   * token is configured. Never contains the token value.
+   */
+  userTokenSource?: "pluginConfig" | "env" | "file";
+
+  /**
+   * Diagnostics produced during userToken resolution (malformed candidates
+   * dropped, unsafe file permissions). Set by `resolveConfig`; guaranteed
+   * to never contain the token value — safe to log verbatim. index.ts
+   * surfaces these through the host logger at plugin init.
+   */
+  userTokenWarnings?: string[];
 
   /**
    * Per-user identity forwarded on every request via X-User-Email.
@@ -183,12 +230,23 @@ export function resolveConfig(
     : "";
   const licenseToken = envToken || cfgToken || undefined;
 
+  // Per-user token resolution (#2945) — pluginConfig > env > 0600 file,
+  // with malformed-candidate fall-through. See src/user-token.ts for the
+  // full contract. Warnings are attached to the config so index.ts can
+  // surface them through the host logger (this module has no logger).
+  const userTokenResolution = resolveUserToken(safe["userToken"]);
+
   return {
     endpoint,
     clientId,
     clientSecret,
     mode,
     licenseToken,
+    userToken: userTokenResolution.token,
+    userTokenSource: userTokenResolution.source,
+    userTokenWarnings: userTokenResolution.warnings.length > 0
+      ? userTokenResolution.warnings
+      : undefined,
     userEmail:
       typeof safe["userEmail"] === "string" && (safe["userEmail"] as string).trim()
         ? (safe["userEmail"] as string).trim()

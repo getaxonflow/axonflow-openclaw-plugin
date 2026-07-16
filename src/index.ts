@@ -156,6 +156,31 @@ export function registerAxonFlowGovernance(api: {
     }
   }
 
+  // #2945 per-user token canaries. Two surfaces, both value-free:
+  //   1. Resolution warnings (malformed candidate dropped, unsafe file
+  //      permissions) — produced by src/user-token.ts, guaranteed to never
+  //      contain the token value, surfaced here because resolveConfig has
+  //      no logger of its own.
+  //   2. A one-line "token configured" canary naming the SOURCE (config /
+  //      env / provisioning file), mirroring the Pro-tier canary's "always
+  //      know your state" posture. The token itself is never logged.
+  // Unconfigured installs (the common state today) emit neither line —
+  // init output stays byte-identical to v2.6.7.
+  for (const warning of config.userTokenWarnings ?? []) {
+    (api.logger.warn ?? api.logger.error)(warning);
+  }
+  if (config.userToken) {
+    const sourceLabel =
+      config.userTokenSource === "env"
+        ? "AXONFLOW_USER_TOKEN env"
+        : config.userTokenSource === "file"
+          ? "~/.config/axonflow/user-token.json"
+          : "pluginConfig.userToken";
+    api.logger.info(
+      `[AxonFlow] Per-user token configured (source: ${sourceLabel}) — X-User-Token forwarded on every governed request`,
+    );
+  }
+
   // In community-saas mode, register asynchronously against try.getaxonflow.com
   // and override the client credentials with the bootstrapped values once
   // they arrive. The startup health check + the first hook fire happen

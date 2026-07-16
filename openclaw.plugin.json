@@ -40,6 +40,10 @@
       "required": false,
       "description": "AxonFlow Pro plugin-claim license token (begins with 'AXON-'). When set, the plugin forwards this token on every governed request via the X-License-Token header so the agent applies Pro-tier entitlements (extended audit retention, higher quotas, license-gated capabilities). Wins over pluginConfig.licenseToken when both are set. Get one from getaxonflow.com/plugins/pro — the token is emailed to the address used at Stripe Checkout."
     },
+    "AXONFLOW_USER_TOKEN": {
+      "required": false,
+      "description": "Per-user authorization token forwarded as the X-User-Token header on every governed request, giving this developer a validated {identity, role} on the AxonFlow fleet plane (role-scoped reads + audit attribution key on the token's canonical email). Minted by an org admin via the AxonFlow user-token mint API and delivered via managed settings/MDM. Resolution order: pluginConfig.userToken wins over this env var, which wins over the 0600 provisioning file ~/.config/axonflow/user-token.json (shared with the other AxonFlow plugins on the machine). A malformed value is dropped with a warning (never sent) and resolution falls through to the next source. Unset (default): no header is sent and requests are byte-identical to prior versions."
+    },
     "AXONFLOW_ENDPOINT": {
       "required": false,
       "description": "Override the AxonFlow agent gateway endpoint. Wins over pluginConfig.endpoint when both are set. When unset and AXONFLOW_COMMUNITY_SAAS is not opted out, the plugin auto-bootstraps against https://try.getaxonflow.com. For self-hosted deployments, set this (or pluginConfig.endpoint) to your AxonFlow URL."
@@ -117,6 +121,12 @@
       "placeholder": "alice@example.com",
       "help": "Per-user identity forwarded as the X-User-Email header. Required for the override lifecycle endpoints (createOverride, revokeOverride, listOverrides) and for correct per-user scoping on explainDecision. Block-path features still work without it."
     },
+    "userToken": {
+      "label": "Per-User Token",
+      "sensitive": true,
+      "placeholder": "(minted by your org admin)",
+      "help": "Per-user authorization token forwarded as the X-User-Token header on every governed request. Minted by an org admin via the AxonFlow user-token mint API and delivered through managed settings/MDM. Gives this developer a validated identity and role on the platform's fleet plane, so role-scoped reads return their own rows and audit attribution keys on the token's canonical email (beating the forgeable userEmail label). Resolution order: this value, then AXONFLOW_USER_TOKEN env, then ~/.config/axonflow/user-token.json (mode 0600). Optional — when unset, requests are unchanged."
+    },
     "licenseToken": {
       "label": "Pro License Token",
       "sensitive": true,
@@ -167,6 +177,9 @@
         "type": "string"
       },
       "userEmail": {
+        "type": "string"
+      },
+      "userToken": {
         "type": "string"
       },
       "licenseToken": {
