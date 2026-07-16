@@ -425,8 +425,16 @@ export class AxonFlowClient {
     this.authFailed = true;
     if (!this.authWarningEmitted) {
       this.authWarningEmitted = true;
+      // #2945: when a per-user token is configured, a revoked/expired/
+      // tampered X-User-Token is the most likely 401 cause (the platform
+      // fails closed on a presented-but-invalid token) — point the operator
+      // at re-provisioning it, not just the tenant credentials. Value-free:
+      // names the mechanism, never the token.
+      const tokenHint = this.userToken
+        ? " A per-user token is configured — if it was revoked or expired, re-provision it (pluginConfig.userToken / AXONFLOW_USER_TOKEN / ~/.config/axonflow/user-token.json)."
+        : "";
       console.warn(
-        "[AxonFlow] Authentication failed (HTTP 401). Audit calls disabled for this session. Refresh credentials via the OpenClaw runtime config.",
+        `[AxonFlow] Authentication failed (HTTP 401). Audit calls disabled for this session. Refresh credentials via the OpenClaw runtime config.${tokenHint}`,
       );
     }
   }

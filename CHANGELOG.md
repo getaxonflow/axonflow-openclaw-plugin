@@ -13,7 +13,11 @@ return **zero rows** by design. This release lets each developer present a
 minted per-user token so the platform resolves a **validated, non-forgeable**
 `{identity, role}`: role-scoped reads return the developer's own rows, and
 audit attribution keys on the token's canonical email — beating a forged
-`X-User-Email` label.
+`X-User-Email` label — on the planes that consume the header (the MCP tools
+at `/api/v1/mcp-server` and the agent-proxied audit/decisions/overrides REST
+surface). The `check-input`/`check-output` hook plane reads a per-user token
+only from the request body on current platforms and keeps client-scoped
+attribution there; the header is still sent (forward-compatible).
 
 ### Added
 

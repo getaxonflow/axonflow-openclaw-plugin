@@ -42,7 +42,7 @@
     },
     "AXONFLOW_USER_TOKEN": {
       "required": false,
-      "description": "Per-user authorization token forwarded as the X-User-Token header on every governed request, giving this developer a validated {identity, role} on the AxonFlow fleet plane (role-scoped reads + audit attribution key on the token's canonical email). Minted by an org admin via the AxonFlow user-token mint API and delivered via managed settings/MDM. Resolution order: pluginConfig.userToken wins over this env var, which wins over the 0600 provisioning file ~/.config/axonflow/user-token.json (shared with the other AxonFlow plugins on the machine). A malformed value is dropped with a warning (never sent) and resolution falls through to the next source. Unset (default): no header is sent and requests are byte-identical to prior versions."
+      "description": "Per-user authorization token forwarded as the X-User-Token header on every governed request, giving this developer a validated {identity, role} on the AxonFlow fleet plane: role-scoped reads plus audit attribution keyed on the token's canonical email on the header-consuming planes (the MCP tools and the audit/decisions/overrides REST surface; the check-input/check-output hook plane keeps client-scoped attribution on current platforms). Minted by an org admin via the AxonFlow user-token mint API and delivered via managed settings/MDM. Resolution order: pluginConfig.userToken wins over this env var, which wins over the 0600 provisioning file ~/.config/axonflow/user-token.json (shared with the other AxonFlow plugins on the machine). A malformed value is dropped with a warning (never sent) and resolution falls through to the next source. Unset (default): no header is sent and requests are byte-identical to prior versions."
     },
     "AXONFLOW_ENDPOINT": {
       "required": false,
@@ -125,7 +125,7 @@
       "label": "Per-User Token",
       "sensitive": true,
       "placeholder": "(minted by your org admin)",
-      "help": "Per-user authorization token forwarded as the X-User-Token header on every governed request. Minted by an org admin via the AxonFlow user-token mint API and delivered through managed settings/MDM. Gives this developer a validated identity and role on the platform's fleet plane, so role-scoped reads return their own rows and audit attribution keys on the token's canonical email (beating the forgeable userEmail label). Resolution order: this value, then AXONFLOW_USER_TOKEN env, then ~/.config/axonflow/user-token.json (mode 0600). Optional — when unset, requests are unchanged."
+      "help": "Per-user authorization token forwarded as the X-User-Token header on every governed request. Minted by an org admin via the AxonFlow user-token mint API and delivered through managed settings/MDM. Gives this developer a validated identity and role on the platform's fleet plane, so role-scoped reads return their own rows and audit attribution keys on the token's canonical email — beating the forgeable userEmail label — on the header-consuming planes (MCP tools + audit/decisions/overrides REST; the check-input/check-output hook plane keeps client-scoped attribution on current platforms). Resolution order: this value, then AXONFLOW_USER_TOKEN env, then ~/.config/axonflow/user-token.json (mode 0600). Optional — when unset, requests are unchanged."
     },
     "licenseToken": {
       "label": "Pro License Token",

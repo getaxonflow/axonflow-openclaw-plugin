@@ -75,12 +75,26 @@ export interface UserTokenResolution {
  * Deliberately does NOT pin the JWT structure (segment count, prefix): the
  * platform owns token-format evolution; this guard only rejects values that
  * can never be a wire-safe credential (no CR/LF header-splitting bytes, no
- * quote/backslash JSON-breaking bytes).
+ * quote/backslash JSON-breaking bytes, nothing outside printable ASCII).
+ *
+ * The printable-ASCII bound is load-bearing, not cosmetic (R3 round-1 H1):
+ * fetch() header values must be ByteStrings, so ANY char above U+00FF (a
+ * smart quote or en-dash from a rich-text paste of the minted token) makes
+ * fetch throw a TypeError BEFORE the request leaves the process. That error
+ * carries no HTTP status and doesn't match governance's auth-error
+ * classifier, so tool governance would treat it as a transient network
+ * error and FAIL OPEN even under onError:"block" — silently, on every tool
+ * call. Rejecting here keeps such a candidate on the drop-with-warning +
+ * fall-through path instead.
  */
 export function userTokenLooksValid(token: string): boolean {
   if (!token) return false;
-  // Whitespace, double quote, backslash, C0 control bytes, DEL.
-  return !/[\s"\\\u0000-\u001f\u007f]/.test(token);
+  // Every char must be printable ASCII (excludes whitespace, C0 + C1
+  // controls, DEL, and everything >= U+0080), minus the JSON/header-breaking
+  // double quote and backslash.
+  return /^[!-~]+$/.test(token)
+    && !token.includes('"')
+    && !token.includes("\\");
 }
 
 /**

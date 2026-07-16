@@ -104,6 +104,21 @@ describe("userTokenLooksValid", () => {
     expect(userTokenLooksValid("no-dots-at-all")).toBe(true);
     expect(userTokenLooksValid("four.part.token.shape")).toBe(true);
   });
+
+  it("rejects non-ByteString and non-ASCII candidates (R3 H1: fetch throws pre-network → silent fail-open)", () => {
+    // Chars > U+00FF make fetch() throw a TypeError before any request is
+    // sent; that error has no HTTP status, so governance would classify it
+    // as transient and fail OPEN even under onError:"block".
+    expect(userTokenLooksValid("abc’def")).toBe(false); // smart quote (rich-text paste)
+    expect(userTokenLooksValid("abc–def")).toBe(false); // en-dash
+    expect(userTokenLooksValid("abc…def")).toBe(false); // ellipsis
+    expect(userTokenLooksValid("abc\u{1f600}def")).toBe(false); // emoji
+    // Latin-1 range and C1 controls are ByteString-legal but never part of
+    // a wire-safe credential — reject too.
+    expect(userTokenLooksValid("abcédef")).toBe(false); // é
+    expect(userTokenLooksValid("abc\u0085def")).toBe(false); // C1 NEL
+    expect(userTokenLooksValid("abc\u00a0def")).toBe(false); // NBSP
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -161,6 +176,15 @@ describe("resolveUserToken — #108 equivalence (malformed high-priority falls t
     });
     expect(res.token).toBe(VALID_TOKEN);
     expect(res.source).toBe("env");
+    expect(res.warnings).toHaveLength(1);
+    expect(res.warnings[0]).toContain("pluginConfig.userToken");
+  });
+
+  it("malformed config + valid 0600 file (env unset) ⇒ file token used (not suppressed)", () => {
+    const home = makeHome(JSON.stringify({ token: VALID_TOKEN }));
+    const res = resolveUserToken("mal formed", { env: {}, homedir: home });
+    expect(res.token).toBe(VALID_TOKEN);
+    expect(res.source).toBe("file");
     expect(res.warnings).toHaveLength(1);
     expect(res.warnings[0]).toContain("pluginConfig.userToken");
   });

@@ -76,9 +76,27 @@ fi
 
 CONFIG_BACKUP="$(mktemp -t axonflow-user-token-cfgbak.XXXXXX)"
 cp "$OPENCLAW_CONFIG_FILE" "$CONFIG_BACKUP"
+
+# Neutralize the THIRD resolution source for the whole run: a real
+# provisioning file at ~/.config/axonflow/user-token.json (written by fleet
+# tooling or a sibling plugin's e2e) would make the "unconfigured" legs
+# (L2/L6) resolve a token via the file — L2 would false-FAIL on the canary
+# and L6 would prove the wrong thing. Move it aside; restore on exit.
+PROVISIONING_FILE="$HOME/.config/axonflow/user-token.json"
+PROVISIONING_STASH=""
+if [ -f "$PROVISIONING_FILE" ]; then
+  PROVISIONING_STASH="$(mktemp -t axonflow-user-token-filestash.XXXXXX)"
+  mv "$PROVISIONING_FILE" "$PROVISIONING_STASH"
+  echo "--- Stashed real provisioning file $PROVISIONING_FILE for the run ---"
+fi
+
 restore_config() {
   cp "$CONFIG_BACKUP" "$OPENCLAW_CONFIG_FILE"
   rm -f "$CONFIG_BACKUP"
+  if [ -n "$PROVISIONING_STASH" ] && [ -f "$PROVISIONING_STASH" ]; then
+    mv "$PROVISIONING_STASH" "$PROVISIONING_FILE"
+    chmod 600 "$PROVISIONING_FILE" 2>/dev/null || true
+  fi
 }
 trap restore_config EXIT
 
@@ -306,6 +324,10 @@ smoke_tool_succeeded() {
 # ---------------------------------------------------------------------------
 FORGED="forged-label-$(date +%s)@example.com"
 echo "--- L4: validated token identity beats forged userEmail (token=$TOKEN_EMAIL_CANON, forged=$FORGED) ---"
+# Baseline BEFORE the turn: with an operator-supplied (reused) token email,
+# rows from a previous run would satisfy a bare count>=1 — assert the DELTA.
+ROWS_TOKEN_BASE=$(query "SELECT count(*) FROM audit_logs WHERE user_email='$TOKEN_EMAIL_CANON';")
+ROWS_TOKEN_BASE="${ROWS_TOKEN_BASE:-0}"
 plugin_config_patch "{\"userToken\": \"$TOKEN\", \"userEmail\": \"$FORGED\", \"endpoint\": \"$AXONFLOW_ENDPOINT\", \"clientId\": \"$AXONFLOW_CLIENT_ID\", \"clientSecret\": \"$AXONFLOW_CLIENT_SECRET\", \"onError\": \"block\"}" ""
 OUT_L4=$(mktemp -t axonflow-user-token-l4.XXXXXX)
 drive_agent_turn "$OUT_L4"
@@ -322,11 +344,11 @@ else
   errors=$((errors + 1))
 fi
 
-ROWS_TOKEN=$(wait_count "SELECT count(*) FROM audit_logs WHERE user_email='$TOKEN_EMAIL_CANON';" 1)
-if [ "${ROWS_TOKEN:-0}" -ge 1 ]; then
-  echo "PASS: audit_logs rows attribute to the token's validated email ($ROWS_TOKEN row(s))"
+ROWS_TOKEN=$(wait_count "SELECT count(*) FROM audit_logs WHERE user_email='$TOKEN_EMAIL_CANON';" $((ROWS_TOKEN_BASE + 1)))
+if [ "${ROWS_TOKEN:-0}" -ge $((ROWS_TOKEN_BASE + 1)) ]; then
+  echo "PASS: audit_logs rows attribute to the token's validated email (+$((ROWS_TOKEN - ROWS_TOKEN_BASE)) row(s) this run)"
 else
-  echo "FAIL: no audit_logs row attributed to $TOKEN_EMAIL_CANON"
+  echo "FAIL: no NEW audit_logs row attributed to $TOKEN_EMAIL_CANON this run (baseline=$ROWS_TOKEN_BASE, now=${ROWS_TOKEN:-0})"
   jq -r '.payloads[]?.text // empty' "$OUT_L4" 2>/dev/null | head -3 | sed 's/^/      /'
   errors=$((errors + 1))
 fi
