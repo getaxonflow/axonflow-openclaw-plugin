@@ -165,7 +165,7 @@ if [ "$USAGE" != "200" ]; then
 fi
 
 echo "Step 3: capture wire envelope from /api/v1/audit/tool-call (expect 429)"
-PAYLOAD='{"tool_name":"v1_envelope_e2e","tool_type":"runtime_e2e","input":{"probe":"daily_quota_envelope"},"success":true}'
+PAYLOAD='{"tool_name":"v1_envelope_e2e","caller_name":"runtime_e2e","tool_type":"runtime_e2e","input":{"probe":"daily_quota_envelope"},"success":true}'
 ENVELOPE_BODY="$EVIDENCE/envelope_body.json"
 ENVELOPE_HEADERS="$EVIDENCE/envelope_headers.txt"
 TRIP_HTTP=$(curl -sS -D "$ENVELOPE_HEADERS" -o "$ENVELOPE_BODY" -w '%{http_code}' \

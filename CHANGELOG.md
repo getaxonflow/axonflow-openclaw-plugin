@@ -4,16 +4,32 @@
 
 ### Changed
 
-- **`auditToolCall()` now sends `caller_name` instead of `tool_type` to
-  identify the calling client.** The `tool_type` field on the
-  `POST /api/v1/audit/tool-call` payload was misleadingly named — it was
-  actually used to identify which client made the call, not the type of
-  tool. The platform now accepts a correctly-named `caller_name` field for
-  this purpose (`tool_type` still works as a deprecated legacy fallback).
-  `auditToolCall()`'s payload now sends `caller_name: "openclaw"` instead of
-  `tool_type: "openclaw"`. `auditLLMCall()`'s separate use of
-  `tool_type: "llm_call"` (a distinct, documented reuse of this same
-  endpoint for LLM-call auditing) is unaffected by this change.
+- **`auditToolCall()` now sends `caller_name` to identify the calling
+  client, dual-sent with the legacy `tool_type` for the deprecation
+  window** (axonflow-enterprise#2912, sub-issue of epic #2905). The
+  `tool_type` field on the `POST /api/v1/audit/tool-call` payload was
+  misleadingly named — it was actually used to identify which client made
+  the call, not the type of tool. The correctly-named `caller_name` field
+  is being **added on the platform side in axonflow-enterprise#2953, which
+  is still OPEN (not yet merged)**; it resolves `caller_name → tool_type →
+  default` and writes only `caller_name` on new rows, keeping `tool_type`
+  as a deprecated legacy fallback. `auditToolCall()`'s payload now sends
+  **both** `caller_name: "openclaw"` and `tool_type: "openclaw"`. Dual-send
+  is exact on a #2953+ platform (`caller_name` wins) **and** status-quo on
+  any pre-#2953 platform. This matters more for openclaw than the other
+  plugins: openclaw POSTs the REST endpoint directly, and a pre-#2953
+  orchestrator drops the unknown `caller_name` while the REST path has no
+  default for an absent `tool_type` — so a caller_name-only payload would
+  have written **no client field at all** on every deployed platform. The
+  legacy `tool_type` fallback keeps the row attributed until the platform
+  floor includes #2953, at which point `tool_type` will be dropped. This
+  matches the transition pattern across the claude/codex/cursor siblings.
+  `auditLLMCall()`'s separate use of `tool_type: "llm_call"` (a distinct,
+  documented reuse of this same endpoint for LLM-call auditing, a real
+  call-type marker rather than a caller id) is unaffected by this change.
+  The payload is pinned by a CI-run unit test (`tests/axonflow-client.test.ts`,
+  run in `ci.yml` via `npm run test:coverage`) asserting both keys, so a
+  silent revert fails CI.
 
 ## [2.7.0] - 2026-07-17: Per-user token (X-User-Token) parity — validated fleet identity
 
