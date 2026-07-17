@@ -238,6 +238,11 @@ describe("AxonFlowClient", () => {
         (mockFetch.mock.calls[0]?.[1] as RequestInit).body as string,
       );
       expect(body.tool_name).toBe("web_fetch");
+      // #2912 dual-send: caller_name (new, resolved first by #2953) AND the
+      // legacy tool_type fallback must both carry the client id, so a
+      // pre-#2953 orchestrator still attributes the row. A silent revert of
+      // either key fails this CI-run assertion (ci.yml → npm run test:coverage).
+      expect(body.caller_name).toBe("openclaw");
       expect(body.tool_type).toBe("openclaw");
       expect(body.input).toEqual({ url: "https://x.com" });
       expect(body.output).toEqual({ result: '"result"' });

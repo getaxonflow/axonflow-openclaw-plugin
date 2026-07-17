@@ -221,7 +221,7 @@ AUDIT_RESPONSE=$(curl -s -w "\n%{http_code}" \
     -H "Authorization: Basic $AUTH" \
     -H "Content-Type: application/json" \
     -H "X-Tenant-ID: $AXONFLOW_CLIENT_ID" \
-    -d '{"tool_name": "e2e_test_tool", "tool_type": "openclaw", "input": {"test": true}, "output": {"result": "ok"}, "success": true, "duration_ms": 100}' \
+    -d '{"tool_name": "e2e_test_tool", "caller_name": "openclaw", "tool_type": "openclaw", "input": {"test": true}, "output": {"result": "ok"}, "success": true, "duration_ms": 100}' \
     "$AXONFLOW_ENDPOINT/api/v1/audit/tool-call")
 AUDIT_STATUS=$(echo "$AUDIT_RESPONSE" | tail -1)
 AUDIT_BODY=$(echo "$AUDIT_RESPONSE" | sed '$d')

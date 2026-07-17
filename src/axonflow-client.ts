@@ -741,6 +741,15 @@ export class AxonFlowClient {
         headers: this.baseHeaders(),
         body: JSON.stringify({
           tool_name: toolName,
+          // #2912 dual-send: caller_name is the correctly-named field the
+          // platform resolves first (axonflow-enterprise#2953). tool_type is
+          // the deprecated legacy fallback kept for the deprecation window so a
+          // pre-#2953 orchestrator — which drops the unknown caller_name and
+          // has no default on the REST path — still attributes the row instead
+          // of writing no client field at all. Drop tool_type once the platform
+          // floor includes #2953. (Distinct from auditLLMCall's tool_type:
+          // "llm_call", which is a real call-type marker, not a caller id.)
+          caller_name: "openclaw",
           tool_type: "openclaw",
           input: truncateStringValues(params, 500),
           output: result != null ? { result: JSON.stringify(result).slice(0, 500) } : undefined,
