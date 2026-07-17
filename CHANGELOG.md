@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`auditToolCall()` now sends `caller_name` instead of `tool_type` to
+  identify the calling client.** The `tool_type` field on the
+  `POST /api/v1/audit/tool-call` payload was misleadingly named — it was
+  actually used to identify which client made the call, not the type of
+  tool. The platform now accepts a correctly-named `caller_name` field for
+  this purpose (`tool_type` still works as a deprecated legacy fallback).
+  `auditToolCall()`'s payload now sends `caller_name: "openclaw"` instead of
+  `tool_type: "openclaw"`. `auditLLMCall()`'s separate use of
+  `tool_type: "llm_call"` (a distinct, documented reuse of this same
+  endpoint for LLM-call auditing) is unaffected by this change.
+
 ## [2.7.0] - 2026-07-17: Per-user token (X-User-Token) parity — validated fleet identity
 
 Fleet parity with `axonflow-claude-plugin` v1.10.0 (axonflow-enterprise#2945,

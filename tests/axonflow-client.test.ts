@@ -238,7 +238,7 @@ describe("AxonFlowClient", () => {
         (mockFetch.mock.calls[0]?.[1] as RequestInit).body as string,
       );
       expect(body.tool_name).toBe("web_fetch");
-      expect(body.tool_type).toBe("openclaw");
+      expect(body.caller_name).toBe("openclaw");
       expect(body.input).toEqual({ url: "https://x.com" });
       expect(body.output).toEqual({ result: '"result"' });
       expect(body.success).toBe(true);

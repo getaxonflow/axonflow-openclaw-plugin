@@ -741,7 +741,7 @@ export class AxonFlowClient {
         headers: this.baseHeaders(),
         body: JSON.stringify({
           tool_name: toolName,
-          tool_type: "openclaw",
+          caller_name: "openclaw",
           input: truncateStringValues(params, 500),
           output: result != null ? { result: JSON.stringify(result).slice(0, 500) } : undefined,
           success: error == null,
