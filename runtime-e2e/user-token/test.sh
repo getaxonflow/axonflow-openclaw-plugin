@@ -90,15 +90,20 @@ if [ -f "$PROVISIONING_FILE" ]; then
   echo "--- Stashed real provisioning file $PROVISIONING_FILE for the run ---"
 fi
 
+# Idempotent (INT/TERM then EXIT can fire it twice) and signal-covered, so
+# a Ctrl-C mid-run cannot strand the operator's real openclaw config or
+# provisioning file.
 restore_config() {
-  cp "$CONFIG_BACKUP" "$OPENCLAW_CONFIG_FILE"
-  rm -f "$CONFIG_BACKUP"
+  if [ -f "$CONFIG_BACKUP" ]; then
+    cp "$CONFIG_BACKUP" "$OPENCLAW_CONFIG_FILE"
+    rm -f "$CONFIG_BACKUP"
+  fi
   if [ -n "$PROVISIONING_STASH" ] && [ -f "$PROVISIONING_STASH" ]; then
     mv "$PROVISIONING_STASH" "$PROVISIONING_FILE"
     chmod 600 "$PROVISIONING_FILE" 2>/dev/null || true
   fi
 }
-trap restore_config EXIT
+trap restore_config EXIT INT TERM HUP
 
 # Write/delete keys in the plugin's config block by editing the config file
 # directly — `openclaw config set` validates against the INSTALLED schema,
