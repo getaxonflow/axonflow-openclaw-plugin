@@ -109,6 +109,12 @@ describe("resolveConfig endpoint precedence (#162)", () => {
     expect(config.clientSecret).toBe("");
   });
 
+  it("credentials-only config pins the runtime endpoint to the localhost default", () => {
+    const cfg = resolveConfig({ clientId: "t", clientSecret: "s" });
+    expect(cfg.endpoint).toBe("http://localhost:8080");
+    expect(cfg.mode).toBe("self-hosted");
+  });
+
   it("empty env is ignored: pluginConfig then default apply", () => {
     process.env[ENV_KEY] = "";
     expect(resolveConfig({ endpoint: "http://cfg:1" }).endpoint).toBe("http://cfg:1");
