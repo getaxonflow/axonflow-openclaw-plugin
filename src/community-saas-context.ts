@@ -15,7 +15,7 @@ import * as path from "path";
 const DISCLOSURE_STAMP_NAME = "openclaw-plugin-community-saas-disclosure-shown";
 
 /**
- * Test-harness inputs read from process.env. Only honoured when
+ * Test-harness inputs read from the process environment. Only honoured when
  * AXONFLOW_HARNESS=1 — production callers leave the var unset and the
  * defaults pin to try.getaxonflow.com.
  */

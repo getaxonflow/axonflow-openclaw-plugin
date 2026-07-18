@@ -27,7 +27,7 @@ export interface AxonFlowPluginConfig {
    * context with Pro-tier entitlements (retention, quotas, capabilities).
    *
    * Resolution order (matches the W4 launch spec):
-   *   1. process.env.AXONFLOW_LICENSE_TOKEN
+   *   1. the `AXONFLOW_LICENSE_TOKEN` environment variable
    *   2. pluginConfig.licenseToken
    *   3. unset → free tier (no header sent)
    *

@@ -1,0 +1,20 @@
+{
+  // Declarations-emit config for the PUBLISHED package. Companion to
+  // tsconfig.build.json: that pass emits comment-free runnable JavaScript;
+  // this pass emits the *.d.ts ONLY, with comments PRESERVED so consumers keep
+  // JSDoc hovers in their editor. Maps are off for the same
+  // published-artifact-minimalism reason as the JS pass. `npm run build` runs
+  // this after the JS pass.
+  //
+  // removeComments is deliberately NOT set here (it defaults off): tsc's
+  // removeComments is a single global flag that would otherwise strip .d.ts
+  // comments too. Keeping it off is what lets the declarations retain their
+  // documentation while the JS pass strips comments from the runnable output.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false
+  }
+}

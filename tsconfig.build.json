@@ -1,16 +1,35 @@
 {
-  // Build config for the PUBLISHED package. Extends the dev tsconfig but
-  // turns off source/declaration maps. The published package ships dist/ but
-  // not src/, so maps would point at sources absent from the artifact, and
-  // *.js.map would inline the full TypeScript source via sourcesContent.
-  // Emitting runnable output only keeps the published package minimal.
+  // JS-emit config for the PUBLISHED package. Extends the dev tsconfig but
+  // turns off source/declaration maps and emits runnable JavaScript ONLY —
+  // declarations are produced by the companion tsconfig.types.json pass. The
+  // published package ships dist/ but not src/, so maps would point at sources
+  // absent from the artifact, and *.js.map would inline the full TypeScript
+  // source via sourcesContent. Emitting runnable output only keeps the
+  // published package minimal.
   //
   // The dev tsconfig.json keeps maps on so ts-jest coverage instrumentation
   // can map executed code back to the TypeScript source. `npm run build`
-  // points here; `npm test` uses tsconfig.json.
+  // points here (then at tsconfig.types.json); `npm test` uses tsconfig.json.
+  //
+  // Comments are STRIPPED from the emitted JavaScript (removeComments). The
+  // published dist/*.js is runnable output only; JSDoc/implementation comments
+  // live in the TypeScript sources (not published) and are preserved in the
+  // *.d.ts by the separate declarations pass, so editor tooling keeps its
+  // documentation. Stripping JS comments also keeps a text-level marketplace
+  // scanner from associating an environment read narrated in a code comment
+  // with a network-reachable module. There is no license banner to preserve in
+  // the emitted JS (the LICENSE file ships alongside dist), so no
+  // preserve-license carve-out is needed.
+  //
+  // NOTE: removeComments is a single global flag in tsc — it strips comments
+  // from BOTH .js and .d.ts in one pass. That is why declarations are emitted
+  // by tsconfig.types.json (removeComments off) instead of here: the two-pass
+  // split is what lets the JS lose comments while the .d.ts keep them.
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "declaration": false,
     "declarationMap": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "removeComments": true
   }
 }
