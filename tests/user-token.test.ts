@@ -128,7 +128,7 @@ describe("userTokenLooksValid", () => {
 describe("resolveUserToken — source priority", () => {
   it("returns undefined with no warnings when nothing is configured", () => {
     const home = makeHome();
-    const res = resolveUserToken(undefined, { env: {}, homedir: home });
+    const res = resolveUserToken(undefined, { userTokenEnvValue: "", homedir: home });
     expect(res.token).toBeUndefined();
     expect(res.source).toBeUndefined();
     expect(res.warnings).toEqual([]);
@@ -137,7 +137,7 @@ describe("resolveUserToken — source priority", () => {
   it("uses pluginConfig.userToken first", () => {
     const home = makeHome(JSON.stringify({ token: OTHER_TOKEN }));
     const res = resolveUserToken(VALID_TOKEN, {
-      env: { AXONFLOW_USER_TOKEN: OTHER_TOKEN },
+      userTokenEnvValue: OTHER_TOKEN,
       homedir: home,
     });
     expect(res.token).toBe(VALID_TOKEN);
@@ -147,7 +147,7 @@ describe("resolveUserToken — source priority", () => {
   it("falls back to AXONFLOW_USER_TOKEN env when config is unset", () => {
     const home = makeHome(JSON.stringify({ token: OTHER_TOKEN }));
     const res = resolveUserToken(undefined, {
-      env: { AXONFLOW_USER_TOKEN: VALID_TOKEN },
+      userTokenEnvValue: VALID_TOKEN,
       homedir: home,
     });
     expect(res.token).toBe(VALID_TOKEN);
@@ -156,14 +156,14 @@ describe("resolveUserToken — source priority", () => {
 
   it("falls back to the 0600 provisioning file when config + env are unset", () => {
     const home = makeHome(JSON.stringify({ token: VALID_TOKEN }));
-    const res = resolveUserToken(undefined, { env: {}, homedir: home });
+    const res = resolveUserToken(undefined, { userTokenEnvValue: "", homedir: home });
     expect(res.token).toBe(VALID_TOKEN);
     expect(res.source).toBe("file");
     expect(res.warnings).toEqual([]);
   });
 
   it("trims surrounding whitespace before validating", () => {
-    const res = resolveUserToken(`  ${VALID_TOKEN}\n`, { env: {}, homedir: makeHome() });
+    const res = resolveUserToken(`  ${VALID_TOKEN}\n`, { userTokenEnvValue: "", homedir: makeHome() });
     expect(res.token).toBe(VALID_TOKEN);
   });
 });
@@ -171,7 +171,7 @@ describe("resolveUserToken — source priority", () => {
 describe("resolveUserToken — #108 equivalence (malformed high-priority falls through)", () => {
   it("malformed config + valid env ⇒ env token used (not suppressed)", () => {
     const res = resolveUserToken("mal formed\ntoken", {
-      env: { AXONFLOW_USER_TOKEN: VALID_TOKEN },
+      userTokenEnvValue: VALID_TOKEN,
       homedir: makeHome(),
     });
     expect(res.token).toBe(VALID_TOKEN);
@@ -182,7 +182,7 @@ describe("resolveUserToken — #108 equivalence (malformed high-priority falls t
 
   it("malformed config + valid 0600 file (env unset) ⇒ file token used (not suppressed)", () => {
     const home = makeHome(JSON.stringify({ token: VALID_TOKEN }));
-    const res = resolveUserToken("mal formed", { env: {}, homedir: home });
+    const res = resolveUserToken("mal formed", { userTokenEnvValue: "", homedir: home });
     expect(res.token).toBe(VALID_TOKEN);
     expect(res.source).toBe("file");
     expect(res.warnings).toHaveLength(1);
@@ -192,7 +192,7 @@ describe("resolveUserToken — #108 equivalence (malformed high-priority falls t
   it("malformed env + valid 0600 file ⇒ file token used (not suppressed)", () => {
     const home = makeHome(JSON.stringify({ token: VALID_TOKEN }));
     const res = resolveUserToken(undefined, {
-      env: { AXONFLOW_USER_TOKEN: "mal formed" },
+      userTokenEnvValue: "mal formed",
       homedir: home,
     });
     expect(res.token).toBe(VALID_TOKEN);
@@ -204,7 +204,7 @@ describe("resolveUserToken — #108 equivalence (malformed high-priority falls t
   it("all sources malformed ⇒ dropped entirely (never sent), one warning per source", () => {
     const home = makeHome(JSON.stringify({ token: "also bad" }));
     const res = resolveUserToken('cfg"bad', {
-      env: { AXONFLOW_USER_TOKEN: "env bad" },
+      userTokenEnvValue: "env bad",
       homedir: home,
     });
     expect(res.token).toBeUndefined();
@@ -214,7 +214,7 @@ describe("resolveUserToken — #108 equivalence (malformed high-priority falls t
   it("warnings never contain the candidate values", () => {
     const home = makeHome(JSON.stringify({ token: "file secret-y value" }));
     const res = resolveUserToken("config secret value", {
-      env: { AXONFLOW_USER_TOKEN: "env secret value" },
+      userTokenEnvValue: "env secret value",
       homedir: home,
     });
     for (const w of res.warnings) {
@@ -227,7 +227,7 @@ describe("resolveUserToken — provisioning file handling", () => {
   it("refuses a non-0600 file with a warning (POSIX)", () => {
     if (process.platform === "win32") return;
     const home = makeHome(JSON.stringify({ token: VALID_TOKEN }), 0o644);
-    const res = resolveUserToken(undefined, { env: {}, homedir: home });
+    const res = resolveUserToken(undefined, { userTokenEnvValue: "", homedir: home });
     expect(res.token).toBeUndefined();
     expect(res.warnings).toHaveLength(1);
     expect(res.warnings[0]).toContain("unsafe permissions");
@@ -237,7 +237,7 @@ describe("resolveUserToken — provisioning file handling", () => {
 
   it("warns on invalid JSON without leaking file contents", () => {
     const home = makeHome(`not json ${VALID_TOKEN}`);
-    const res = resolveUserToken(undefined, { env: {}, homedir: home });
+    const res = resolveUserToken(undefined, { userTokenEnvValue: "", homedir: home });
     expect(res.token).toBeUndefined();
     expect(res.warnings).toHaveLength(1);
     expect(res.warnings[0]).toContain("not valid JSON");
@@ -246,7 +246,7 @@ describe("resolveUserToken — provisioning file handling", () => {
 
   it("warns on a malformed token inside valid JSON", () => {
     const home = makeHome(JSON.stringify({ token: "has spaces in it" }));
-    const res = resolveUserToken(undefined, { env: {}, homedir: home });
+    const res = resolveUserToken(undefined, { userTokenEnvValue: "", homedir: home });
     expect(res.token).toBeUndefined();
     expect(res.warnings).toHaveLength(1);
     expect(res.warnings[0]).toContain("malformed per-user token");
@@ -254,10 +254,10 @@ describe("resolveUserToken — provisioning file handling", () => {
 
   it("stays silent on a missing file or an empty token field", () => {
     expect(
-      resolveUserToken(undefined, { env: {}, homedir: makeHome() }).warnings,
+      resolveUserToken(undefined, { userTokenEnvValue: "", homedir: makeHome() }).warnings,
     ).toEqual([]);
     const home = makeHome(JSON.stringify({ token: "" }));
-    expect(resolveUserToken(undefined, { env: {}, homedir: home }).warnings).toEqual([]);
+    expect(resolveUserToken(undefined, { userTokenEnvValue: "", homedir: home }).warnings).toEqual([]);
   });
 });
 
