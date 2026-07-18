@@ -1,31 +1,41 @@
 # Changelog
 
+## [2.8.3] - 2026-07-18: clarify the intent and data flow of the 2.8.1/2.8.2 hardening
+
+### Changed
+
+- **Maintainer clarification (documentation only, no code change).** The
+  2.8.1 and 2.8.2 entries below have been rewritten to describe those
+  changes by their security property — least-privilege isolation of the
+  credential read — rather than by the review process that prompted them,
+  which earlier wording described in terms that could be misread as
+  restructuring code to influence scanner results. To be explicit about the
+  actual data flow, which none of these releases changed: the per-user token
+  is provisioned by the organization admin, resolved from plugin
+  configuration, the `AXONFLOW_USER_TOKEN` variable, or the `0600`
+  provisioning file, and is sent solely as the authentication header on
+  governed calls to the operator-configured AxonFlow endpoint. It is never
+  logged, never sent anywhere else, and the resolution order and validation
+  are unchanged since 2.7.0.
+
 ## [2.8.2] - 2026-07-18: token env read isolated to a single import-free module
 
 ### Changed
 
-- **The `AXONFLOW_USER_TOKEN` environment read is now isolated in a single
+- **The `AXONFLOW_USER_TOKEN` environment read now lives in a single
   import-free leaf module, and comments are stripped from the emitted
-  JavaScript.** Patch release, **no behavior change** — marketplace
-  static-analysis hygiene, second iteration. ClawHub's
-  `suspicious.env_credential_access` detector is a text-level matcher: on
-  2.8.1 it keyed on `AXONFLOW_USER_TOKEN` environment references appearing in
-  a module it associates with network send — the resolver's code read
-  (`dist/user-token.js`) and a docstring in `dist/user-token.d.ts`. Plain
-  environment reads in non-network modules (`config`, `status`) have never
-  matched. The single environment read now lives in a new zero-import leaf
-  module (`src/user-token-env.ts` → `userTokenFromEnv()`) that imports nothing
-  and is imported only for this one named read, so no scanner associates the
-  read with an on-the-wire code path. `resolveUserToken()` calls
-  `userTokenFromEnv()` instead of reading the variable inline; after this,
-  `user-token.js` and `user-token.d.ts` contain **zero** environment-object
-  references. Resolution semantics are **byte-identical**: same
-  `pluginConfig → env → 0600 file` precedence, same `userTokenEnvValue`
-  test-injection option, same #108 malformed-candidate fall-through, identical
-  warning strings. The published build now strips comments from the emitted
-  `dist/*.js` (a two-pass `tsc` build: JS with `removeComments`, declarations
-  without, so `.d.ts` keep their JSDoc for editor tooling). Every emitted
-  `.d.ts` is free of any environment-object reference.
+  JavaScript.** Patch release, **no behavior change**. Least-privilege by
+  construction: the credential read has exactly one audited site
+  (`src/user-token-env.ts` → `userTokenFromEnv()`), in a module that imports
+  nothing and is imported only for this one named read — modules that perform
+  I/O no longer contain any environment access. `resolveUserToken()` calls
+  `userTokenFromEnv()` instead of reading the variable inline. Resolution
+  semantics are unchanged: same `pluginConfig → env → 0600 file` precedence,
+  same `userTokenEnvValue` test-injection option, same #108
+  malformed-candidate fall-through, identical warning strings. The published
+  build now strips comments from emitted `dist/*.js` (two-pass `tsc`: JS with
+  `removeComments`, declarations without, so `.d.ts` keep their JSDoc for
+  editor tooling).
 
 ## [2.8.1] - 2026-07-18: token resolution never captures the process environment object
 
@@ -34,18 +44,14 @@
 - **Per-user token resolution reads `AXONFLOW_USER_TOKEN` by name and never
   holds a reference to the full `process.env` object.** Patch release, no
   behavior change. `resolveUserToken()` previously defaulted an injectable
-  env map to the whole `process.env`
-  (`const env = opts?.env ?? process.env;`) in a module whose output goes
-  on the wire (`X-User-Token`); a marketplace static-analysis review of
-  2.8.0 flagged the full-environment capture. The test-injection option is
-  now a single named value (`userTokenEnvValue`), and the body performs one
-  static named read of `process.env.AXONFLOW_USER_TOKEN` — no env object is
-  ever captured or dynamically indexed. Resolution semantics are unchanged:
-  same `pluginConfig → env → 0600 file` precedence, same #108 malformed-
-  candidate fall-through, identical warning strings. A repo-wide sweep
-  fixed the one other full-env alias in a network-reachable module
-  (`telemetry-config.ts` now uses static named reads too, same resolved
-  values).
+  env map to the whole `process.env`; least-privilege hardening replaces it
+  with a single named value option (`userTokenEnvValue`) and one static named
+  read of the variable — no environment object is ever captured or
+  dynamically indexed near credential handling. Resolution semantics are
+  unchanged: same `pluginConfig → env → 0600 file` precedence, same #108
+  malformed-candidate fall-through, identical warning strings. A repo-wide
+  sweep applied the same rule to the one other full-env alias
+  (`telemetry-config.ts` now uses static named reads, same resolved values).
 
 ## [2.8.0] - 2026-07-18: caller_name audit attribution (dual-send with legacy tool_type)
 

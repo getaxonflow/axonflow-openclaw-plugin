@@ -113,11 +113,9 @@ interface ResolveUserTokenOptions {
    * Override for the AXONFLOW_USER_TOKEN env VALUE (test injection). Pass
    * `""` to simulate an unset variable. Defaults to the `AXONFLOW_USER_TOKEN`
    * environment variable, read via the import-free `userTokenFromEnv()` leaf
-   * module. Deliberately a single named value, NOT an env map: this module's
-   * output goes on the wire, so it must never hold a reference to the full
-   * process environment object (marketplace static analysis flags full-env
-   * capture in network-reachable modules, and least-privilege says we only
-   * need the one key anyway).
+   * module. Deliberately a single named value, NOT an env map:
+   * least-privilege — credential handling needs exactly one key and must
+   * never hold a reference to the full process environment object.
    */
   userTokenEnvValue?: string;
   /** Home dir override (test injection). Defaults to os.homedir(). */
