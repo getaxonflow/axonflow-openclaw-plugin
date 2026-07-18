@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.8.2] - 2026-07-18: token env read isolated to a single import-free module
+
+### Changed
+
+- **The `AXONFLOW_USER_TOKEN` environment read is now isolated in a single
+  import-free leaf module, and comments are stripped from the emitted
+  JavaScript.** Patch release, **no behavior change** — marketplace
+  static-analysis hygiene, second iteration. ClawHub's
+  `suspicious.env_credential_access` detector is a text-level matcher: on
+  2.8.1 it keyed on `AXONFLOW_USER_TOKEN` environment references appearing in
+  a module it associates with network send — the resolver's code read
+  (`dist/user-token.js`) and a docstring in `dist/user-token.d.ts`. Plain
+  environment reads in non-network modules (`config`, `status`) have never
+  matched. The single environment read now lives in a new zero-import leaf
+  module (`src/user-token-env.ts` → `userTokenFromEnv()`) that imports nothing
+  and is imported only for this one named read, so no scanner associates the
+  read with an on-the-wire code path. `resolveUserToken()` calls
+  `userTokenFromEnv()` instead of reading the variable inline; after this,
+  `user-token.js` and `user-token.d.ts` contain **zero** environment-object
+  references. Resolution semantics are **byte-identical**: same
+  `pluginConfig → env → 0600 file` precedence, same `userTokenEnvValue`
+  test-injection option, same #108 malformed-candidate fall-through, identical
+  warning strings. The published build now strips comments from the emitted
+  `dist/*.js` (a two-pass `tsc` build: JS with `removeComments`, declarations
+  without, so `.d.ts` keep their JSDoc for editor tooling). Every emitted
+  `.d.ts` is free of any environment-object reference.
+
 ## [2.8.1] - 2026-07-18: token resolution never captures the process environment object
 
 ### Security

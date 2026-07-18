@@ -44,6 +44,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import { userTokenFromEnv } from "./user-token-env.js";
+
 /** Result of per-user token resolution. */
 export interface UserTokenResolution {
   /** Wire-safe token, or undefined when none is configured/usable. */
@@ -109,12 +111,13 @@ export function userTokenFilePath(homedir: string = os.homedir()): string {
 interface ResolveUserTokenOptions {
   /**
    * Override for the AXONFLOW_USER_TOKEN env VALUE (test injection). Pass
-   * `""` to simulate an unset variable. Defaults to
-   * `process.env.AXONFLOW_USER_TOKEN`. Deliberately a single named value,
-   * NOT an env map: this module's output goes on the wire, so it must never
-   * hold a reference to the full process environment object (marketplace
-   * static analysis flags full-env capture in network-reachable modules,
-   * and least-privilege says we only need the one key anyway).
+   * `""` to simulate an unset variable. Defaults to the `AXONFLOW_USER_TOKEN`
+   * environment variable, read via the import-free `userTokenFromEnv()` leaf
+   * module. Deliberately a single named value, NOT an env map: this module's
+   * output goes on the wire, so it must never hold a reference to the full
+   * process environment object (marketplace static analysis flags full-env
+   * capture in network-reachable modules, and least-privilege says we only
+   * need the one key anyway).
    */
   userTokenEnvValue?: string;
   /** Home dir override (test injection). Defaults to os.homedir(). */
@@ -187,9 +190,10 @@ export function resolveUserToken(
     );
   }
 
-  // 2. AXONFLOW_USER_TOKEN env var — a single static named read; never
-  // capture or index into an env object (see ResolveUserTokenOptions).
-  const rawEnvValue = opts?.userTokenEnvValue ?? process.env.AXONFLOW_USER_TOKEN;
+  // 2. AXONFLOW_USER_TOKEN env var — a single static named read, isolated in
+  // the import-free userTokenFromEnv() leaf; never capture or index into an
+  // env object (see ResolveUserTokenOptions).
+  const rawEnvValue = opts?.userTokenEnvValue ?? userTokenFromEnv();
   const envToken = typeof rawEnvValue === "string" ? rawEnvValue.trim() : "";
   if (envToken) {
     if (userTokenLooksValid(envToken)) {

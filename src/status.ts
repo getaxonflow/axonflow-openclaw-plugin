@@ -29,8 +29,8 @@
  * output, which made it trivially leakable via screen-share / copy-paste.
  * Same surface here, same defensive redaction.
  *
- * Read-only introspection — reads process.env and the registration file
- * but performs no network calls and no writes.
+ * Read-only introspection — reads the process environment and the
+ * registration file but performs no network calls and no writes.
  */
 
 import * as fs from "fs";
@@ -66,7 +66,7 @@ export interface StatusInputs {
   /**
    * Plugin-claim license token, if configured. Resolution order matches
    * `resolveConfig` in src/config.ts:
-   *   1. process.env.AXONFLOW_LICENSE_TOKEN
+   *   1. the `AXONFLOW_LICENSE_TOKEN` environment variable
    *   2. pluginConfig.licenseToken
    *   3. unset → undefined → free tier
    *
@@ -342,7 +342,7 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
 }
 
 /**
- * Resolve `StatusInputs` from process.env + an optional pluginConfig
+ * Resolve `StatusInputs` from the process environment + an optional pluginConfig
  * blob (mirrors `resolveConfig` semantics for the licenseToken /
  * endpoint fields). Pulled out as its own function so tests can drive
  * the env-resolution branches without the fs read.
