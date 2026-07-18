@@ -33,14 +33,14 @@ export function loadTelemetryConfig(): TelemetryConfig {
     };
   }
 
-  const env = process.env;
-
-  const raw = env.AXONFLOW_TELEMETRY?.trim().toLowerCase() ?? "";
+  // Static named reads only — never alias/capture the full process.env
+  // object in a module whose output feeds a network send.
+  const raw = process.env.AXONFLOW_TELEMETRY?.trim().toLowerCase() ?? "";
   const optedOut = raw === "off" || raw === "0" || raw === "false" || raw === "no";
 
-  const checkpointUrl = env.AXONFLOW_CHECKPOINT_URL || DEFAULT_CHECKPOINT_URL;
+  const checkpointUrl = process.env.AXONFLOW_CHECKPOINT_URL || DEFAULT_CHECKPOINT_URL;
 
-  const trySaasFlag = env.AXONFLOW_TRY?.trim() === "1";
+  const trySaasFlag = process.env.AXONFLOW_TRY?.trim() === "1";
 
   return { optedOut, checkpointUrl, trySaasFlag };
 }

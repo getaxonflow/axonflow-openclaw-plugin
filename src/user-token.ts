@@ -107,8 +107,16 @@ export function userTokenFilePath(homedir: string = os.homedir()): string {
 }
 
 interface ResolveUserTokenOptions {
-  /** Env map override (test injection). Defaults to process.env. */
-  env?: Record<string, string | undefined>;
+  /**
+   * Override for the AXONFLOW_USER_TOKEN env VALUE (test injection). Pass
+   * `""` to simulate an unset variable. Defaults to
+   * `process.env.AXONFLOW_USER_TOKEN`. Deliberately a single named value,
+   * NOT an env map: this module's output goes on the wire, so it must never
+   * hold a reference to the full process environment object (marketplace
+   * static analysis flags full-env capture in network-reachable modules,
+   * and least-privilege says we only need the one key anyway).
+   */
+  userTokenEnvValue?: string;
   /** Home dir override (test injection). Defaults to os.homedir(). */
   homedir?: string;
 }
@@ -166,7 +174,6 @@ export function resolveUserToken(
   opts?: ResolveUserTokenOptions,
 ): UserTokenResolution {
   const warnings: string[] = [];
-  const env = opts?.env ?? process.env;
 
   // 1. pluginConfig.userToken
   const cfgToken = typeof configValue === "string" ? configValue.trim() : "";
@@ -180,10 +187,10 @@ export function resolveUserToken(
     );
   }
 
-  // 2. AXONFLOW_USER_TOKEN env var
-  const envToken = typeof env["AXONFLOW_USER_TOKEN"] === "string"
-    ? (env["AXONFLOW_USER_TOKEN"] as string).trim()
-    : "";
+  // 2. AXONFLOW_USER_TOKEN env var — a single static named read; never
+  // capture or index into an env object (see ResolveUserTokenOptions).
+  const rawEnvValue = opts?.userTokenEnvValue ?? process.env.AXONFLOW_USER_TOKEN;
+  const envToken = typeof rawEnvValue === "string" ? rawEnvValue.trim() : "";
   if (envToken) {
     if (userTokenLooksValid(envToken)) {
       return { token: envToken, source: "env", warnings };

@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.8.1] - 2026-07-18: token resolution never captures the process environment object
+
+### Security
+
+- **Per-user token resolution reads `AXONFLOW_USER_TOKEN` by name and never
+  holds a reference to the full `process.env` object.** Patch release, no
+  behavior change. `resolveUserToken()` previously defaulted an injectable
+  env map to the whole `process.env`
+  (`const env = opts?.env ?? process.env;`) in a module whose output goes
+  on the wire (`X-User-Token`); a marketplace static-analysis review of
+  2.8.0 flagged the full-environment capture. The test-injection option is
+  now a single named value (`userTokenEnvValue`), and the body performs one
+  static named read of `process.env.AXONFLOW_USER_TOKEN` — no env object is
+  ever captured or dynamically indexed. Resolution semantics are unchanged:
+  same `pluginConfig → env → 0600 file` precedence, same #108 malformed-
+  candidate fall-through, identical warning strings. A repo-wide sweep
+  fixed the one other full-env alias in a network-reachable module
+  (`telemetry-config.ts` now uses static named reads too, same resolved
+  values).
+
 ## [2.8.0] - 2026-07-18: caller_name audit attribution (dual-send with legacy tool_type)
 
 ### Changed
