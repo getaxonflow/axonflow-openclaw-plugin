@@ -1,21 +1,21 @@
 # Changelog
 
-## [Unreleased]
+## [2.8.0] - 2026-07-18: caller_name audit attribution (dual-send with legacy tool_type)
 
 ### Changed
 
 - **`auditToolCall()` now sends `caller_name` to identify the calling
   client, dual-sent with the legacy `tool_type` for the deprecation
-  window** (axonflow-enterprise#2912, sub-issue of epic #2905). The
+  window** (#156; axonflow-enterprise#2912, sub-issue of epic #2905). The
   `tool_type` field on the `POST /api/v1/audit/tool-call` payload was
   misleadingly named — it was actually used to identify which client made
   the call, not the type of tool. The correctly-named `caller_name` field
-  is being **added on the platform side in axonflow-enterprise#2953, which
-  is still OPEN (not yet merged)**; it resolves `caller_name → tool_type →
+  was added on the platform side in axonflow-enterprise#2953 (merged
+  2026-07-17, shipped in platform 9.11.0); it resolves `caller_name → tool_type →
   default` and writes only `caller_name` on new rows, keeping `tool_type`
   as a deprecated legacy fallback. `auditToolCall()`'s payload now sends
   **both** `caller_name: "openclaw"` and `tool_type: "openclaw"`. Dual-send
-  is exact on a #2953+ platform (`caller_name` wins) **and** status-quo on
+  is exact on a 9.11.0+ platform (`caller_name` wins) **and** status-quo on
   any pre-#2953 platform. This matters more for openclaw than the other
   plugins: openclaw POSTs the REST endpoint directly, and a pre-#2953
   orchestrator drops the unknown `caller_name` while the REST path has no
