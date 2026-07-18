@@ -230,6 +230,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# L2f — no env, no config key -> absent-token contract (leaf returns unset)
+# ---------------------------------------------------------------------------
+# Pins the 2.8.2 isolation refactor: the env step now reads through the
+# import-free leaf (userTokenFromEnv). When AXONFLOW_USER_TOKEN is unset and
+# no config key exists, the leaf must yield "unset" (never empty-string or a
+# stale value), so resolution falls through with NO token configured, no
+# token canary, and no resolution warnings.
+echo "--- L2f: absent env + absent config -> clean no-token fallthrough ---"
+plugin_config_patch "" "userToken"
+OUT_L2F="$( cd "$PLUGIN_DIR" && env -u AXONFLOW_USER_TOKEN \
+    openclaw plugins install --force --dangerously-force-unsafe-install . 2>&1 )"
+if printf '%s' "$OUT_L2F" | grep -qE "Registered [0-9]+ agent-callable tools"; then
+  echo "PASS: plugin registered with no token provisioned anywhere"
+else
+  echo "FAIL: plugin did not register in the absent-token state"
+  printf '%s\n' "$OUT_L2F" | tail -8 | sed 's/^/      /'
+  errors=$((errors + 1))
+fi
+if printf '%s' "$OUT_L2F" | grep -q "Per-user token configured"; then
+  echo "FAIL: token canary appeared with no token provisioned (leaf returned a value for unset env)"
+  errors=$((errors + 1))
+else
+  echo "PASS: no token canary in the absent-token state"
+fi
+if printf '%s' "$OUT_L2F" | grep -qi "user token.*ignoring\|malformed per-user token"; then
+  echo "FAIL: spurious token-resolution warning in the absent-token state"
+  errors=$((errors + 1))
+else
+  echo "PASS: no spurious token-resolution warnings"
+fi
+
+# ---------------------------------------------------------------------------
 # L3 — genuinely-unknown key → loader REJECTS (schema gate intact)
 # ---------------------------------------------------------------------------
 echo "--- L3: loader still rejects a genuinely-unknown config key ---"
