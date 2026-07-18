@@ -14,6 +14,11 @@
 #         "Per-user token configured" canary.
 #     L2. config without `userToken` → plugin loads with NO token canary
 #         (init output unchanged from v2.6.7).
+#     L2e. no config key, AXONFLOW_USER_TOKEN exported → the token resolves
+#         via the ENV source and the canary names it. Pins the 2.8.1
+#         refactor (env step is a single static named read of
+#         process.env.AXONFLOW_USER_TOKEN — no env-object capture) to the
+#         real host runtime, value-free.
 #     L3. config containing a genuinely-unknown key → the loader REJECTS
 #         ("must NOT have additional properties") and does NOT register the
 #         plugin — proves L1 passed because the key is declared, not
@@ -188,6 +193,40 @@ if printf '%s' "$OUT_L2" | grep -q "Per-user token"; then
   errors=$((errors + 1))
 else
   echo "PASS: no token canary when unconfigured (init unchanged)"
+fi
+
+# ---------------------------------------------------------------------------
+# L2e — AXONFLOW_USER_TOKEN env (no config key) → resolves via the ENV source
+# ---------------------------------------------------------------------------
+# Pins the 2.8.1 hardening refactor to the real host runtime: the env step
+# of resolveUserToken is now a single static named read of
+# process.env.AXONFLOW_USER_TOKEN (never an env-object capture), so this leg
+# proves an env-provisioned fleet (managed settings / MDM env block) still
+# resolves its token, with the canary naming the env source and the value
+# never appearing in init output.
+echo "--- L2e: AXONFLOW_USER_TOKEN env resolves via the env source ---"
+plugin_config_patch "" "userToken"
+OUT_L2E="$( cd "$PLUGIN_DIR" && env AXONFLOW_USER_TOKEN="$SENTINEL_TOKEN" \
+    openclaw plugins install --force --dangerously-force-unsafe-install . 2>&1 )"
+if printf '%s' "$OUT_L2E" | grep -qE "Registered [0-9]+ agent-callable tools"; then
+  echo "PASS: plugin registered with AXONFLOW_USER_TOKEN exported"
+else
+  echo "FAIL: plugin did not register with AXONFLOW_USER_TOKEN exported"
+  printf '%s\n' "$OUT_L2E" | tail -8 | sed 's/^/      /'
+  errors=$((errors + 1))
+fi
+if printf '%s' "$OUT_L2E" | grep -q "Per-user token configured (source: AXONFLOW_USER_TOKEN env)"; then
+  echo "PASS: canary names the env source (static named read resolves)"
+else
+  echo "FAIL: env-provisioned token did not resolve via the env source"
+  printf '%s\n' "$OUT_L2E" | tail -8 | sed 's/^/      /'
+  errors=$((errors + 1))
+fi
+if printf '%s' "$OUT_L2E" | grep -qF "$SENTINEL_TOKEN"; then
+  echo "FAIL: init output leaked the env token value"
+  errors=$((errors + 1))
+else
+  echo "PASS: init output does not contain the env token value"
 fi
 
 # ---------------------------------------------------------------------------
