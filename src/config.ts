@@ -5,10 +5,27 @@
  * (openclaw.plugin.json or runtime config).
  */
 
+import {
+  resolveEffectiveEndpoint,
+  resolveEndpointOverride,
+} from "./endpoint-env.js";
 import { resolveUserToken } from "./user-token.js";
 
 export interface AxonFlowPluginConfig {
-  /** AxonFlow agent gateway endpoint (e.g., "http://localhost:8080"). */
+  /**
+   * AxonFlow agent gateway endpoint (e.g., "http://localhost:8080").
+   *
+   * Resolution order (#162, shared with the status surface via
+   * src/endpoint-env.ts so the two can never diverge):
+   *   1. the `AXONFLOW_ENDPOINT` environment variable
+   *   2. pluginConfig.endpoint
+   *   3. mode-dependent default (see `resolveConfig`)
+   * Empty / whitespace-only values are treated as unset. An env-provided
+   * endpoint counts as user-provided for the deployment-mode decision:
+   * setting `AXONFLOW_ENDPOINT` selects self-hosted mode, so governed
+   * traffic goes to that endpoint and the Community-SaaS auto-registration
+   * never runs.
+   */
   endpoint: string;
 
   /** Tenant identity for data isolation. Defaults to "community" for community mode. */
@@ -158,8 +175,6 @@ export interface AxonFlowPluginConfig {
   mode: "community-saas" | "self-hosted";
 }
 
-const COMMUNITY_SAAS_DEFAULT_ENDPOINT = "https://try.getaxonflow.com";
-
 /**
  * Validate plugin config and return defaults.
  *
@@ -173,13 +188,22 @@ const COMMUNITY_SAAS_DEFAULT_ENDPOINT = "https://try.getaxonflow.com";
  *      EMPTY here — the caller (registerAxonFlowGovernance) is expected to
  *      bootstrap the registration via community-saas-bootstrap.ts and
  *      override clientId/clientSecret on the resulting client.
+ *
+ * "User provided an endpoint" covers BOTH channels (#162): the
+ * `AXONFLOW_ENDPOINT` environment variable (which wins) and
+ * pluginConfig.endpoint — resolved by the shared `resolveEndpointOverride`
+ * helper that the status surface also calls. An operator who configures
+ * the endpoint only via the environment therefore gets self-hosted mode:
+ * governed traffic targets their endpoint and no Community-SaaS
+ * auto-registration runs.
  */
 export function resolveConfig(
   raw: Record<string, unknown> | undefined,
 ): AxonFlowPluginConfig {
   const safe = raw ?? {};
 
-  const rawEndpoint = typeof safe["endpoint"] === "string" ? (safe["endpoint"] as string).trim() : "";
+  // Env > pluginConfig, trimmed, empty-is-unset — see src/endpoint-env.ts.
+  const rawEndpoint = resolveEndpointOverride(safe["endpoint"]);
   const rawClientId = typeof safe["clientId"] === "string" ? (safe["clientId"] as string).trim() : "";
   const rawClientSecret = typeof safe["clientSecret"] === "string" ? (safe["clientSecret"] as string).trim() : "";
 
@@ -195,22 +219,24 @@ export function resolveConfig(
   const userProvidedAnything =
     rawEndpoint !== "" || rawClientId !== "" || rawClientSecret !== "";
 
-  let endpoint: string;
   let clientId: string;
   let clientSecret: string;
   let mode: "community-saas" | "self-hosted";
 
+  // Endpoint value comes from the SAME shared decision the status surface
+  // uses (env > pluginConfig > credentials-implied local default >
+  // Community-SaaS default) so display and runtime cannot disagree (#162).
+  // `resolveEffectiveEndpoint` returns the Community-SaaS default exactly
+  // when the user provided nothing, which is also the community-saas mode
+  // condition — the two stay consistent by construction.
+  const endpoint = resolveEffectiveEndpoint(safe);
+
   if (userProvidedAnything) {
     mode = "self-hosted";
-    // Endpoint default for self-hosted users who set credentials but not
-    // endpoint: assume the canonical local-agent URL. Matches the bash
-    // plugins' resolution rule.
-    endpoint = rawEndpoint || "http://localhost:8080";
     clientId = rawClientId || "community";
     clientSecret = rawClientSecret;
   } else {
     mode = "community-saas";
-    endpoint = COMMUNITY_SAAS_DEFAULT_ENDPOINT;
     // Bootstrap will fill these in. We deliberately leave them empty here
     // so a misconfigured caller that skips the bootstrap step gets a clear
     // 401 from the agent rather than a half-credentialled request.

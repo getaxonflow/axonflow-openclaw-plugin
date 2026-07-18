@@ -36,6 +36,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { axonflowConfigDir } from "./cache-dir.js";
+import { resolveEffectiveEndpoint } from "./endpoint-env.js";
 
 /** Filename used by Community-SaaS bootstrap and recovery to persist credentials. */
 const REGISTRATION_FILE_NAME = "try-registration.json";
@@ -349,7 +350,12 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
  *
  * Resolution order:
  *   - licenseToken: env AXONFLOW_LICENSE_TOKEN > pluginConfig.licenseToken > undefined
- *   - endpoint:     env AXONFLOW_ENDPOINT > pluginConfig.endpoint > STATUS_DEFAULT_ENDPOINT
+ *   - endpoint:     env AXONFLOW_ENDPOINT > pluginConfig.endpoint >
+ *                   credentials-implied local default > STATUS_DEFAULT_ENDPOINT,
+ *                   via the shared `resolveEffectiveEndpoint` helper
+ *                   (src/endpoint-env.ts) that `resolveConfig` also calls —
+ *                   so the endpoint status DISPLAYS is, by construction, the
+ *                   endpoint the governance runtime USES (#162)
  *   - upgradeUrl:   env AXONFLOW_UPGRADE_URL > STATUS_DEFAULT_UPGRADE_URL
  *
  * `configDirOverride` is honoured for tests; production callers leave
@@ -370,13 +376,7 @@ export function resolveStatusInputs(
     : "";
   const licenseToken = envToken || cfgToken || undefined;
 
-  const envEndpoint = typeof process.env["AXONFLOW_ENDPOINT"] === "string"
-    ? process.env["AXONFLOW_ENDPOINT"]!.trim()
-    : "";
-  const cfgEndpoint = typeof cfg["endpoint"] === "string"
-    ? (cfg["endpoint"] as string).trim()
-    : "";
-  const endpoint = envEndpoint || cfgEndpoint || undefined;
+  const endpoint = resolveEffectiveEndpoint(cfg);
 
   const envUpgrade = typeof process.env["AXONFLOW_UPGRADE_URL"] === "string"
     ? process.env["AXONFLOW_UPGRADE_URL"]!.trim()

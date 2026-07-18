@@ -1,5 +1,40 @@
 # Changelog
 
+## [2.8.4] - 2026-07-18: AXONFLOW_ENDPOINT honored by the governance runtime
+
+### Fixed
+
+- **The documented `AXONFLOW_ENDPOINT` environment override is now honored
+  by the governance runtime, with the manifest's precedence
+  (`AXONFLOW_ENDPOINT` > `pluginConfig.endpoint` > default).** (#162)
+  Previously only the status display resolved the variable; the runtime
+  configuration that every governed call uses read `pluginConfig.endpoint`
+  alone. Impact of the old behavior: an operator who configured a
+  self-hosted deployment through the environment variable alone could leave
+  governed traffic — tool arguments, outbound message bodies, audit
+  content — flowing to the default Community SaaS endpoint while
+  `axonflow-openclaw-status` displayed the override, a false confirmation
+  that data stayed on their network. The deployment-mode classifier now
+  counts an env-provided endpoint as user-provided, so setting
+  `AXONFLOW_ENDPOINT` selects self-hosted mode and the Community-SaaS
+  auto-registration never runs. Empty or whitespace-only values are treated
+  as unset; values are trimmed.
+- **Status and the governance runtime now resolve the endpoint through one
+  shared function** (`src/endpoint-env.ts`), so the endpoint status
+  displays is, by construction, the endpoint governed traffic uses — the
+  independent per-surface resolution that allowed the two to diverge is
+  gone. This also aligns the credentials-without-endpoint case: with
+  `clientId`/`clientSecret` set and no endpoint, status now displays the
+  canonical local-agent default the runtime actually targets, instead of
+  the Community-SaaS URL. The environment read itself follows the
+  house rule for environment access: a single static named read in an
+  import-free leaf module, no environment-object capture.
+- Runtime E2E (`runtime-e2e/endpoint-env-override/`): live-host legs
+  proving the env-configured endpoint receives the plugin's traffic while a
+  differing `pluginConfig.endpoint` receives none, that `pluginConfig`
+  still resolves when the variable is unset, and that whitespace-only
+  values are ignored. The primary leg fails on 2.8.3, passes on 2.8.4.
+
 ## [2.8.3] - 2026-07-18: clarify the intent and data flow of the 2.8.1/2.8.2 hardening
 
 ### Changed

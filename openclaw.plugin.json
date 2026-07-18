@@ -1,7 +1,7 @@
 {
   "id": "axonflow-governance",
   "name": "AxonFlow Governance",
-  "description": "Connects to AxonFlow (SaaS or self-hosted) for policy enforcement, approval gates, PII scanning, and audit trails in OpenClaw agents. Sends governance events to AxonFlow Community SaaS (try.getaxonflow.com) by default; set pluginConfig.endpoint for self-hosted, AXONFLOW_COMMUNITY_SAAS=0 to disable auto-registration, AXONFLOW_TELEMETRY=off to disable the 7-day usage heartbeat.",
+  "description": "Connects to AxonFlow (SaaS or self-hosted) for policy enforcement, approval gates, PII scanning, and audit trails in OpenClaw agents. Sends governance events to AxonFlow Community SaaS (try.getaxonflow.com) by default; set AXONFLOW_ENDPOINT or pluginConfig.endpoint for self-hosted, AXONFLOW_COMMUNITY_SAAS=0 to disable auto-registration, AXONFLOW_TELEMETRY=off to disable the 7-day usage heartbeat.",
   "contracts": {
     "tools": [
       "axonflow_audit_search",
@@ -46,7 +46,7 @@
     },
     "AXONFLOW_ENDPOINT": {
       "required": false,
-      "description": "Override the AxonFlow agent gateway endpoint. Wins over pluginConfig.endpoint when both are set. When unset and AXONFLOW_COMMUNITY_SAAS is not opted out, the plugin auto-bootstraps against https://try.getaxonflow.com. For self-hosted deployments, set this (or pluginConfig.endpoint) to your AxonFlow URL."
+      "description": "Override the AxonFlow agent gateway endpoint. Wins over pluginConfig.endpoint when both are set. Setting this selects self-hosted mode: all governed traffic targets this endpoint and the Community-SaaS auto-registration never runs. When unset and AXONFLOW_COMMUNITY_SAAS is not opted out, the plugin auto-bootstraps against https://try.getaxonflow.com. For self-hosted deployments, set this (or pluginConfig.endpoint) to your AxonFlow URL."
     },
     "AXONFLOW_RECOVERY_TIMEOUT_MS": {
       "required": false,
@@ -65,8 +65,8 @@
   "runtimeBehavior": {
     "autoBootstrap": {
       "enabled": true,
-      "description": "When pluginConfig.endpoint is unset and AXONFLOW_COMMUNITY_SAAS is not opted out, the plugin POSTs to https://try.getaxonflow.com/api/v1/register on first load to obtain Community-SaaS credentials, persists them at $AXONFLOW_CONFIG_DIR/try-registration.json (mode 0o600), and uses them for subsequent governance calls. The 7-day rotation refresh window keeps tenants from lapsing silently.",
-      "optOut": "Set AXONFLOW_COMMUNITY_SAAS=0 OR set pluginConfig.endpoint to a self-hosted AxonFlow instance.",
+      "description": "When neither AXONFLOW_ENDPOINT nor pluginConfig.endpoint is set and AXONFLOW_COMMUNITY_SAAS is not opted out, the plugin POSTs to https://try.getaxonflow.com/api/v1/register on first load to obtain Community-SaaS credentials, persists them at $AXONFLOW_CONFIG_DIR/try-registration.json (mode 0o600), and uses them for subsequent governance calls. The 7-day rotation refresh window keeps tenants from lapsing silently.",
+      "optOut": "Set AXONFLOW_COMMUNITY_SAAS=0 OR set AXONFLOW_ENDPOINT or pluginConfig.endpoint to a self-hosted AxonFlow instance.",
       "userDisclosure": "First-load disclosure banner emitted via plugin logger (warn level), one time per machine, before the registration POST fires."
     },
     "outboundData": {
