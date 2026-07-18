@@ -238,8 +238,8 @@ export function registerAxonFlowGovernance(api: {
         // fail-closed depending on onError config.
         const msg =
           "AxonFlow Community SaaS auto-bootstrap skipped (AXONFLOW_COMMUNITY_SAAS=0). " +
-          "Set pluginConfig.endpoint to a self-hosted AxonFlow instance, or unset the " +
-          "opt-out env var to register with try.getaxonflow.com.";
+          "Set AXONFLOW_ENDPOINT or pluginConfig.endpoint to a self-hosted AxonFlow " +
+          "instance, or unset the opt-out env var to register with try.getaxonflow.com.";
         if (api.logger.warn) {
           api.logger.warn(msg);
         } else {

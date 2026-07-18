@@ -181,10 +181,14 @@ describe("resolveStatusInputs", () => {
     }
   });
 
-  it("resolves all fields to undefined when env + pluginConfig are empty", () => {
+  it("resolves token/upgradeUrl to undefined and endpoint to the shared default when env + pluginConfig are empty", () => {
     const inputs = resolveStatusInputs();
     expect(inputs.licenseToken).toBeUndefined();
-    expect(inputs.endpoint).toBeUndefined();
+    // Since #162 the endpoint comes from the shared resolveEffectiveEndpoint
+    // decision used by the governance runtime — with no user input either
+    // channel, that is the Community-SaaS default (same value the runtime
+    // would govern against), not "unset".
+    expect(inputs.endpoint).toBe("https://try.getaxonflow.com");
     expect(inputs.upgradeUrl).toBeUndefined();
   });
 
