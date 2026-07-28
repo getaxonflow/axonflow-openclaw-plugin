@@ -32,9 +32,21 @@ DECISION_ID=$(printf '%s' "$CHECK_RESPONSE" | jq -r '.decision_id // empty')
 WAS_BLOCKED=$(printf '%s' "$CHECK_RESPONSE" | jq -r '.allowed')
 
 if [ -z "$DECISION_ID" ] || [ "$WAS_BLOCKED" != "false" ]; then
-  echo "SKIP: SQLi pattern was not blocked or no decision_id returned"
+  # Previously "SKIP:" + exit 0. That is the wrong outcome twice over: a
+  # governance stack that does NOT block an obvious SQLi is a finding, and a
+  # missing decision_id means explain_decision has nothing to explain. Skipping
+  # here reported success for exactly the two conditions this suite exists to
+  # detect.
+  echo "FAIL: could not mint a blocked decision to explain"
+  echo "      allowed=$WAS_BLOCKED decision_id='${DECISION_ID:-<none>}'"
   echo "      response: $CHECK_RESPONSE"
-  exit 0
+  echo ""
+  echo "      Expected the stack to BLOCK an obvious SQLi statement and return a"
+  echo "      decision_id. If allowed=true, the stack is not enforcing the"
+  echo "      pattern catalogue — that is the finding, not a reason to skip."
+  echo "      If allowed=false but decision_id is empty, the platform is below"
+  echo "      the floor that returns one (7.1.0+)."
+  exit 1
 fi
 echo "--- Minted decision_id: $DECISION_ID ---"
 sleep 2

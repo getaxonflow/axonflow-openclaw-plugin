@@ -37,8 +37,19 @@ DIRECT_HITS=$(curl -s -X POST \
   "$AXONFLOW_ENDPOINT/api/v1/audit/search" \
   | jq --arg m "$MARKER" '[.entries[] | select((.query // "") | contains($m))] | length' 2>/dev/null)
 if [ "${DIRECT_HITS:-0}" -lt 1 ]; then
-  echo "SKIP: marker did not land in audit log via direct seed — pattern catalogue may have drifted"
-  exit 0
+  # Previously "SKIP:" + exit 0 — success reported for precisely the condition
+  # that makes the rest of this suite meaningless. If the seeded marker never
+  # reaches the audit log, the agent-driven search below has nothing to find,
+  # and a green result would say the audit trail works when it does not.
+  echo "FAIL: the seeded marker never landed in the audit log"
+  echo "      marker:   $MARKER"
+  echo "      endpoint: $AXONFLOW_ENDPOINT"
+  echo ""
+  echo "      The direct POST /api/v1/audit/search returned no entry containing"
+  echo "      it, so the audit write path is broken, the search path is broken,"
+  echo "      or the pattern catalogue no longer matches the seed statement."
+  echo "      Any of those is a finding; none is a reason to exit 0."
+  exit 1
 fi
 
 # 2. Drive the agent.

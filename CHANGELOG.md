@@ -42,6 +42,26 @@
   credential-shaped content so an echoing proxy cannot leak the request's own
   `Authorization` header into a transcript.
 
+- **The platform's own error message now survives rendering intact.** The
+  identity-required 401 that axonflow-enterprise#3062 exists to make actionable
+  is 605 characters in its diagnosing branch and 623 in the default one, with
+  the remedies and the doc reference past offset 550. Two things discarded
+  exactly that half: the reason cap was 300, and `createOverride`,
+  `revokeOverride` and the four strict read variants wrapped the raw wire text
+  as `{ error: <the whole JSON envelope> }` — so the reason rendered as
+  double-wrapped JSON and the envelope consumed cap budget before truncation
+  applied. All six now use the JSON-aware reader (which also gives them the
+  independent body-read timeout), and the cap is 800 with the measured floor
+  recorded next to it. A test drives `createOverride` against a real 401 and
+  asserts the four substrings the platform's own gate requires.
+
+- **Control characters are stripped from every surface that renders a response
+  body.** `console.warn`, the `blockReason` shown to the user and fed back to
+  the model, and an agent tool's `details` payload all carried remote text
+  verbatim; collapsing whitespace does not touch ESC, BEL or BS, so an echoing
+  or hostile endpoint could embed ANSI screen-clear and cursor-positioning
+  sequences. Whitespace controls are deliberately preserved as word separators.
+
 - **A transient 5xx whose body mentions authentication no longer hard-blocks
   every governed tool call.** Rendering the platform's reason into the error
   message meant `isAxonFlowAuthError`'s message-regex fallback could classify
@@ -100,12 +120,15 @@
   `runtime-e2e/failopen-notice/` (4 legs), both driving the real host, the
   real bin and real agent dispatch, each with a vacuity control that
   reproduces the pre-fix answer.
-- `runtime-e2e/governance-lifecycle/` no longer prints `SKIP:` and exits 0
-  when its pre-flight `create_override` returns non-201. That is the default
-  posture on every stack since platform 9.9.0 made the identity trust gate
-  opt-in, so the lifecycle had never actually run in CI. It now fails, naming
-  the flag to set. The posture is server-side and cannot be provisioned from
-  the harness.
+- No runtime-e2e suite exits 0 on a condition the default configuration
+  produces, or on the failure of the thing it exists to test. The override
+  pre-flight is now one shared `require_override_preflight` helper adopted by
+  `governance-lifecycle`, `list-overrides` and `revoke-override` — converting
+  one of three is how the class comes back. `explain-decision` and
+  `audit-search` likewise now fail instead of skipping when the SQLi pattern is
+  not blocked, no decision_id is minted, or the seeded marker never reaches the
+  audit log: a detector that reports "skip" when the detector fails cannot
+  detect anything.
 - `runtime-e2e/endpoint-env-override/` isolates `AXONFLOW_CONFIG_DIR` so its
   ephemeral sentinel ports cannot end up in a developer's real config.
 - Jest pins `AXONFLOW_CONFIG_DIR` to a throwaway directory: plugin

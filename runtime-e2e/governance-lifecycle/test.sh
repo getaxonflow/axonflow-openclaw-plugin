@@ -18,58 +18,9 @@ openclaw_install_local_plugin || exit 1
 
 AXONFLOW_AUTH_HDR="Authorization: Basic $(printf '%s:%s' "$AXONFLOW_CLIENT_ID" "$AXONFLOW_CLIENT_SECRET" | base64)"
 
-# Pre-flight probe: confirm the policy is overridable.
-PROBE_RESPONSE=$(curl -s -X POST \
-  -H "$AXONFLOW_AUTH_HDR" \
-  -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: local-dev-org" \
-  -H "X-User-Email: dev@getaxonflow.com" \
-  -d "{\"policy_id\":\"sys_pii_email\",\"policy_type\":\"static\",\"override_reason\":\"lifecycle-prereq-probe\",\"ttl_seconds\":60}" \
-  -w "\nHTTP_STATUS:%{http_code}" \
-  "$AXONFLOW_ENDPOINT/api/v1/overrides")
-PROBE_STATUS=$(printf '%s' "$PROBE_RESPONSE" | sed -n 's/^HTTP_STATUS://p')
-PROBE_BODY=$(printf '%s' "$PROBE_RESPONSE" | sed '$d')
-
-case "$PROBE_STATUS" in
-  201)
-    PROBE_ID=$(printf '%s' "$PROBE_BODY" | jq -r '.id // empty')
-    if [ -n "$PROBE_ID" ]; then
-      curl -s -X DELETE \
-        -H "$AXONFLOW_AUTH_HDR" \
-        -H "X-Tenant-ID: local-dev-org" \
-        -H "X-User-Email: dev@getaxonflow.com" \
-        "$AXONFLOW_ENDPOINT/api/v1/overrides/$PROBE_ID" >/dev/null
-    fi
-    echo "--- Pre-flight: override posture confirmed (HTTP 201) ---"
-    ;;
-  *)
-    # #167 / axonflow-enterprise#3062. This branch used to print "SKIP:" and
-    # exit 0, which meant the suite reported success in exactly the default
-    # configuration every user runs — the lifecycle this file exists to
-    # verify had never actually been exercised in CI. The posture cannot be
-    # provisioned from here (it is a server-side setting on the AxonFlow
-    # agent, not a plugin or request-level knob), so the only honest outcome
-    # is a failure that names precisely what is missing.
-    echo "FAIL: pre-flight create_override returned HTTP $PROBE_STATUS (expected 201)"
-    echo "      Endpoint: $AXONFLOW_ENDPOINT"
-    echo "      Body:     $PROBE_BODY"
-    echo ""
-    echo "      The override lifecycle endpoints require a per-user identity."
-    echo "      Since platform 9.9.0 the agent ignores X-User-Email unless the"
-    echo "      identity trust gate is explicitly enabled, so an otherwise"
-    echo "      healthy stack answers 401 here. Enable it on the AGENT and"
-    echo "      restart it:"
-    echo ""
-    echo "          AXONFLOW_TRUST_IDENTITY_HEADERS=true"
-    echo ""
-    echo "      Then re-run this test. See axonflow-enterprise#3062 for the"
-    echo "      platform-side work making this 401 self-explanatory."
-    echo ""
-    echo "      This test does NOT skip on a missing posture: a lifecycle test"
-    echo "      that exits 0 without running the lifecycle is not a test."
-    exit 1
-    ;;
-esac
+# Shared posture gate — fails (never skips) when the stack cannot create
+# an override. See require_override_preflight in ../_lib.
+require_override_preflight sys_pii_email 60
 
 BASELINE_COUNT=$(curl -s -X GET \
   -H "$AXONFLOW_AUTH_HDR" \

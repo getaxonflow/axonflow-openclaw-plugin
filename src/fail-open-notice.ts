@@ -25,6 +25,8 @@
  * `config.onError` and carry their own one-shot notice.
  */
 
+import { stripControlCharacters } from "./sanitize-text.js";
+
 /** Process-lifetime latch. Reset only by {@link resetFailOpenNoticeForTests}. */
 let noticeEmitted = false;
 
@@ -36,7 +38,9 @@ let noticeEmitted = false;
  */
 function describeCause(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err ?? "");
-  const collapsed = raw.replace(/\s+/g, " ").trim();
+  // This lands in the operator's terminal via console.warn and the cause can
+  // carry a remote error body, so control characters go before anything else.
+  const collapsed = stripControlCharacters(raw).replace(/\s+/g, " ").trim();
   if (collapsed === "") return "no error detail available";
   return collapsed.length > 200 ? collapsed.slice(0, 200) + "…" : collapsed;
 }

@@ -194,6 +194,8 @@ What is recorded is your input, not the resolved answer. `AXONFLOW_ENDPOINT` is 
 
 Change `pluginConfig` or the runtime's environment and reload OpenClaw, and the record is rewritten to match.
 
+One record exists per config directory. If you run two OpenClaw hosts with different plugin configurations against the same `AXONFLOW_CONFIG_DIR`, the last one to load wins the record, and the CLI will report that configuration to both. Give them separate `AXONFLOW_CONFIG_DIR`s if you need their status surfaces to stay independent — the runtimes themselves are unaffected, since each governs from its own in-process configuration.
+
 The same values are available to the agent through the `axonflow_get_tenant_id` tool, which runs inside the runtime and reads the live config directly.
 
 ### Recover lost Community-SaaS credentials

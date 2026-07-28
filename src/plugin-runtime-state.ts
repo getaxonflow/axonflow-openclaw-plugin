@@ -41,6 +41,15 @@
  * `axonflow_get_tenant_id` runs inside the runtime process and is passed the
  * live `pluginConfig` directly, so it never consults this file at all.
  *
+ * KNOWN LIMIT — one record per config dir. Two OpenClaw hosts started with
+ * different plugin configurations against the same `AXONFLOW_CONFIG_DIR` share
+ * this file, and the last load wins. The CLI then reports that configuration —
+ * with a provenance timestamp — to whichever session asks, which is a true
+ * statement about the most recent load and a misleading one about the other
+ * session. Point the hosts at separate `AXONFLOW_CONFIG_DIR`s to keep their
+ * status surfaces independent; the runtimes themselves are unaffected either
+ * way, since each governs from its own in-process config.
+ *
  * NO CREDENTIALS ARE WRITTEN. `clientSecret`, `licenseToken` and `userToken`
  * are excluded. `clientId` is a tenant identifier, not a secret, and the
  * endpoint is already emitted in cleartext by the init canary. The file is
@@ -165,6 +174,27 @@ export function writePluginRuntimeState(
   }
 }
 
+/**
+ * Tell the operator when the record is group- or world-writable, so a planted
+ * record cannot quietly steer the display. Best-effort and never throws: on
+ * Windows, or when stat/stderr are unavailable, this is a no-op.
+ */
+function warnIfRecordPermissionsAreUnsafe(file: string): void {
+  if (process.platform === "win32") return;
+  try {
+    const mode = fs.statSync(file).mode & 0o777;
+    if ((mode & 0o022) === 0) return;
+    process.stderr.write(
+      `[AxonFlow] ${file} is writable by others (${mode.toString(8).padStart(3, "0")}); ` +
+        "the endpoint and identity reported below may have been planted. " +
+        "Reload the plugin to rewrite it, or remove it to fall back to this " +
+        "shell's environment.\n",
+    );
+  } catch {
+    /* stat or stderr unavailable — nothing useful to say */
+  }
+}
+
 function readEndpointSource(value: unknown): EndpointSource {
   return value === "env" || value === "plugin-config" ? value : "none";
 }
@@ -176,12 +206,17 @@ function readEndpointSource(value: unknown): EndpointSource {
  * carries a schema version this build does not understand. Never throws —
  * the status surface must degrade gracefully rather than fail.
  *
- * Unlike the registration file, permissions are NOT enforced on read: the
- * record holds no credential, and refusing to read it would silently return
- * the status surface to the exact wrong answer #167 is about.
+ * Unlike the registration file, unsafe permissions do not make this reader
+ * REFUSE — they make it warn. The record holds no credential, the reader's own
+ * environment still outranks anything in it, and nothing here can change what
+ * the runtime governs; whereas refusing would send the status surface straight
+ * back to the environment-only answer #167 is about. So the asymmetry with
+ * `readRegistrationIfFreshAndSafe` is closed by telling the operator, not by
+ * withholding the answer.
  */
 export function readPluginRuntimeState(file: string): PluginRuntimeState | null {
   if (!file) return null;
+  warnIfRecordPermissionsAreUnsafe(file);
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
