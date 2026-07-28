@@ -85,6 +85,9 @@ export function describeErrorBody(body: unknown): string {
   return "";
 }
 
+/** How deep {@link redactErrorBody} walks before truncating a body. */
+const MAX_REDACTION_DEPTH = 6;
+
 /**
  * Object keys whose VALUE is a credential regardless of the value's shape.
  * Anchored (no `g` flag) so `.test()` carries no `lastIndex` state.
@@ -106,7 +109,13 @@ export function redactErrorBody(body: unknown, depth = 0): unknown {
   if (typeof body === "string") {
     return body.replace(CREDENTIAL_ECHO_PATTERN, "<redacted>");
   }
-  if (depth >= 6 || body === null || typeof body !== "object") return body;
+  if (body === null || typeof body !== "object") return body;
+  // Past the depth limit, DROP the subtree rather than returning it by
+  // reference: handing back an unwalked branch would make the limit a
+  // redaction bypass — a credential nested one level deeper than the cap
+  // would reach the model untouched — instead of a safe truncation. Also
+  // terminates on a self-referencing body.
+  if (depth >= MAX_REDACTION_DEPTH) return "<redacted: nesting limit>";
   if (Array.isArray(body)) return body.map((v) => redactErrorBody(v, depth + 1));
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
@@ -114,9 +123,18 @@ export function redactErrorBody(body: unknown, depth = 0): unknown {
     // object, the value of a credential-named key is a bare token with no
     // header name left in it for the pattern to anchor on — the exact shape
     // a gateway produces when it renders `req.headers` as JSON.
-    out[k] = CREDENTIAL_KEY_PATTERN.test(k)
+    const redacted = CREDENTIAL_KEY_PATTERN.test(k)
       ? "<redacted>"
       : redactErrorBody(v, depth + 1);
+    // Plain assignment on a server-controlled `__proto__` key would set the
+    // output's prototype instead of creating an own property, silently
+    // dropping the entry from the rendered body.
+    Object.defineProperty(out, k, {
+      value: redacted,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return out;
 }

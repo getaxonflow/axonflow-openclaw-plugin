@@ -136,8 +136,13 @@ export interface StatusInputs {
    */
   configRecordedAt?: string;
 
-  /** Which channel supplied the recorded endpoint, when one contributed. */
-  configRecordedSource?: "env" | "plugin-config";
+  /**
+   * Which channel supplied the recorded endpoint, when one contributed.
+   * `"unknown"` when the record carries an endpoint but not a recognisable
+   * channel label (a hand-edited or foreign record) — the endpoint still
+   * contributed, so its provenance must still be reported, just unnamed.
+   */
+  configRecordedSource?: "env" | "plugin-config" | "unknown";
 
   /**
    * The endpoint the last plugin load resolved, when it differs from the
@@ -249,10 +254,13 @@ export interface StatusReport {
    */
   config_recorded_at: string | null;
   /**
-   * Which channel supplied the recorded endpoint ("env" | "plugin-config"),
-   * or null when nothing was recorded or nothing contributed.
+   * Which channel supplied the recorded endpoint ("env" | "plugin-config",
+   * or "unknown" for a record carrying an endpoint with no recognisable
+   * channel label), or null when the recorded ENDPOINT did not contribute.
+   * Null is what suppresses the endpoint-provenance line, so it must mean
+   * exactly "the endpoint did not come from the record".
    */
-  config_recorded_source: "env" | "plugin-config" | null;
+  config_recorded_source: "env" | "plugin-config" | "unknown" | null;
   /**
    * Endpoint the last plugin load resolved, when it differs from
    * {@link endpoint}. Null when they agree — the normal case.
@@ -643,8 +651,14 @@ export function resolveStatusInputs(
     const identityContributed = state.client_id !== "";
     if ((endpointContributed || identityContributed) && state.recorded_at !== "") {
       inputs.configRecordedAt = state.recorded_at;
-      if (endpointContributed && state.endpoint_source !== "none") {
-        inputs.configRecordedSource = state.endpoint_source;
+      if (endpointContributed) {
+        // Always set the source when the endpoint contributed, even if the
+        // record's label is unrecognisable. Leaving it null there would
+        // suppress the endpoint's provenance AND hand the timestamp to the
+        // identity line, attributing to the record something it never
+        // supplied — provenance inverted rather than merely missing.
+        inputs.configRecordedSource =
+          state.endpoint_source === "none" ? "unknown" : state.endpoint_source;
       }
     }
 
@@ -715,7 +729,9 @@ export function formatStatusReport(report: StatusReport): string {
     const channel =
       report.config_recorded_source === "env"
         ? "AXONFLOW_ENDPOINT in the runtime's environment"
-        : "pluginConfig";
+        : report.config_recorded_source === "plugin-config"
+          ? "pluginConfig"
+          : "the plugin configuration";
     lines.push(`              (from ${channel}, as recorded by the plugin load at`);
     lines.push(`              ${report.config_recorded_at}; reload OpenClaw after changing it)`);
   }

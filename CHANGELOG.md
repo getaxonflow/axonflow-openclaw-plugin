@@ -60,6 +60,11 @@
   that renders `req.headers` into its 401 JSON would otherwise have put the
   request's own Basic credential into the agent transcript.
 
+- The body redaction truncates past its depth limit instead of returning the
+  unwalked subtree, which had made the limit a bypass rather than a safe
+  truncation, and keeps a server-controlled `__proto__` key as an own property
+  rather than silently dropping it from the rendered body.
+
 - The 401 authentication warning now says governance checks — not just audit
   calls — stop for the rest of the session, and what that means under each
   `onError` setting.

@@ -465,13 +465,13 @@ The plugin classifies errors from the AxonFlow client into two buckets and appli
 | `message_sending` | Respects `onError`. With `"block"` (default), the outbound message is cancelled. With `"allow"`, it is delivered ungoverned. | Same as network error — respects `onError`. |
 | `after_tool_call`, `llm_input`, `llm_output` (audit) | Always silently caught. Governance was already enforced on the pre-execution hook. | Always silently caught. |
 
-The `before_tool_call` network fail-open is not silent. The first time a governed tool call proceeds because the endpoint was unreachable, the plugin emits one warning on the same channel as the auth-failure notice (`console.warn`, so it lands in the OpenClaw plugin log and in the terminal running the session), naming the endpoint, the underlying error, and the fact that the call ran with no policy evaluated:
+The `before_tool_call` network fail-open is not silent. The first time a governed tool call proceeds because the governance check failed for a non-auth reason — the endpoint was unreachable, timed out, or answered 5xx — the plugin emits one warning on the same channel as the auth-failure notice (`console.warn`, so it lands in the OpenClaw plugin log and in the terminal running the session), naming the endpoint, the underlying error, and the fact that the call ran with no policy evaluated:
 
 ```
-[AxonFlow] Could not reach http://localhost:8080 (fetch failed). This tool call ran
-UNGOVERNED — no policy was evaluated, nothing was blocked, and no decision was recorded.
-Tool calls continue to run ungoverned while the endpoint is unreachable; restore
-connectivity to resume enforcement. Shown once per process.
+[AxonFlow] Governance check against http://localhost:8080 failed (fetch failed). This tool
+call ran UNGOVERNED — no policy was evaluated, nothing was blocked, and no decision was
+recorded. Tool calls continue to run ungoverned until the endpoint answers again; restore
+it to resume enforcement. Shown once per process.
 ```
 
 It appears once per process rather than once per tool call, mirroring the auth-failure notice, so a long outage does not flood the transcript.

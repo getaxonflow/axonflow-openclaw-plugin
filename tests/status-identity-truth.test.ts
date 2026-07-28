@@ -345,6 +345,51 @@ describe("endpoint configured through AXONFLOW_ENDPOINT", () => {
   });
 });
 
+describe("the endpoint-provenance line itself", () => {
+  // Round-3 review: gating the line on `config_recorded_source !== null`
+  // moved every existing test onto the null-source path, leaving the
+  // rendering of both channel labels — the surface round 2 changed —
+  // uncovered. These pin the text a user actually reads.
+  it("names pluginConfig when that is what the runtime resolved from", () => {
+    writePluginRuntimeState(tmpDir, { endpoint: SELF_HOSTED_URL }, "test",
+      () => new Date("2026-07-28T11:02:14.881Z"));
+    const text = formatStatusReport(buildStatusReport(resolveStatusInputs(undefined, tmpDir)));
+    expect(text).toContain("(from pluginConfig, as recorded by the plugin load at");
+    expect(text).toContain("2026-07-28T11:02:14.881Z; reload OpenClaw after changing it)");
+  });
+
+  it("names the environment when the runtime resolved from AXONFLOW_ENDPOINT", () => {
+    process.env["AXONFLOW_ENDPOINT"] = SELF_HOSTED_URL;
+    writePluginRuntimeState(tmpDir, {}, "test");
+    delete process.env["AXONFLOW_ENDPOINT"];
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+    expect(report.config_recorded_source).toBe("env");
+    expect(formatStatusReport(report)).toContain(
+      "(from AXONFLOW_ENDPOINT in the runtime's environment, as recorded by the plugin load at",
+    );
+  });
+
+  it("still reports the endpoint's provenance when the record's channel label is unusable", () => {
+    // A hand-edited or foreign record: the endpoint contributed, but the
+    // channel is unrecognisable. Suppressing the line here would hand the
+    // timestamp to the IDENTITY line instead — attributing to the record
+    // something it never supplied.
+    writePluginRuntimeState(tmpDir, { endpoint: SELF_HOSTED_URL }, "test");
+    const file = runtimeStatePath(tmpDir);
+    const rec = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    rec["endpoint_source"] = "who-knows";
+    fs.writeFileSync(file, JSON.stringify(rec));
+
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+    const text = formatStatusReport(report);
+
+    expect(report.endpoint).toBe(SELF_HOSTED_URL);
+    expect(report.config_recorded_source).toBe("unknown");
+    expect(text).toContain("(from the plugin configuration, as recorded by the plugin load at");
+    expect(text).not.toContain("(recorded by the plugin load at");
+  });
+});
+
 describe("provenance is claimed only when the record contributed", () => {
   it("does NOT stamp an environment-only answer with a recorded timestamp", () => {
     // A record exists but carries nothing — the runtime had no endpoint

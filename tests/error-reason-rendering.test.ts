@@ -163,6 +163,38 @@ describe("redactErrorBody — the whole body, not just the reason", () => {
     for (let i = 0; i < 30; i++) deep = { next: deep };
     expect(() => redactErrorBody(deep)).not.toThrow();
   });
+
+  it("TRUNCATES past the depth limit instead of returning the subtree raw", () => {
+    // Round-3 review: returning the unwalked branch by reference made the
+    // depth cap a redaction bypass — a credential one level deeper than the
+    // cap reached the model untouched.
+    let deep: unknown = { authorization: "Basic dGVuYW50OnN1cGVyLXNlY3JldA==" };
+    for (let i = 0; i < 8; i++) deep = { next: deep };
+    expect(JSON.stringify(redactErrorBody(deep))).not.toContain("dGVuYW50OnN1cGVyLXNlY3JldA==");
+    expect(JSON.stringify(redactErrorBody(deep))).toContain("nesting limit");
+  });
+
+  it("terminates on a self-referencing body", () => {
+    const cyclic: Record<string, unknown> = { error: "loop" };
+    cyclic["self"] = cyclic;
+    expect(() => JSON.stringify(redactErrorBody(cyclic))).not.toThrow();
+  });
+
+  it("keeps a server-controlled __proto__ key as an own property", () => {
+    // A JSON body really can carry `__proto__` as an OWN key — that is what
+    // `JSON.parse` produces, and it is what a response body becomes. Plain
+    // assignment while rebuilding would set the OUTPUT's prototype instead,
+    // silently dropping the entry from the body rendered to the agent.
+    const input = JSON.parse('{"__proto__":{"injected":true},"ok":1}') as Record<string, unknown>;
+    expect(Object.keys(input)).toContain("__proto__");
+
+    const out = redactErrorBody(input) as Record<string, unknown>;
+
+    expect(Object.keys(out)).toContain("__proto__");
+    expect(out["ok"]).toBe(1);
+    // ...and nothing was polluted along the way.
+    expect(({} as Record<string, unknown>)["injected"]).toBeUndefined();
+  });
 });
 
 describe("AxonFlowHttpError message", () => {

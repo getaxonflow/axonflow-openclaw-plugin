@@ -191,7 +191,7 @@
     "onError": {
       "label": "On Auth/Config Error",
       "placeholder": "block",
-      "help": "What to do when AxonFlow rejects the plugin's credentials (HTTP 401/403). 'block' (default) denies the tool call with a message pointing at the misconfiguration; 'allow' lets it run ungoverned. Does NOT apply to network errors: an unreachable endpoint always fails open, and the plugin emits a one-time session warning saying the call ran ungoverned.",
+      "help": "What to do when AxonFlow rejects the plugin's credentials (HTTP 401/403). 'block' (default) denies the tool call with a message pointing at the misconfiguration; 'allow' lets it run ungoverned. Does NOT apply to any other failure: a governance check that times out, cannot connect, or comes back 5xx always fails open regardless of this setting, and the plugin emits a one-time session warning saying the call ran ungoverned.",
       "advanced": true
     },
     "requestTimeoutMs": {
