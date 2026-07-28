@@ -30,23 +30,16 @@ PROBE_RESPONSE=$(curl -s -X POST \
 PROBE_STATUS=$(printf '%s' "$PROBE_RESPONSE" | sed -n 's/^HTTP_STATUS://p')
 PROBE_BODY=$(printf '%s' "$PROBE_RESPONSE" | sed '$d')
 
-case "$PROBE_STATUS" in
-  201)
-    PROBE_ID=$(printf '%s' "$PROBE_BODY" | jq -r '.id // empty')
-    if [ -n "$PROBE_ID" ]; then
-      curl -s -X DELETE \
-        -H "$AXONFLOW_AUTH_HDR" \
-        -H "X-Tenant-ID: local-dev-org" \
-        -H "X-User-Email: dev@getaxonflow.com" \
-        "$AXONFLOW_ENDPOINT/api/v1/overrides/$PROBE_ID" >/dev/null
-    fi
-    ;;
-  *)
-    echo "SKIP: pre-flight create_override returned HTTP $PROBE_STATUS"
-    echo "      Body: $PROBE_BODY"
-    exit 0
-    ;;
-esac
+require_override_preflight "$PROBE_STATUS" "$PROBE_BODY" || exit 1
+
+PROBE_ID=$(printf '%s' "$PROBE_BODY" | jq -r '.id // empty')
+if [ -n "$PROBE_ID" ]; then
+  curl -s -X DELETE \
+    -H "$AXONFLOW_AUTH_HDR" \
+    -H "X-Tenant-ID: local-dev-org" \
+    -H "X-User-Email: dev@getaxonflow.com" \
+    "$AXONFLOW_ENDPOINT/api/v1/overrides/$PROBE_ID" >/dev/null
+fi
 
 BASELINE_COUNT=$(curl -s -X GET \
   -H "$AXONFLOW_AUTH_HDR" \

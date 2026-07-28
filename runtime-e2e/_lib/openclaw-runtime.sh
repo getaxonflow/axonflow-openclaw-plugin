@@ -117,3 +117,57 @@ extract_smoke_line() {
   jq -r '.payloads[]?.text // empty' "$output_file" 2>/dev/null \
     | grep -E "SMOKE_RESULT:" | tail -1 | sed 's/.*SMOKE_RESULT: *//'
 }
+
+# require_override_preflight <http_status> <body>
+#
+# Classifies the result of the override-create pre-flight that the override
+# lifecycle tests use to seed state. Every one of them previously printed
+# `SKIP: pre-flight create_override returned HTTP $STATUS` and exited 0 on ANY
+# non-201 — which meant they passed-by-skipping in exactly the default
+# configuration every user runs (#3062): the agent strips X-User-Email unless
+# AXONFLOW_TRUST_IDENTITY_HEADERS=true, so create_override 401s and the whole
+# suite reported green while two of the eleven advertised tools were dead.
+#
+# A test that skips is not a test. The ONLY legitimate exit-0 in this suite is
+# environment unavailability (no CLI, no reachable stack), which
+# runtime_e2e_skip_if_unavailable already owns and which is checked before we
+# get here. A reachable stack that refuses to create an override is a FAILURE,
+# and this prints the remediation instead of swallowing it.
+require_override_preflight() {
+  local status="$1"
+  local body="$2"
+
+  if [ "$status" = "201" ]; then
+    return 0
+  fi
+
+  echo "FAIL: pre-flight create_override returned HTTP $status (expected 201)"
+  echo "      Body: $body"
+  echo ""
+
+  case "$status" in
+    401)
+      echo "      The override endpoints require a per-user identity. This deployment"
+      echo "      is not configured to trust client-asserted identity headers, so the"
+      echo "      AxonFlow Agent removed the X-User-Email this test sent."
+      echo ""
+      echo "      Set the posture this test requires, then re-run:"
+      echo "        AXONFLOW_TRUST_IDENTITY_HEADERS=true   # on the AGENT, then restart it"
+      echo ""
+      echo "      Only enable it when every hop that can reach the agent asserts"
+      echo "      end-user identity from a validated source — see"
+      echo "      docs/security/identity-header-trust.md in axonflow-enterprise."
+      ;;
+    403)
+      echo "      The stack rejected the override on policy grounds. Check that the"
+      echo "      seed policy is overridable (not critical-risk, allow_override=true)"
+      echo "      and that the request reached the orchestrator through the agent."
+      ;;
+    404)
+      echo "      The seed policy was not found for this tenant. Confirm the stack's"
+      echo "      migrations ran and that X-Tenant-ID matches the seeded tenant."
+      ;;
+  esac
+
+  return 1
+}

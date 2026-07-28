@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **`runtime-e2e` override tests fail instead of skipping when the deployment
+  posture is wrong.** (#3062) `governance-lifecycle`, `list-overrides` and
+  `revoke-override` each ran a pre-flight `create_override` and, on any
+  non-201, printed `SKIP:` and exited **0** — so all three passed-by-skipping
+  in exactly the default configuration every user runs, reporting green while
+  the tools they cover were dead. `AXONFLOW_TRUST_IDENTITY_HEADERS` defaults
+  to off (since 9.9.0), so the agent strips `X-User-Email` and
+  `create_override` 401s. They now share `require_override_preflight`, which
+  fails with the concrete remediation (including the
+  `AXONFLOW_TRUST_IDENTITY_HEADERS=true` posture the override lifecycle
+  requires, and when it is safe to set). Environment unavailability — no CLI,
+  no reachable stack — remains the only legitimate skip, and is still handled
+  up-front by `runtime_e2e_skip_if_unavailable`. Each affected README
+  documents the required posture.
+
 ## [2.8.4] - 2026-07-18: AXONFLOW_ENDPOINT honored by the governance runtime
 
 ### Fixed
