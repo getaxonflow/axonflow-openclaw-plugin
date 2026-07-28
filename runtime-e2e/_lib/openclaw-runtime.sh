@@ -71,73 +71,6 @@ openclaw_install_local_plugin() {
     "${AXONFLOW_TEST_USER_EMAIL:-dev@getaxonflow.com}" >/dev/null
 }
 
-# Assert the stack can actually create an override, or FAIL naming what is
-# missing (#167, axonflow-enterprise#3062).
-#
-# The override endpoints need a per-user identity, and since platform 9.9.0 the
-# agent ignores X-User-Email unless the identity trust gate is explicitly on —
-# so a healthy-looking default stack answers 401 here. Three suites used to
-# print "SKIP:" and exit 0 on that, which meant CI reported success in exactly
-# the configuration every user runs and the behaviour under test never ran.
-#
-# The posture is a server-side setting on the AxonFlow agent, not a plugin or
-# request-level knob, so it cannot be provisioned from this harness. The only
-# honest outcome is a failure that names it. Callers must invoke this INSTEAD OF
-# rolling their own probe, so the next suite to need one cannot reintroduce the
-# skip.
-#
-# Usage: require_override_preflight <policy_id> [ttl_seconds]
-# Echoes nothing on success; exits 1 with a diagnostic on anything but 201.
-require_override_preflight() {
-  local policy_id="${1:-sys_pii_email}" ttl="${2:-60}"
-  local auth_hdr response status body probe_id
-  auth_hdr="Authorization: Basic $(printf '%s:%s' "$AXONFLOW_CLIENT_ID" "$AXONFLOW_CLIENT_SECRET" | base64)"
-
-  response=$(curl -s -X POST \
-    -H "$auth_hdr" \
-    -H "Content-Type: application/json" \
-    -H "X-Tenant-ID: local-dev-org" \
-    -H "X-User-Email: ${AXONFLOW_TEST_USER_EMAIL:-dev@getaxonflow.com}" \
-    -d "{\"policy_id\":\"$policy_id\",\"policy_type\":\"static\",\"override_reason\":\"preflight-posture-probe\",\"ttl_seconds\":$ttl}" \
-    -w "\nHTTP_STATUS:%{http_code}" \
-    "$AXONFLOW_ENDPOINT/api/v1/overrides")
-  status=$(printf '%s' "$response" | sed -n 's/^HTTP_STATUS://p')
-  body=$(printf '%s' "$response" | sed '$d')
-
-  if [ "$status" = "201" ]; then
-    probe_id=$(printf '%s' "$body" | jq -r '.id // empty')
-    if [ -n "$probe_id" ]; then
-      curl -s -X DELETE \
-        -H "$auth_hdr" \
-        -H "X-Tenant-ID: local-dev-org" \
-        -H "X-User-Email: ${AXONFLOW_TEST_USER_EMAIL:-dev@getaxonflow.com}" \
-        "$AXONFLOW_ENDPOINT/api/v1/overrides/$probe_id" >/dev/null
-    fi
-    echo "--- Pre-flight: override posture confirmed (HTTP 201) ---"
-    return 0
-  fi
-
-  echo "FAIL: pre-flight create_override returned HTTP $status (expected 201)"
-  echo "      Endpoint: $AXONFLOW_ENDPOINT"
-  echo "      Policy:   $policy_id"
-  echo "      Body:     $body"
-  echo ""
-  echo "      The override lifecycle endpoints require a per-user identity."
-  echo "      Since platform 9.9.0 the agent ignores X-User-Email unless the"
-  echo "      identity trust gate is explicitly enabled, so an otherwise"
-  echo "      healthy stack answers 401 here. Enable it on the AGENT and"
-  echo "      restart it:"
-  echo ""
-  echo "          AXONFLOW_TRUST_IDENTITY_HEADERS=true"
-  echo ""
-  echo "      Then re-run this test. See axonflow-enterprise#3062 for the"
-  echo "      platform-side work making this 401 self-explanatory."
-  echo ""
-  echo "      This test does NOT skip on a missing posture: a test that"
-  echo "      exits 0 without exercising its subject is not a test."
-  exit 1
-}
-
 # Run a single agent turn against the local OpenClaw runtime.
 openclaw_agent_capture() {
   local prompt="$1"
@@ -183,4 +116,58 @@ extract_smoke_line() {
   local output_file="$1"
   jq -r '.payloads[]?.text // empty' "$output_file" 2>/dev/null \
     | grep -E "SMOKE_RESULT:" | tail -1 | sed 's/.*SMOKE_RESULT: *//'
+}
+
+# require_override_preflight <http_status> <body>
+#
+# Classifies the result of the override-create pre-flight that the override
+# lifecycle tests use to seed state. Every one of them previously printed
+# `SKIP: pre-flight create_override returned HTTP $STATUS` and exited 0 on ANY
+# non-201 — which meant they passed-by-skipping in exactly the default
+# configuration every user runs (#3062): the agent strips X-User-Email unless
+# AXONFLOW_TRUST_IDENTITY_HEADERS=true, so create_override 401s and the whole
+# suite reported green while two of the eleven advertised tools were dead.
+#
+# A test that skips is not a test. The ONLY legitimate exit-0 in this suite is
+# environment unavailability (no CLI, no reachable stack), which
+# runtime_e2e_skip_if_unavailable already owns and which is checked before we
+# get here. A reachable stack that refuses to create an override is a FAILURE,
+# and this prints the remediation instead of swallowing it.
+require_override_preflight() {
+  local status="$1"
+  local body="$2"
+
+  if [ "$status" = "201" ]; then
+    return 0
+  fi
+
+  echo "FAIL: pre-flight create_override returned HTTP $status (expected 201)"
+  echo "      Body: $body"
+  echo ""
+
+  case "$status" in
+    401)
+      echo "      The override endpoints require a per-user identity. This deployment"
+      echo "      is not configured to trust client-asserted identity headers, so the"
+      echo "      AxonFlow Agent removed the X-User-Email this test sent."
+      echo ""
+      echo "      Set the posture this test requires, then re-run:"
+      echo "        AXONFLOW_TRUST_IDENTITY_HEADERS=true   # on the AGENT, then restart it"
+      echo ""
+      echo "      Only enable it when every hop that can reach the agent asserts"
+      echo "      end-user identity from a validated source — see"
+      echo "      docs/security/identity-header-trust.md in axonflow-enterprise."
+      ;;
+    403)
+      echo "      The stack rejected the override on policy grounds. Check that the"
+      echo "      seed policy is overridable (not critical-risk, allow_override=true)"
+      echo "      and that the request reached the orchestrator through the agent."
+      ;;
+    404)
+      echo "      The seed policy was not found for this tenant. Confirm the stack's"
+      echo "      migrations ran and that X-Tenant-ID matches the seeded tenant."
+      ;;
+  esac
+
+  return 1
 }

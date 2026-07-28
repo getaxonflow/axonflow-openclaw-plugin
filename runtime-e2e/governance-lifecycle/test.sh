@@ -18,9 +18,28 @@ openclaw_install_local_plugin || exit 1
 
 AXONFLOW_AUTH_HDR="Authorization: Basic $(printf '%s:%s' "$AXONFLOW_CLIENT_ID" "$AXONFLOW_CLIENT_SECRET" | base64)"
 
-# Shared posture gate — fails (never skips) when the stack cannot create
-# an override. See require_override_preflight in ../_lib.
-require_override_preflight sys_pii_email 60
+# Pre-flight probe: confirm the policy is overridable.
+PROBE_RESPONSE=$(curl -s -X POST \
+  -H "$AXONFLOW_AUTH_HDR" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: local-dev-org" \
+  -H "X-User-Email: dev@getaxonflow.com" \
+  -d "{\"policy_id\":\"sys_pii_email\",\"policy_type\":\"static\",\"override_reason\":\"lifecycle-prereq-probe\",\"ttl_seconds\":60}" \
+  -w "\nHTTP_STATUS:%{http_code}" \
+  "$AXONFLOW_ENDPOINT/api/v1/overrides")
+PROBE_STATUS=$(printf '%s' "$PROBE_RESPONSE" | sed -n 's/^HTTP_STATUS://p')
+PROBE_BODY=$(printf '%s' "$PROBE_RESPONSE" | sed '$d')
+
+require_override_preflight "$PROBE_STATUS" "$PROBE_BODY" || exit 1
+
+PROBE_ID=$(printf '%s' "$PROBE_BODY" | jq -r '.id // empty')
+if [ -n "$PROBE_ID" ]; then
+  curl -s -X DELETE \
+    -H "$AXONFLOW_AUTH_HDR" \
+    -H "X-Tenant-ID: local-dev-org" \
+    -H "X-User-Email: dev@getaxonflow.com" \
+    "$AXONFLOW_ENDPOINT/api/v1/overrides/$PROBE_ID" >/dev/null
+fi
 
 BASELINE_COUNT=$(curl -s -X GET \
   -H "$AXONFLOW_AUTH_HDR" \

@@ -120,20 +120,36 @@
   `runtime-e2e/failopen-notice/` (4 legs), both driving the real host, the
   real bin and real agent dispatch, each with a vacuity control that
   reproduces the pre-fix answer.
-- No runtime-e2e suite exits 0 on a condition the default configuration
-  produces, or on the failure of the thing it exists to test. The override
-  pre-flight is now one shared `require_override_preflight` helper adopted by
-  `governance-lifecycle`, `list-overrides` and `revoke-override` — converting
-  one of three is how the class comes back. `explain-decision` and
-  `audit-search` likewise now fail instead of skipping when the SQLi pattern is
-  not blocked, no decision_id is minted, or the seeded marker never reaches the
-  audit log: a detector that reports "skip" when the detector fails cannot
-  detect anything.
 - `runtime-e2e/endpoint-env-override/` isolates `AXONFLOW_CONFIG_DIR` so its
   ephemeral sentinel ports cannot end up in a developer's real config.
 - Jest pins `AXONFLOW_CONFIG_DIR` to a throwaway directory: plugin
   registration now writes a file, and without the pin every test that
   registers the plugin would write into the developer's real AxonFlow config.
+### Changed
+
+- **`runtime-e2e` override tests fail instead of skipping when the deployment
+  posture is wrong.** (#3062) `governance-lifecycle`, `list-overrides` and
+  `revoke-override` each ran a pre-flight `create_override` and, on any
+  non-201, printed `SKIP:` and exited **0** — so all three passed-by-skipping
+  in exactly the default configuration every user runs, reporting green while
+  the tools they cover were dead. `AXONFLOW_TRUST_IDENTITY_HEADERS` defaults
+  to off (since 9.9.0), so the agent strips `X-User-Email` and
+  `create_override` 401s. They now share `require_override_preflight`, which
+  fails with the concrete remediation (including the
+  `AXONFLOW_TRUST_IDENTITY_HEADERS=true` posture the override lifecycle
+  requires, and when it is safe to set). Environment unavailability — no CLI,
+  no reachable stack — remains the only legitimate skip, and is still handled
+  up-front by `runtime_e2e_skip_if_unavailable`. Each affected README
+  documents the required posture.
+
+- Two suites carried the other variant of the same defect — skipping precisely
+  WHEN THE FEATURE UNDER TEST FAILED. `explain-decision` exited 0 when the SQLi
+  statement was not blocked or no `decision_id` came back, and `audit-search`
+  exited 0 when its seeded marker never reached the audit log. Both are
+  findings, not preconditions: a detector that reports "skip" when the detector
+  fails cannot detect anything. Both now fail with the diagnosis. Combined with
+  the override pre-flight above, no suite in `runtime-e2e` exits 0 on a
+  condition the default configuration produces or on its own subject failing.
 
 ## [2.8.4] - 2026-07-18: AXONFLOW_ENDPOINT honored by the governance runtime
 
