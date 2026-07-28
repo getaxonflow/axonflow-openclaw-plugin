@@ -12,7 +12,195 @@ import {
   type UpgradePromptLogger,
   type V1RateLimitEnvelope,
 } from "./upgrade-prompt.js";
+import { stripControlCharacters } from "./sanitize-text.js";
 import { VERSION } from "./version.js";
+
+/**
+ * Property names platforms use to carry a human-readable reason on an error
+ * response, most specific first. Probed in order rather than pinned to one
+ * key so the plugin renders whatever the deployment it is talking to sends,
+ * without assuming a platform version (#167 / axonflow-enterprise#3062: the
+ * override endpoints' 401 was collapsed to a bare "HTTP 401 Unauthorized",
+ * leaving the user no way to discover that a server-side identity-trust
+ * setting governs the feature).
+ */
+const ERROR_BODY_REASON_KEYS = [
+  "error",
+  "message",
+  "reason",
+  "detail",
+  "error_description",
+] as const;
+
+/**
+ * Longest reason rendered into a message. A cap is needed because a proxy can
+ * answer with a whole HTML page, and this string reaches an LLM's context.
+ *
+ * The floor is measured, not guessed. The platform's identity-required 401
+ * (axonflow-enterprise#3062 / PR #3069) is **605 characters**, and its own
+ * runtime-e2e asserts as a passing gate that the body carries both remedies
+ * and the doc reference — which sit at offsets 550 and 583. At the previous
+ * 300 the plugin truncated away exactly the half the platform test guarantees:
+ * the platform shipped a message engineered to be actionable and this renderer
+ * discarded the actionable part, with both CI suites green.
+ *
+ * 800 clears that message with headroom. The durable guard is the test that
+ * pins both remedies surviving (tests/error-reason-rendering.test.ts), not
+ * this number — if the platform's message grows past the cap, raise it there
+ * and update the fixture rather than trimming the message.
+ */
+export const MAX_REASON_LENGTH = 800;
+
+/**
+ * Credential-shaped content to strip before a server-supplied reason is
+ * rendered anywhere a human or a model will read it.
+ *
+ * Some reverse proxies and debug endpoints echo the request back in their
+ * error page. On this client every governed request carries
+ * `Authorization: Basic <clientId:clientSecret>` and may carry
+ * `X-License-Token` / `X-User-Token`, so an echoing 401 page would otherwise
+ * put live credentials into the agent transcript and the operator's logs the
+ * moment we started rendering response bodies.
+ */
+const CREDENTIAL_ECHO_PATTERN =
+  // Header form first. Two things it must tolerate, both seen in real proxy
+  // error bodies: the value may be quoted (a gateway rendering `req.headers`
+  // as JSON), and it may carry a `Basic`/`Bearer` scheme token before the
+  // credential. The tokens this client sends — X-License-Token, X-User-Token,
+  // X-API-Key — carry no scheme at all, so a scheme-anchored pattern alone
+  // leaks them. The value run stops at a quote, comma, semicolon or brace so
+  // one header does not swallow the rest of a JSON object. The trailing
+  // alternative catches a bare `Basic <b64>` / `Bearer <token>` that appears
+  // without its header name — the shape left over once an object walk has
+  // already split key from value. Its lookahead spares prose such as
+  // "Basic authentication is required" — a plausible real 401 body that the
+  // unguarded form mangled into a redacted fragment.
+  /\b(?:authorization|proxy-authorization|x-license-token|x-user-token|x-api-key|api[_-]?key)\b["']?\s*[:=]\s*["']?(?:basic|bearer)?\s*[^"',;}\s]+|\b(?:basic|bearer)\s+(?!(?:auth|authentication|authorization|credentials?|token|access)\b)[A-Za-z0-9._~+/=-]{8,}/gi;
+
+/**
+ * Extract a human-readable reason from a platform error body.
+ *
+ * Returns "" when the body carries nothing usable — an empty object, a
+ * non-object, or only non-string values — so callers fall back to the bare
+ * status line. Whitespace is collapsed and the result is length-capped: the
+ * reason is rendered into agent-visible text, and an unreachable-through-a-
+ * proxy call can answer with an HTML error page rather than JSON.
+ */
+export function describeErrorBody(body: unknown): string {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return "";
+  const record = body as Record<string, unknown>;
+  for (const key of ERROR_BODY_REASON_KEYS) {
+    const value = record[key];
+    if (typeof value !== "string") continue;
+    const collapsed = stripControlCharacters(value)
+      .replace(/\s+/g, " ")
+      .replace(CREDENTIAL_ECHO_PATTERN, "<redacted>")
+      .trim();
+    if (collapsed === "") continue;
+    return collapsed.length > MAX_REASON_LENGTH
+      ? collapsed.slice(0, MAX_REASON_LENGTH) + "…"
+      : collapsed;
+  }
+  return "";
+}
+
+/** How deep {@link redactErrorBody} walks before truncating a body. */
+const MAX_REDACTION_DEPTH = 6;
+
+/**
+ * Object keys whose VALUE is a credential regardless of the value's shape.
+ * Anchored (no `g` flag) so `.test()` carries no `lastIndex` state.
+ */
+const CREDENTIAL_KEY_PATTERN =
+  /^(?:authorization|proxy-authorization|x-license-token|x-user-token|x-api-key|api[_-]?key|secret|client_?secret|password|token)$/i;
+
+/**
+ * Apply {@link describeErrorBody}'s credential redaction to EVERY string in an
+ * error body, so a caller that forwards the whole body — not just the
+ * extracted reason — cannot leak what the reason path strips.
+ *
+ * `AxonFlowHttpError.responseBody` deliberately stays raw for programmatic
+ * use; this is applied at the boundaries where the body reaches a model or a
+ * human (see `describeError` in src/agent-tools.ts). Nested objects and
+ * arrays are walked; non-string leaves pass through untouched.
+ */
+export function redactErrorBody(body: unknown, depth = 0): unknown {
+  if (typeof body === "string") {
+    return stripControlCharacters(body).replace(CREDENTIAL_ECHO_PATTERN, "<redacted>");
+  }
+  if (body === null || typeof body !== "object") return body;
+  // Past the depth limit, DROP the subtree rather than returning it by
+  // reference: handing back an unwalked branch would make the limit a
+  // redaction bypass — a credential nested one level deeper than the cap
+  // would reach the model untouched — instead of a safe truncation. Also
+  // terminates on a self-referencing body.
+  if (depth >= MAX_REDACTION_DEPTH) return "<redacted: nesting limit>";
+  if (Array.isArray(body)) return body.map((v) => redactErrorBody(v, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+    // Redact on the KEY as well as the value. Once a body is walked as an
+    // object, the value of a credential-named key is a bare token with no
+    // header name left in it for the pattern to anchor on — the exact shape
+    // a gateway produces when it renders `req.headers` as JSON.
+    const redacted = CREDENTIAL_KEY_PATTERN.test(k)
+      ? "<redacted>"
+      : redactErrorBody(v, depth + 1);
+    // Plain assignment on a server-controlled `__proto__` key would set the
+    // output's prototype instead of creating an own property, silently
+    // dropping the entry from the rendered body.
+    Object.defineProperty(out, k, {
+      value: redacted,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+}
+
+/**
+ * Read a non-2xx response body into the `responseBody` shape
+ * `AxonFlowHttpError` carries, tolerating every wire form a deployment can
+ * answer with: JSON object, JSON scalar/array, plain text from an ALB /
+ * nginx / WAF, or nothing at all.
+ *
+ * Never throws and never rejects — an unreadable body degrades to `{}`, which
+ * renders as the bare status line. Callers must not read the body again.
+ */
+async function readErrorBody(
+  response: Response,
+  timeoutMs: number,
+): Promise<Record<string, unknown>> {
+  if (typeof response.text !== "function") return {};
+  let text: string;
+  try {
+    // `fetchWithTimeout` clears its abort timer once the RESPONSE resolves,
+    // so the body read that follows is unbounded. On the governance hot path
+    // a peer that returns 401 headers and then stalls the body would hang
+    // `before_tool_call` forever — wedging every governed tool call in the
+    // session, the exact outcome the fail-open policy exists to prevent.
+    // Bound it independently and abandon the body rather than wait.
+    text = await Promise.race([
+      response.text(),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve(""), Math.max(1, timeoutMs)).unref?.();
+      }),
+    ]);
+  } catch {
+    return {};
+  }
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (trimmed === "") return {};
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Not JSON — fall through and surface the raw text as the reason.
+  }
+  return { error: trimmed };
+}
 
 /**
  * Typed error thrown by the AxonFlow client on non-2xx HTTP responses
@@ -24,6 +212,10 @@ import { VERSION } from "./version.js";
  * error message string. Previously the client threw a plain `Error`
  * with the status number embedded in the message, which forced the
  * classifier to use fragile substring matching.
+ *
+ * The message carries the platform's own reason when the body supplies one
+ * (#167) — extracted, credential-redacted and length-capped by
+ * `describeErrorBody`. The untouched body stays on `responseBody`.
  */
 export class AxonFlowHttpError extends Error {
   readonly status: number;
@@ -36,9 +228,7 @@ export class AxonFlowHttpError extends Error {
     responseBody: Record<string, unknown>,
     context: string,
   ) {
-    const serverError = typeof responseBody["error"] === "string"
-      ? responseBody["error"]
-      : "";
+    const serverError = describeErrorBody(responseBody);
     super(`AxonFlow ${context} failed: HTTP ${status} ${statusText}${serverError ? " — " + serverError : ""}`);
     this.name = "AxonFlowHttpError";
     this.status = status;
@@ -348,6 +538,20 @@ export class AxonFlowClient {
   }
 
   /**
+   * The endpoint THIS client instance sends to, trailing slashes stripped.
+   *
+   * Callers that report an endpoint to the user must read it from here
+   * rather than from the config they were constructed with: in
+   * community-saas mode `registerAxonFlowGovernance` swaps in a new client
+   * built on the endpoint the register response named, so the two can
+   * differ. Same rule as the status surface — display what the runtime
+   * uses, never a parallel value (#167).
+   */
+  getEndpoint(): string {
+    return this.endpoint;
+  }
+
+  /**
    * Internal helper: detect + handle a V1 envelope on a non-2xx
    * response. Returns the parsed envelope (so the caller can decide
    * how to surface it through its existing return shape) or null if
@@ -434,7 +638,10 @@ export class AxonFlowClient {
         ? " A per-user token is configured — if it was revoked or expired, re-provision it (pluginConfig.userToken / AXONFLOW_USER_TOKEN / ~/.config/axonflow/user-token.json)."
         : "";
       console.warn(
-        `[AxonFlow] Authentication failed (HTTP 401). Audit calls disabled for this session. Refresh credentials via the OpenClaw runtime config.${tokenHint}`,
+        "[AxonFlow] Authentication failed (HTTP 401). Governance checks and audit calls are " +
+          "disabled for the rest of this session: with onError=block every governed tool call " +
+          "is denied, with onError=allow every governed tool call runs UNGOVERNED. " +
+          `Refresh credentials via the OpenClaw runtime config.${tokenHint}`,
       );
     }
   }
@@ -556,11 +763,16 @@ export class AxonFlowClient {
     // propagate past the breaker. fetchWithTimeout already flipped
     // the authFailed flag for any 401; we just need to surface the
     // typed error in the same shape the JSON-body path would have.
+    //
+    // #167: the body is read through readErrorBody rather than discarded, so
+    // whatever reason the platform sends reaches the user. It handles the
+    // JSON and the plain-text infra-layer forms alike and degrades to {} —
+    // the bare status line — when the body is empty or unreadable.
     if (response.status === 401) {
       throw new AxonFlowHttpError(
         401,
         response.statusText,
-        {},
+        await readErrorBody(response, this.requestTimeoutMs),
         "check-input",
       );
     }
@@ -599,8 +811,10 @@ export class AxonFlowClient {
 
     if (!response.ok) {
       // 401 already handled above (pre-json branch). Any other non-2xx
-      // status here is transient and the existing fail-open / fail-
-      // closed path in governance.ts handles them per config.onError.
+      // status is treated as transient: since #167 the classifier decides
+      // on the numeric status alone, so these ALWAYS fail open in
+      // before_tool_call regardless of config.onError, and emit the
+      // one-shot ungoverned notice. config.onError governs 401/403 only.
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
@@ -649,13 +863,14 @@ export class AxonFlowClient {
 
     // Issue #2275 follow-up — detect 401 BEFORE response.json() (see
     // mcpCheckInput for full rationale). Mirror the exact AxonFlowHttpError
-    // shape so the governance.ts classifier behaves identically across
-    // input + output paths.
+    // shape — including the #167 platform-reason rendering — so the
+    // governance.ts classifier and the user-facing message behave
+    // identically across input + output paths.
     if (response.status === 401) {
       throw new AxonFlowHttpError(
         401,
         response.statusText,
-        {},
+        await readErrorBody(response, this.requestTimeoutMs),
         "check-output",
       );
     }
@@ -688,8 +903,10 @@ export class AxonFlowClient {
 
     if (!response.ok) {
       // 401 already handled above (pre-json branch). Any other non-2xx
-      // status here is transient and the existing fail-open / fail-
-      // closed path in governance.ts handles them per config.onError.
+      // status is treated as transient: since #167 the classifier decides
+      // on the numeric status alone, so these ALWAYS fail open in
+      // before_tool_call regardless of config.onError, and emit the
+      // one-shot ungoverned notice. config.onError governs 401/403 only.
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
@@ -955,11 +1172,10 @@ export class AxonFlowClient {
       body: JSON.stringify(body),
     });
     if (!response.ok) {
-      const text = await response.text();
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
-        { error: text },
+        await readErrorBody(response, this.requestTimeoutMs),
         "create override",
       );
     }
@@ -975,11 +1191,10 @@ export class AxonFlowClient {
       headers: this.baseHeaders(),
     });
     if (!response.ok) {
-      const text = await response.text();
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
-        { error: text },
+        await readErrorBody(response, this.requestTimeoutMs),
         "revoke override",
       );
     }
@@ -1051,11 +1266,10 @@ export class AxonFlowClient {
       body: JSON.stringify(body),
     });
     if (!response.ok) {
-      const text = await response.text();
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
-        { error: text },
+        await readErrorBody(response, this.requestTimeoutMs),
         "audit search",
       );
     }
@@ -1095,11 +1309,10 @@ export class AxonFlowClient {
       headers: this.baseHeaders(),
     });
     if (!response.ok) {
-      const text = await response.text();
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
-        { error: text },
+        await readErrorBody(response, this.requestTimeoutMs),
         "list overrides",
       );
     }
@@ -1141,11 +1354,10 @@ export class AxonFlowClient {
       return { kind: "not_found" };
     }
     if (!response.ok) {
-      const text = await response.text();
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
-        { error: text },
+        await readErrorBody(response, this.requestTimeoutMs),
         "explain decision",
       );
     }
@@ -1221,11 +1433,10 @@ export class AxonFlowClient {
     }
 
     if (!response.ok) {
-      const text = await response.text();
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
-        { error: text },
+        await readErrorBody(response, this.requestTimeoutMs),
         "list recent decisions",
       );
     }

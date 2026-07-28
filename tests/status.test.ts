@@ -354,6 +354,11 @@ describe("formatStatusReport", () => {
       upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
+      mode: "community-saas",
+      identity_source: "community-saas-registration",
+      config_recorded_at: null,
+      config_recorded_source: null,
+      runtime_endpoint_at_last_load: null,
     });
     // v1.5.0 terminology: new label is `client_id:`, bridge note connects
     // it to the legacy term so v1.4.x users aren't confused.
@@ -380,6 +385,11 @@ describe("formatStatusReport", () => {
       upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
+      mode: "community-saas",
+      identity_source: "community-saas-registration",
+      config_recorded_at: null,
+      config_recorded_source: null,
+      runtime_endpoint_at_last_load: null,
     });
     expect(out).toContain("tier:       Pro (expires 2026-08-03, 90 days remaining)");
     expect(out).toContain("license:    …ABCD");
@@ -403,6 +413,11 @@ describe("formatStatusReport", () => {
       upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
+      mode: "community-saas",
+      identity_source: "community-saas-registration",
+      config_recorded_at: null,
+      config_recorded_source: null,
+      runtime_endpoint_at_last_load: null,
     });
     expect(out).toContain("tier:       Pro (expires UNKNOWN — could not parse token)");
     expect(out).toContain("license:    …ABCD");
@@ -421,6 +436,11 @@ describe("formatStatusReport", () => {
       upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: true,
+      mode: "community-saas",
+      identity_source: "community-saas-registration",
+      config_recorded_at: null,
+      config_recorded_source: null,
+      runtime_endpoint_at_last_load: null,
     });
     expect(out).toContain("tier:       Free (Pro expired 2026-02-04 — visit https://getaxonflow.com/pricing/ to renew)");
     expect(out).toContain("license:    …ZZZZ");
@@ -445,6 +465,11 @@ describe("formatStatusReport", () => {
       upgrade_url: "https://getaxonflow.com/pricing/",
       registration_file: "/tmp/x/try-registration.json",
       registration_present: false,
+      mode: "community-saas",
+      identity_source: "unregistered",
+      config_recorded_at: null,
+      config_recorded_source: null,
+      runtime_endpoint_at_last_load: null,
     });
     expect(out).toContain("(not registered)");
     expect(out).toContain("(formerly tenant_id)");

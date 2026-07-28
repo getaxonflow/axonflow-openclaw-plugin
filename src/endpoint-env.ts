@@ -15,6 +15,12 @@
  * divergence structurally impossible: what status displays IS what the
  * runtime uses.
  *
+ * #167 widened that guarantee from the endpoint to the whole deployment
+ * decision (endpoint + mode + tenant identity) via `resolveDeploymentTarget`,
+ * after the drift reappeared through the other channel: the standalone status
+ * CLI could not see `pluginConfig` at all, so a self-hoster who configured
+ * `pluginConfig.endpoint` was told their traffic went to the Community SaaS.
+ *
  * WHY the read is a zero-import leaf with one static named read: same
  * least-privilege-by-construction rule as src/user-token-env.ts — exactly
  * one key, one call site, no env-object capture, no dynamic indexing.
@@ -43,14 +49,34 @@ export function endpointFromEnv(): string | undefined {
  * self-hosted mode (no Community-SaaS auto-registration).
  */
 export function resolveEndpointOverride(pluginConfigEndpoint: unknown): string {
+  return resolveEndpointOverrideWithSource(pluginConfigEndpoint).endpoint;
+}
+
+/** Which channel {@link resolveEndpointOverrideWithSource} took the value from. */
+export type EndpointOverrideSource = "env" | "plugin-config" | "none";
+
+/**
+ * {@link resolveEndpointOverride} plus the channel it came from.
+ *
+ * The source is reported BY the resolver rather than re-derived by callers
+ * comparing values: a caller that infers "the env must have won because the
+ * result equals the env var" silently mislabels the moment the precedence
+ * order changes, and the recorded label would then name the wrong channel to
+ * the user.
+ */
+export function resolveEndpointOverrideWithSource(
+  pluginConfigEndpoint: unknown,
+): { endpoint: string; source: EndpointOverrideSource } {
   const envRaw = endpointFromEnv();
   const envEndpoint = typeof envRaw === "string" ? envRaw.trim() : "";
   if (envEndpoint !== "") {
-    return envEndpoint;
+    return { endpoint: envEndpoint, source: "env" };
   }
-  return typeof pluginConfigEndpoint === "string"
-    ? pluginConfigEndpoint.trim()
-    : "";
+  const cfgEndpoint =
+    typeof pluginConfigEndpoint === "string" ? pluginConfigEndpoint.trim() : "";
+  return cfgEndpoint !== ""
+    ? { endpoint: cfgEndpoint, source: "plugin-config" }
+    : { endpoint: "", source: "none" };
 }
 
 /** Endpoint used when the user provided nothing at all (Community SaaS). */
@@ -62,34 +88,135 @@ export const COMMUNITY_SAAS_DEFAULT_ENDPOINT = "https://try.getaxonflow.com";
  */
 export const SELF_HOSTED_DEFAULT_ENDPOINT = "http://localhost:8080";
 
+/** Tenant identity used in self-hosted mode when the user named none. */
+export const SELF_HOSTED_DEFAULT_CLIENT_ID = "community";
+
 /**
- * The COMPLETE effective-endpoint decision, shared by `resolveConfig`
- * (governance runtime) and `resolveStatusInputs` (status display):
+ * Everything the plugin decides about WHICH AxonFlow it talks to and
+ * WHO it talks as, derived from the user's configuration alone.
+ */
+export interface DeploymentTarget {
+  /** Endpoint every governed request targets. Never empty. */
+  endpoint: string;
+  /**
+   * "self-hosted" when the user provided any of endpoint / clientId /
+   * clientSecret (through either channel); "community-saas" otherwise.
+   */
+  mode: "community-saas" | "self-hosted";
+  /**
+   * Tenant identity the runtime authenticates as. `SELF_HOSTED_DEFAULT_CLIENT_ID`
+   * when the user named an endpoint but no clientId. Empty in community-saas
+   * mode, where the Community-SaaS bootstrap supplies the identity at runtime
+   * and persists it in `try-registration.json`.
+   */
+  clientId: string;
+  /**
+   * Where {@link clientId} came from. Carried here rather than re-derived by
+   * consumers so display surfaces can tell an operator who explicitly set
+   * `clientId: "community"` apart from one who set no clientId at all — the
+   * resolved value is identical, the advice is not.
+   */
+  clientIdSource: "plugin-config" | "self-hosted-default" | "community-saas-bootstrap";
+}
+
+/**
+ * The COMPLETE deployment decision — endpoint, mode, and tenant identity —
+ * shared by `resolveConfig` (governance runtime), `resolveStatusInputs`
+ * (status CLI + `axonflow_get_tenant_id`), and nothing else:
  *
- *   1. `AXONFLOW_ENDPOINT` env var
- *   2. pluginConfig.endpoint
- *   3. pluginConfig has clientId/clientSecret → SELF_HOSTED_DEFAULT_ENDPOINT
- *      (credentials imply a self-hosted deployment; the runtime targets the
- *      canonical local-agent URL, so status must display the same)
- *   4. nothing provided → COMMUNITY_SAAS_DEFAULT_ENDPOINT
+ *   1. `AXONFLOW_ENDPOINT` env var                     → self-hosted
+ *   2. pluginConfig.endpoint                           → self-hosted
+ *   3. pluginConfig has clientId/clientSecret          → self-hosted at
+ *      SELF_HOSTED_DEFAULT_ENDPOINT (credentials imply a self-hosted
+ *      deployment; the runtime targets the canonical local-agent URL, so
+ *      every display surface must say the same)
+ *   4. nothing provided → community-saas at COMMUNITY_SAAS_DEFAULT_ENDPOINT
+ *
+ * This is the single function permitted to make that decision. #167 was the
+ * second drift incident in the same family: the status CLI is a standalone
+ * bin with no pluginConfig context, so it resolved from the environment
+ * alone and told self-hosted operators their traffic went to the Community
+ * SaaS while the runtime governed correctly against their own stack. The
+ * fix is to feed this one function the pluginConfig the CLI could not
+ * otherwise see (src/plugin-runtime-state.ts) — never to add a second
+ * resolution path.
  *
  * Never throws — the status surface must degrade gracefully on partial or
  * inconsistent config (resolveConfig applies its own validation separately).
  */
+export function resolveDeploymentTarget(
+  pluginConfig: Record<string, unknown> | undefined,
+): DeploymentTarget {
+  const cfg = pluginConfig ?? {};
+  return deploymentTargetFor(
+    resolveEndpointOverride(cfg["endpoint"]),
+    typeof cfg["clientId"] === "string" ? (cfg["clientId"] as string).trim() : "",
+    typeof cfg["clientSecret"] === "string" ? (cfg["clientSecret"] as string).trim() : "",
+  );
+}
+
+/**
+ * The defaults / mode / identity half of {@link resolveDeploymentTarget},
+ * taking an ALREADY-RESOLVED endpoint override instead of consulting the
+ * environment.
+ *
+ * Exists so a caller that must reason about a decision made in a DIFFERENT
+ * environment — the status surface reconstructing what the last plugin load
+ * resolved — gets the identical defaults without this process's
+ * `AXONFLOW_ENDPOINT` leaking into the answer. Re-deriving those defaults at
+ * the call site is what this module exists to prevent.
+ */
+export function deploymentTargetFor(
+  endpointOverride: string,
+  clientId: string,
+  clientSecret: string = "",
+): DeploymentTarget {
+  const userEndpoint = endpointOverride;
+
+  if (userEndpoint !== "" || clientId !== "" || clientSecret !== "") {
+    return {
+      endpoint: userEndpoint !== "" ? userEndpoint : SELF_HOSTED_DEFAULT_ENDPOINT,
+      mode: "self-hosted",
+      clientId: clientId !== "" ? clientId : SELF_HOSTED_DEFAULT_CLIENT_ID,
+      clientIdSource: clientId !== "" ? "plugin-config" : "self-hosted-default",
+    };
+  }
+  return {
+    endpoint: COMMUNITY_SAAS_DEFAULT_ENDPOINT,
+    mode: "community-saas",
+    clientId: "",
+    clientIdSource: "community-saas-bootstrap",
+  };
+}
+
+/**
+ * Endpoint half of {@link resolveDeploymentTarget}, kept as a named export
+ * for callers that only need the URL. Delegates rather than re-deriving so
+ * there is exactly one implementation of the precedence rules.
+ */
 export function resolveEffectiveEndpoint(
   pluginConfig: Record<string, unknown> | undefined,
 ): string {
-  const cfg = pluginConfig ?? {};
-  const userEndpoint = resolveEndpointOverride(cfg["endpoint"]);
-  if (userEndpoint !== "") {
-    return userEndpoint;
-  }
-  const clientId =
-    typeof cfg["clientId"] === "string" ? (cfg["clientId"] as string).trim() : "";
-  const clientSecret =
-    typeof cfg["clientSecret"] === "string" ? (cfg["clientSecret"] as string).trim() : "";
-  if (clientId !== "" || clientSecret !== "") {
-    return SELF_HOSTED_DEFAULT_ENDPOINT;
-  }
-  return COMMUNITY_SAAS_DEFAULT_ENDPOINT;
+  return resolveDeploymentTarget(pluginConfig).endpoint;
+}
+
+/**
+ * Community-SaaS bootstrap endpoint substitution, shared by the bootstrap
+ * itself (`src/community-saas-bootstrap.ts`) and the status surface
+ * (`src/status.ts`).
+ *
+ * `POST /api/v1/register` may hand back the endpoint the tenant should use,
+ * which the runtime then adopts in place of the resolved default. The status
+ * surface has to apply the identical substitution or it reports the default
+ * while governed traffic goes somewhere else — the #167 failure mode one
+ * layer down. Empty / whitespace-only / non-string registered values are
+ * treated as "the server named no endpoint" and the fallback stands.
+ */
+export function resolveRegisteredEndpoint(
+  registeredEndpoint: unknown,
+  fallback: string,
+): string {
+  const registered =
+    typeof registeredEndpoint === "string" ? registeredEndpoint.trim() : "";
+  return registered !== "" ? registered : fallback;
 }

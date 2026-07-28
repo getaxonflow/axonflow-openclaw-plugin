@@ -41,6 +41,15 @@ fi
 CONFIG_BACKUP="$(mktemp -t axonflow-endpoint-env-cfgbak.XXXXXX)"
 cp "$OPENCLAW_CONFIG_FILE" "$CONFIG_BACKUP"
 
+# Isolate the AxonFlow config dir. Since #167 every plugin load writes a
+# runtime-state record there, and this suite deliberately points the plugin
+# at ephemeral sentinel ports — without isolation it would leave a record in
+# the developer's real config dir naming a dead port, which a later genuine
+# `axonflow-openclaw-status` run would report as the live endpoint.
+AXONFLOW_STATE_DIR="$(mktemp -d -t axonflow-endpoint-env-state.XXXXXX)"
+chmod 700 "$AXONFLOW_STATE_DIR"
+export AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR"
+
 SENTINEL_LOG="$(mktemp -t axonflow-endpoint-env-sentinel.XXXXXX)"
 DECOY_LOG="$(mktemp -t axonflow-endpoint-env-decoy.XXXXXX)"
 SENTINEL_PID=""
@@ -53,6 +62,7 @@ cleanup() {
   fi
   [ -n "$SENTINEL_PID" ] && kill "$SENTINEL_PID" 2>/dev/null
   [ -n "$DECOY_PID" ] && kill "$DECOY_PID" 2>/dev/null
+  rm -rf "$AXONFLOW_STATE_DIR"
   rm -f "$SENTINEL_LOG" "$DECOY_LOG"
 }
 trap cleanup EXIT INT TERM HUP

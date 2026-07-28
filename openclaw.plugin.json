@@ -21,20 +21,30 @@
     "AXONFLOW_TELEMETRY": {
       "required": false,
       "description": "Set to 'off', '0', 'false', or 'no' to disable the 7-day usage heartbeat. When unset (default), the plugin sends a lightweight ping to checkpoint.getaxonflow.com once every 7 days per machine.",
-      "values": ["off", "0", "false", "no"]
+      "values": [
+        "off",
+        "0",
+        "false",
+        "no"
+      ]
     },
     "AXONFLOW_COMMUNITY_SAAS": {
       "required": false,
       "description": "Set to '0', 'false', 'off', or 'no' to disable auto-registration with try.getaxonflow.com Community SaaS. When opted out, configure pluginConfig.endpoint to point at a self-hosted AxonFlow instance — otherwise the plugin loads but cannot enforce policy.",
-      "values": ["0", "false", "off", "no"]
+      "values": [
+        "0",
+        "false",
+        "off",
+        "no"
+      ]
     },
     "AXONFLOW_CACHE_DIR": {
       "required": false,
-      "description": "Override the per-user cache directory used for telemetry stamps and rate-limit backoffs. Defaults to OS conventions: $XDG_CACHE_HOME/axonflow on Linux, ~/Library/Caches/axonflow on macOS, %LOCALAPPDATA%\\axonflow on Windows."
+      "description": "Override the per-user cache directory used for telemetry stamps, rate-limit backoffs, and the free-tier upgrade-prompt/throttle stamps. Defaults to OS conventions: $XDG_CACHE_HOME/axonflow on Linux, ~/Library/Caches/axonflow on macOS, %LOCALAPPDATA%\\axonflow on Windows."
     },
     "AXONFLOW_CONFIG_DIR": {
       "required": false,
-      "description": "Override the per-user config directory used for the Community-SaaS registration file (mode 0o600). Defaults to OS conventions: $XDG_CONFIG_HOME/axonflow on Linux, ~/Library/Application Support/axonflow on macOS, %APPDATA%\\axonflow on Windows."
+      "description": "Override the per-user config directory. Holds the Community-SaaS registration file (mode 0o600), the first-load disclosure stamp, and the plugin runtime-state record that lets the axonflow-openclaw-status CLI report the endpoint and identity the governance runtime resolved. Defaults to OS conventions: $XDG_CONFIG_HOME/axonflow on Linux, ~/Library/Application Support/axonflow on macOS, %APPDATA%\\axonflow on Windows."
     },
     "AXONFLOW_LICENSE_TOKEN": {
       "required": false,
@@ -59,7 +69,9 @@
     "AXONFLOW_TRY": {
       "required": false,
       "description": "Set to '1' to force the v1 telemetry deployment-mode classifier to report 'community_saas' even when the configured endpoint is a custom hostname. Use only when proxying try.getaxonflow.com behind a different host. No behavioural effect outside the heartbeat payload.",
-      "values": ["1"]
+      "values": [
+        "1"
+      ]
     }
   },
   "runtimeBehavior": {
@@ -72,7 +84,12 @@
     "outboundData": {
       "atGovernanceTime": "Tool name + arguments (before execution) and outbound message bodies (before delivery) are sent to the configured AxonFlow endpoint for policy evaluation and audit. With Community SaaS, the endpoint is try.getaxonflow.com; with self-hosted, traffic stays on your network.",
       "telemetry": "7-day usage heartbeat to checkpoint.getaxonflow.com containing plugin version, OS, arch, runtime version, deployment mode, hook count, and a per-machine instance_id (UUID v4). No tool inputs, no message bodies, no LLM provider keys.",
-      "neverTransmitted": ["LLM provider API keys", "OpenClaw conversation history outside governed tools", "Files outside the OpenClaw runtime"]
+      "neverTransmitted": [
+        "LLM provider API keys",
+        "OpenClaw conversation history outside governed tools",
+        "Files outside the OpenClaw runtime"
+      ],
+      "credentialRecovery": "Only when you run the bundled axonflow-openclaw-recover CLI: POST /api/v1/recover and POST /api/v1/recover/verify against the configured endpoint (default https://try.getaxonflow.com), carrying the email address you pass on the command line and the magic-link token you paste back. Never fires from the plugin runtime."
     },
     "persistence": {
       "files": [
@@ -84,7 +101,12 @@
         {
           "path": "$AXONFLOW_CONFIG_DIR/openclaw-plugin-community-saas-disclosure-shown",
           "mode": "0o600",
-          "purpose": "First-load disclosure stamp. Empty file; presence prevents re-warning on subsequent loads."
+          "purpose": "First-load disclosure stamp. Body is the ISO-8601 timestamp of the disclosure; only its presence is read, and that presence prevents re-warning on subsequent loads."
+        },
+        {
+          "path": "$AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json",
+          "mode": "0o600",
+          "purpose": "Rewritten on every plugin load with the endpoint override the governance runtime resolved — from either the AXONFLOW_ENDPOINT environment variable or pluginConfig.endpoint — plus which of those channels supplied it and the configured clientId. Lets the axonflow-openclaw-status CLI, a separate process that can see neither channel, report the endpoint and identity your traffic actually uses instead of the Community-SaaS default. Contains no credentials: clientSecret, licenseToken and userToken are never written."
         },
         {
           "path": "$AXONFLOW_CACHE_DIR/openclaw-plugin-telemetry-sent",
@@ -95,6 +117,16 @@
           "path": "$AXONFLOW_CACHE_DIR/openclaw-plugin-register-backoff",
           "mode": "0o600",
           "purpose": "Rate-limit backoff stamp written when /api/v1/register returns 429. Body is a Unix timestamp (seconds) until which the bootstrap will not retry."
+        },
+        {
+          "path": "$AXONFLOW_CACHE_DIR/throttle-until",
+          "mode": "0o600",
+          "purpose": "Free-tier back-off stamp written when a governed call returns a V1 rate-limit envelope. Body is a Unix timestamp (seconds) until which governed calls short-circuit locally instead of being sent."
+        },
+        {
+          "path": "$AXONFLOW_CACHE_DIR/upgrade-prompt-last-shown",
+          "mode": "0o600",
+          "purpose": "Once-per-UTC-day stamp for the free-tier upgrade prompt. Body is a date string; presence and value keep the prompt from repeating within the same day."
         }
       ]
     }
@@ -156,6 +188,12 @@
       "help": "Operation type for mcp_check_input: 'execute' (default) or 'query' for read-only tools",
       "advanced": true
     },
+    "onError": {
+      "label": "On Auth/Config Error",
+      "placeholder": "block",
+      "help": "What to do when AxonFlow rejects the plugin's credentials (HTTP 401/403). 'block' (default) denies the tool call with a message pointing at the misconfiguration; 'allow' lets it run ungoverned. Does NOT apply to any other failure: a governance check that times out, cannot connect, or comes back 5xx always fails open regardless of this setting, and the plugin emits a one-time session warning saying the call ran ungoverned.",
+      "advanced": true
+    },
     "requestTimeoutMs": {
       "label": "Request Timeout (ms)",
       "placeholder": "8000",
@@ -190,7 +228,9 @@
         "items": {
           "type": "string"
         },
-        "default": ["web_fetch"]
+        "default": [
+          "web_fetch"
+        ]
       },
       "governedTools": {
         "type": "array",

@@ -2,6 +2,129 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The status surfaces now report the endpoint and identity the governance
+  runtime actually uses.** (#167) `axonflow-openclaw-status` runs as its own
+  process and can see neither `pluginConfig` nor the environment the OpenClaw
+  runtime was started with, so a self-hosted operator was told their traffic
+  went to the Community SaaS and was shown the cached `cs_` tenant they never
+  authenticate as; `axonflow_get_tenant_id` reported the same. Endpoint, mode
+  and tenant identity are now one decision (`resolveDeploymentTarget`) shared
+  by the runtime and every display surface. Each plugin load records the
+  user-provided inputs that fed it — the endpoint override the runtime
+  resolved, from **either** `AXONFLOW_ENDPOINT` or `pluginConfig.endpoint`,
+  plus the configured `clientId` — at
+  `$AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json` (mode `0600`), and
+  the CLI feeds those to the same resolver. Inputs are recorded, never the
+  resolved answer, so the reader's own `AXONFLOW_ENDPOINT` is always applied
+  live and a recorded value can only fill a gap. Same drift family as #162,
+  opposite direction: there the runtime was wrong, here the display was.
+
+- **A governed tool call that proceeds because the endpoint is unreachable now
+  says so.** (#167) The network fail-open is deliberate and is **unchanged** —
+  no fail-closed mode was added — but it was silent: a session could run
+  entirely ungoverned while the user believed governance was on. The first
+  such call now emits a one-shot notice naming the endpoint, the underlying
+  error, and the fact that no policy was evaluated, on the same channel as the
+  auth-failure notice. Auth errors do not trigger it; see #170 for the
+  remaining `403` + `onError: "allow"` gap.
+
+- **An error response's own reason is rendered instead of a bare status line.**
+  (#167, axonflow-enterprise#3062) `axonflow_create_override` /
+  `axonflow_revoke_override` reported `HTTP 401 Unauthorized` with nothing
+  explaining why. The `check-input` / `check-output` 401 paths no longer
+  discard the response body, and the agent-tool renderer appends whatever
+  reason it carries. No platform version is assumed: several conventional
+  reason properties are probed, and an absent, non-JSON or malformed body
+  degrades to the previous message byte-for-byte. Rendered reasons are
+  whitespace-collapsed, capped at 300 characters, and stripped of
+  credential-shaped content so an echoing proxy cannot leak the request's own
+  `Authorization` header into a transcript.
+
+- **The platform's own error message now survives rendering intact.** The
+  identity-required 401 that axonflow-enterprise#3062 exists to make actionable
+  is 605 characters in its diagnosing branch and 623 in the default one, with
+  the remedies and the doc reference past offset 550. Two things discarded
+  exactly that half: the reason cap was 300, and `createOverride`,
+  `revokeOverride` and the four strict read variants wrapped the raw wire text
+  as `{ error: <the whole JSON envelope> }` — so the reason rendered as
+  double-wrapped JSON and the envelope consumed cap budget before truncation
+  applied. All six now use the JSON-aware reader (which also gives them the
+  independent body-read timeout), and the cap is 800 with the measured floor
+  recorded next to it. A test drives `createOverride` against a real 401 and
+  asserts the four substrings the platform's own gate requires.
+
+- **Control characters are stripped from every surface that renders a response
+  body.** `console.warn`, the `blockReason` shown to the user and fed back to
+  the model, and an agent tool's `details` payload all carried remote text
+  verbatim; collapsing whitespace does not touch ESC, BEL or BS, so an echoing
+  or hostile endpoint could embed ANSI screen-clear and cursor-positioning
+  sequences. Whitespace controls are deliberately preserved as word separators.
+
+- **A transient 5xx whose body mentions authentication no longer hard-blocks
+  every governed tool call.** Rendering the platform's reason into the error
+  message meant `isAxonFlowAuthError`'s message-regex fallback could classify
+  an ALB answering `502 {"error":"upstream authentication service
+  unavailable"}` as an auth error — skipping the fail-open branch and, under
+  the default `onError: "block"`, denying every tool while telling the
+  operator to fix credentials that were fine. A numeric HTTP status is now
+  decisive in both directions; the message is consulted only for errors that
+  expose no status at all. Server-controlled text must not steer the
+  fail-open/fail-closed decision.
+
+- Rendered reasons and the error body handed to the agent are stripped of
+  credential-shaped content, including quoted/JSON header dumps and bare
+  scheme-less tokens (`X-License-Token`, `X-User-Token`, `X-API-Key`), and
+  credential-named keys are redacted by key when a body is walked. A gateway
+  that renders `req.headers` into its 401 JSON would otherwise have put the
+  request's own Basic credential into the agent transcript.
+
+- The body redaction truncates past its depth limit instead of returning the
+  unwalked subtree, which had made the limit a bypass rather than a safe
+  truncation, and keeps a server-controlled `__proto__` key as an own property
+  rather than silently dropping it from the rendered body.
+
+- The 401 authentication warning now says governance checks — not just audit
+  calls — stop for the rest of the session, and what that means under each
+  `onError` setting.
+
+- The 401 body read is independently time-bounded. `fetchWithTimeout` clears
+  its abort timer once the response resolves, so reading a body after it was
+  unbounded — a peer that returned 401 headers and then stalled would have
+  wedged `before_tool_call`, and with it every governed tool call in the
+  session.
+
+- Manifest and README sweep for surfaces this touched, plus pre-existing gaps
+  found in the same census: `AXONFLOW_CONFIG_DIR` / `AXONFLOW_CACHE_DIR`
+  descriptions now name everything they hold; the two free-tier cache stamps
+  (`throttle-until`, `upgrade-prompt-last-shown`) and the credential-recovery
+  network calls are declared; the disclosure stamp's declared contents match
+  what is written; `onError` has a `uiHints` entry.
+
+### Changed
+
+- `StatusReport` gains `mode`, `identity_source`, `config_recorded_at`,
+  `config_recorded_source` and `runtime_endpoint_at_last_load`, and the
+  `endpoint:` line of the human-readable output carries a `(mode=…)` suffix.
+  `client_id` / `tenant_id` keep their meaning and both stay populated. In
+  self-hosted mode `client_id` is now the tenant the runtime authenticates as
+  rather than a cached Community-SaaS registration.
+- `buildAgentTools(clientRef, pluginConfig?)` and
+  `buildGetTenantIdTool(pluginConfig?)` accept the live plugin config. Called
+  without it, the tool falls back to the persisted record.
+
+### Testing
+
+- New `runtime-e2e/status-identity-truth/` (6 legs) and
+  `runtime-e2e/failopen-notice/` (4 legs), both driving the real host, the
+  real bin and real agent dispatch, each with a vacuity control that
+  reproduces the pre-fix answer.
+- `runtime-e2e/endpoint-env-override/` isolates `AXONFLOW_CONFIG_DIR` so its
+  ephemeral sentinel ports cannot end up in a developer's real config.
+- Jest pins `AXONFLOW_CONFIG_DIR` to a throwaway directory: plugin
+  registration now writes a file, and without the pin every test that
+  registers the plugin would write into the developer's real AxonFlow config.
 ### Changed
 
 - **`runtime-e2e` override tests fail instead of skipping when the deployment
@@ -18,6 +141,15 @@
   no reachable stack — remains the only legitimate skip, and is still handled
   up-front by `runtime_e2e_skip_if_unavailable`. Each affected README
   documents the required posture.
+
+- Two suites carried the other variant of the same defect — skipping precisely
+  WHEN THE FEATURE UNDER TEST FAILED. `explain-decision` exited 0 when the SQLi
+  statement was not blocked or no `decision_id` came back, and `audit-search`
+  exited 0 when its seeded marker never reached the audit log. Both are
+  findings, not preconditions: a detector that reports "skip" when the detector
+  fails cannot detect anything. Both now fail with the diagnosis. Combined with
+  the override pre-flight above, no suite in `runtime-e2e` exits 0 on a
+  condition the default configuration produces or on its own subject failing.
 
 ## [2.8.4] - 2026-07-18: AXONFLOW_ENDPOINT honored by the governance runtime
 

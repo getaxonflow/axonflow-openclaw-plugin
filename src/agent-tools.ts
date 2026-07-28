@@ -13,7 +13,7 @@
  */
 
 import type { ClientRef } from "./client-ref.js";
-import { AxonFlowHttpError } from "./axonflow-client.js";
+import { AxonFlowHttpError, describeErrorBody, redactErrorBody } from "./axonflow-client.js";
 
 interface ToolContent {
   type: "text";
@@ -59,11 +59,29 @@ function fail(message: string, details?: Record<string, unknown>): ToolResult {
   };
 }
 
+/**
+ * Render a thrown error as the agent-visible tool failure.
+ *
+ * #167 / axonflow-enterprise#3062: this used to collapse every HTTP failure
+ * to `HTTP <status> <statusText>`, so `axonflow_create_override` reported a
+ * bare "HTTP 401 Unauthorized" and the user had no way to learn that a
+ * server-side identity-trust setting governs the endpoint. Whatever reason
+ * the platform sends is now appended. Nothing is assumed about which
+ * platform version is answering: `describeErrorBody` probes several
+ * conventional reason properties and returns "" when the body carries none,
+ * in which case the message is byte-identical to the old one. The full body
+ * stays available on `details` for the agent to inspect.
+ */
 function describeError(e: unknown): { message: string; details?: Record<string, unknown> } {
   if (e instanceof AxonFlowHttpError) {
+    const reason = describeErrorBody(e.responseBody);
+    const status = `HTTP ${e.status} ${e.statusText}`;
     return {
-      message: `HTTP ${e.status} ${e.statusText}`,
-      details: { status: e.status, body: e.responseBody },
+      message: reason ? `${status} — ${reason}` : status,
+      // The body goes to the model verbatim apart from redaction, so it gets
+      // the same treatment as the extracted reason. Redacting one and
+      // forwarding the other would make the protection decorative.
+      details: { status: e.status, body: redactErrorBody(e.responseBody) },
     };
   }
   if (e instanceof Error) return { message: e.message };
@@ -427,7 +445,9 @@ export function buildRevokeOverrideTool(clientRef: ClientRef): AgentToolDef {
 // AxonFlow plugin loaded can answer "what's my tenant ID?" inline
 // without spawning a shell.
 
-export function buildGetTenantIdTool(): AgentToolDef {
+export function buildGetTenantIdTool(
+  pluginConfig?: Record<string, unknown>,
+): AgentToolDef {
   return {
     name: "axonflow_get_tenant_id",
     label: "AxonFlow: Get Tenant ID + Tier",
@@ -446,12 +466,18 @@ export function buildGetTenantIdTool(): AgentToolDef {
       // to run unless the tool is actually invoked.
       const { buildStatusReport, resolveStatusInputs } = await import("./status.js");
       try {
-        const inputs = resolveStatusInputs();
+        // #167: this tool runs INSIDE the runtime, so it is handed the live
+        // pluginConfig and reports the endpoint + identity governed traffic
+        // actually uses. Before, it resolved from the environment alone and
+        // returned the cached Community-SaaS tenant to self-hosted callers.
+        const inputs = resolveStatusInputs(pluginConfig);
         const report = buildStatusReport(inputs);
         return ok({
           tenant_id: report.tenant_id,
           tier: report.tier,
           endpoint: report.endpoint,
+          mode: report.mode,
+          identity_source: report.identity_source,
           upgrade_url: report.upgrade_url,
           // Locked V1 buy URL — duplicates community_saas_ratelimit_response.go's
           // v1ProUpgradeBuyURL constant. Tracked in the cross-surface drift
@@ -676,7 +702,10 @@ export function buildListProFeaturesTool(clientRef: ClientRef): AgentToolDef {
  * registration order is preserved by OpenClaw but tool dispatch is by
  * name lookup, not array position.
  */
-export function buildAgentTools(clientRef: ClientRef): AgentToolDef[] {
+export function buildAgentTools(
+  clientRef: ClientRef,
+  pluginConfig?: Record<string, unknown>,
+): AgentToolDef[] {
   return [
     buildAuditSearchTool(clientRef),
     buildExplainDecisionTool(clientRef),
@@ -684,7 +713,7 @@ export function buildAgentTools(clientRef: ClientRef): AgentToolDef[] {
     buildListOverridesTool(clientRef),
     buildCreateOverrideTool(clientRef),
     buildRevokeOverrideTool(clientRef),
-    buildGetTenantIdTool(),
+    buildGetTenantIdTool(pluginConfig),
     buildRequestApprovalTool(clientRef),
     buildCreateTenantPolicyTool(clientRef),
     buildGetCostEstimateTool(clientRef),

@@ -47,6 +47,7 @@ import {
   writeFileAtomicallyWithMode,
   type PersistedRegistration,
 } from "./community-saas-context.js";
+import { resolveRegisteredEndpoint } from "./endpoint-env.js";
 
 const REGISTER_URL_DEFAULT = "https://try.getaxonflow.com/api/v1/register";
 const ENDPOINT_DEFAULT = "https://try.getaxonflow.com";
@@ -182,7 +183,12 @@ async function bootstrapCommunitySaasInner(
   // Fast path: existing registration is fresh enough.
   const cached = readRegistrationIfFreshAndSafe(registrationFile, now, REFRESH_WINDOW_MS);
   if (cached) {
-    return buildBootstrapResult(cached.endpoint ?? endpoint, cached.tenant_id, cached.secret, "cached-registration");
+    return buildBootstrapResult(
+      resolveRegisteredEndpoint(cached.endpoint, endpoint),
+      cached.tenant_id,
+      cached.secret,
+      "cached-registration",
+    );
   }
 
   // Backoff path: 429 told us to slow down. Honour it.
@@ -270,7 +276,12 @@ async function bootstrapCommunitySaasInner(
     // re-register (cheap; rate-limited, but bounded).
   }
 
-  return buildBootstrapResult(parsed.endpoint ?? endpoint, parsed.tenant_id, parsed.secret, "fresh-registration");
+  return buildBootstrapResult(
+    resolveRegisteredEndpoint(parsed.endpoint, endpoint),
+    parsed.tenant_id,
+    parsed.secret,
+    "fresh-registration",
+  );
 }
 
 interface DisclosureEmitInputs {

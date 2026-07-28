@@ -7,9 +7,21 @@
  *     v2.5.0 CHANGELOG) into the Stripe checkout custom field when
  *     buying AxonFlow Pro — the Stripe form's field is still labeled
  *     "AxonFlow tenant ID" until that surface rebrands separately;
- *   - confirm which AxonFlow endpoint the plugin would talk to;
+ *   - confirm which AxonFlow endpoint the plugin is actually governing
+ *     against, and under which deployment mode and tenant identity;
  *   - confirm whether a Pro license token is currently wired through
  *     this process (env or pluginConfig).
+ *
+ * This process cannot see OpenClaw's `pluginConfig`, nor the environment
+ * the OpenClaw runtime was started with. To report what the runtime is
+ * really doing rather than a parallel guess (#167), it reads the inputs the
+ * last plugin load recorded at
+ * $AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json — the endpoint
+ * override the runtime resolved (from either channel) and the configured
+ * clientId — and feeds them to the same `resolveDeploymentTarget` helper the
+ * governance runtime uses. THIS process's own AXONFLOW_ENDPOINT is still
+ * applied on top and still wins, so a recorded value only ever fills a gap.
+ * With no record present, resolution falls back to the environment alone.
  *
  * Usage:
  *
@@ -24,12 +36,15 @@
  *                               redacted preview (last 4 chars only —
  *                               full token is NEVER printed; see
  *                               codex-plugin#41).
- *     AXONFLOW_ENDPOINT       — agent endpoint to report. Defaults to
- *                               https://try.getaxonflow.com.
+ *     AXONFLOW_ENDPOINT       — agent endpoint to report. Wins over the
+ *                               recorded value. When neither is set,
+ *                               resolution falls back to the recorded
+ *                               clientId or the Community-SaaS default.
  *     AXONFLOW_UPGRADE_URL    — override for the upgrade URL surfaced
  *                               to free-tier users. Defaults to
  *                               https://getaxonflow.com/pricing/.
- *     AXONFLOW_CONFIG_DIR     — where try-registration.json is read
+ *     AXONFLOW_CONFIG_DIR     — where try-registration.json and the
+ *                               plugin runtime-state record are read
  *                               from. Defaults to per-OS convention
  *                               (see src/cache-dir.ts).
  *
@@ -70,10 +85,14 @@ function main() {
     }
   }
 
-  // Resolve from env only — the CLI has no pluginConfig context. Users
-  // running inside OpenClaw with pluginConfig.licenseToken set should
-  // mirror it via AXONFLOW_LICENSE_TOKEN if they want this CLI to see
-  // it. The CLI cannot read OpenClaw's runtime config from outside.
+  // `undefined` means "I cannot see the plugin configuration" — which
+  // makes resolveStatusInputs read back the record the last plugin load
+  // wrote and resolve from that plus THIS process's environment. Passing
+  // `{}` would instead assert the configuration is genuinely empty.
+  //
+  // The license token is NOT recorded (it is a credential), so a user
+  // running inside OpenClaw with pluginConfig.licenseToken set must still
+  // mirror it via AXONFLOW_LICENSE_TOKEN for this CLI to report the tier.
   const inputs = resolveStatusInputs(undefined);
   const report = buildStatusReport(inputs);
 
