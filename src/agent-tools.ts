@@ -61,8 +61,21 @@ function fail(message: string, details?: Record<string, unknown>): ToolResult {
 
 function describeError(e: unknown): { message: string; details?: Record<string, unknown> } {
   if (e instanceof AxonFlowHttpError) {
+    // Surface the platform's own reason, not just the status line. The
+    // platform sends a body explaining WHY — e.g. the override endpoints
+    // return a 401 naming the identity-trust gate that caused it and the two
+    // ways to fix it. Collapsing that to `HTTP 401 Unauthorized` stranded the
+    // user with an error they could not act on and could not diagnose, since
+    // the cause is a server-side flag they would never think to look for
+    // (#3062). The body is already carried in details.body; the message is
+    // what the agent actually shows.
+    const serverError = typeof e.responseBody["error"] === "string"
+      ? e.responseBody["error"].trim()
+      : "";
     return {
-      message: `HTTP ${e.status} ${e.statusText}`,
+      message: serverError
+        ? `HTTP ${e.status} ${e.statusText} — ${serverError}`
+        : `HTTP ${e.status} ${e.statusText}`,
       details: { status: e.status, body: e.responseBody },
     };
   }

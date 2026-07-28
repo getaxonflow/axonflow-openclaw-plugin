@@ -32,11 +32,7 @@ CREATE_RESPONSE=$(curl -s -X POST \
 CREATE_STATUS=$(printf '%s' "$CREATE_RESPONSE" | sed -n 's/^HTTP_STATUS://p')
 CREATE_BODY=$(printf '%s' "$CREATE_RESPONSE" | sed '$d')
 
-if [ "$CREATE_STATUS" != "201" ]; then
-  echo "SKIP: pre-flight create_override returned HTTP $CREATE_STATUS"
-  echo "      Body: $CREATE_BODY"
-  exit 0
-fi
+require_override_preflight "$CREATE_STATUS" "$CREATE_BODY" || exit 1
 
 SEED_ID=$(printf '%s' "$CREATE_BODY" | jq -r '.id')
 echo "--- Seeded override id: $SEED_ID ---"

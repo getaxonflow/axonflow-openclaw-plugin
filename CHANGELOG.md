@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.8.5] - 2026-07-28: platform error reasons reach the user
+
+### Fixed
+
+- **Governance tool errors now carry the platform's reason, not just the HTTP
+  status line.** (#3062) `describeError` rendered every non-2xx as
+  `HTTP <status> <statusText>` and discarded the response body, so
+  `axonflow_create_override` and `axonflow_revoke_override` — two of the
+  eleven advertised agent tools — failed with a bare `HTTP 401 Unauthorized`
+  on **both** Community SaaS and a default self-hosted community stack. The
+  platform does explain itself: the 401 body names the identity-trust gate
+  that caused it (`AXONFLOW_TRUST_IDENTITY_HEADERS`, default off since 9.9.0,
+  which makes the agent strip `X-User-Email`) and the two ways to fix it. That
+  explanation was being thrown away, leaving the user with an error they could
+  neither act on nor diagnose, since the cause is a server-side flag they would
+  never think to look for. The reason is now appended to the message for every
+  tool; the structured body remains on `details.body`. A missing or
+  whitespace-only reason still renders the bare status line.
+
+### Changed
+
+- **`runtime-e2e` override tests fail instead of skipping when the deployment
+  posture is wrong.** (#3062) `governance-lifecycle`, `list-overrides` and
+  `revoke-override` each ran a pre-flight `create_override` and, on any
+  non-201, printed `SKIP:` and exited **0** — so all three passed-by-skipping
+  in exactly the default configuration every user runs, reporting green while
+  the tools they cover were dead. They now share
+  `require_override_preflight`, which fails with the concrete remediation
+  (including the `AXONFLOW_TRUST_IDENTITY_HEADERS=true` posture the override
+  lifecycle requires). Environment unavailability — no CLI, no reachable
+  stack — remains the only legitimate skip, and is still handled up-front by
+  `runtime_e2e_skip_if_unavailable`.
+
 ## [2.8.4] - 2026-07-18: AXONFLOW_ENDPOINT honored by the governance runtime
 
 ### Fixed

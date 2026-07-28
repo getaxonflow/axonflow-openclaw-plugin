@@ -486,3 +486,98 @@ describe("axonflow_revoke_override", () => {
     expect(result.content[0]?.text).toContain("Unknown error");
   });
 });
+
+/**
+ * #3062 — the agent-visible error must carry the platform's REASON.
+ *
+ * The override tools returned a bare `HTTP 401 Unauthorized` on both Community
+ * SaaS and a default self-hosted community stack. The platform does explain
+ * itself — the 401 body names the identity-trust gate that caused it and the
+ * two ways to fix it — but describeError discarded the body and rendered only
+ * the status line, so the user was left with an error they could neither act
+ * on nor diagnose (the cause is a server-side flag they would never think to
+ * look for). The body was always in details.body; what the agent SHOWS is the
+ * message, and that is what these tests pin.
+ */
+describe("platform error reasons reach the agent (#3062)", () => {
+  // The real shape of the platform's actionable 401.
+  const GATED_401 = {
+    error:
+      'Authenticated user identity required: policy overrides are scoped to an individual user. ' +
+      'Your client DID send a per-user identity header and the AxonFlow Agent removed it, because ' +
+      'this deployment has not declared its identity source trusted ' +
+      '(AXONFLOW_TRUST_IDENTITY_HEADERS is not "true" — the default since 9.9.0). ' +
+      'See docs/security/identity-header-trust.',
+  };
+
+  it("create_override surfaces the platform's 401 reason, not just the status line", async () => {
+    const ref = makeClientRef();
+    jest.spyOn(ref.current, "createOverride").mockRejectedValue(
+      new AxonFlowHttpError(401, "Unauthorized", GATED_401, "create override"),
+    );
+    const tool = buildCreateOverrideTool(ref);
+    const result = await tool.execute("call-1", {
+      policy_id: "sys_pii_email",
+      policy_type: "static",
+      override_reason: "demo",
+    });
+
+    expect(result.isError).toBe(true);
+    const text = result.content[0]?.text ?? "";
+    // The status line is still there — it is useful context, not the problem.
+    expect(text).toContain("HTTP 401 Unauthorized");
+    // …but the actionable part must be there too. This is the regression:
+    // before the fix the text stopped at the status line.
+    expect(text).toContain("AXONFLOW_TRUST_IDENTITY_HEADERS");
+    expect(text).toContain("identity-header-trust");
+    expect(text).not.toBe("Error: HTTP 401 Unauthorized");
+    // The structured body stays available for programmatic consumers.
+    expect((result.details as { status: number }).status).toBe(401);
+  });
+
+  it("revoke_override surfaces the platform's 401 reason too", async () => {
+    const ref = makeClientRef();
+    jest.spyOn(ref.current, "revokeOverride").mockRejectedValue(
+      new AxonFlowHttpError(401, "Unauthorized", GATED_401, "revoke override"),
+    );
+    const tool = buildRevokeOverrideTool(ref);
+    const result = await tool.execute("call-1", { override_id: "ovr-7" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("AXONFLOW_TRUST_IDENTITY_HEADERS");
+  });
+
+  it("falls back to the status line when the platform sends no reason", async () => {
+    const ref = makeClientRef();
+    jest.spyOn(ref.current, "revokeOverride").mockRejectedValue(
+      new AxonFlowHttpError(502, "Bad Gateway", {}, "revoke override"),
+    );
+    const tool = buildRevokeOverrideTool(ref);
+    const result = await tool.execute("call-1", { override_id: "ovr-7" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toBe("Error: HTTP 502 Bad Gateway");
+  });
+
+  it("ignores a blank/whitespace reason rather than rendering a dangling separator", async () => {
+    const ref = makeClientRef();
+    jest.spyOn(ref.current, "revokeOverride").mockRejectedValue(
+      new AxonFlowHttpError(500, "Internal Server Error", { error: "   " }, "revoke override"),
+    );
+    const tool = buildRevokeOverrideTool(ref);
+    const result = await tool.execute("call-1", { override_id: "ovr-7" });
+
+    expect(result.content[0]?.text).toBe("Error: HTTP 500 Internal Server Error");
+  });
+
+  it("is not override-specific: every tool surfaces platform reasons", async () => {
+    const ref = makeClientRef();
+    jest.spyOn(ref.current, "explainDecisionStrict").mockRejectedValue(
+      new AxonFlowHttpError(403, "Forbidden", { error: "read scope: none" }, "explain"),
+    );
+    const tool = buildExplainDecisionTool(ref);
+    const result = await tool.execute("call-1", { decision_id: "dec-42" });
+
+    expect(result.content[0]?.text).toContain("read scope: none");
+  });
+});
