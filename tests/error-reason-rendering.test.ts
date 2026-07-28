@@ -78,6 +78,40 @@ describe("describeErrorBody", () => {
   });
 });
 
+describe("describeErrorBody credential redaction", () => {
+  // Some reverse proxies echo the request into their error page. Every
+  // governed request from this client carries Authorization: Basic
+  // <clientId:clientSecret>, so the moment we started rendering response
+  // bodies an echoing 401 would put live credentials into the agent
+  // transcript and the operator's logs.
+  it("strips echoed Authorization headers", () => {
+    const out = describeErrorBody({
+      error: "rejected request: Authorization: Basic dGVuYW50OnN1cGVyLXNlY3JldA== path=/api/v1/mcp/check-input",
+    });
+    expect(out).not.toContain("dGVuYW50OnN1cGVyLXNlY3JldA==");
+    expect(out).toContain("<redacted>");
+    expect(out).toContain("path=/api/v1/mcp/check-input");
+  });
+
+  it("strips echoed per-user and license tokens", () => {
+    const out = describeErrorBody({
+      error: "denied X-User-Token: eyJhbGciOiJIUzI1NiJ9.abc.def and X-License-Token: AXON-aaaaaaaaaaaa",
+    });
+    expect(out).not.toContain("eyJhbGciOiJIUzI1NiJ9.abc.def");
+    expect(out).not.toContain("AXON-aaaaaaaaaaaa");
+  });
+
+  it("strips a bare bearer credential", () => {
+    const out = describeErrorBody({ error: "bad token: Bearer abcdefghijklmnop" });
+    expect(out).not.toContain("abcdefghijklmnop");
+  });
+
+  it("leaves an ordinary reason untouched", () => {
+    expect(describeErrorBody({ error: "per-user identity is not trusted on this deployment" }))
+      .toBe("per-user identity is not trusted on this deployment");
+  });
+});
+
 describe("AxonFlowHttpError message", () => {
   it("appends the platform reason when there is one", () => {
     const e = new AxonFlowHttpError(
@@ -94,6 +128,25 @@ describe("AxonFlowHttpError message", () => {
     expect(new AxonFlowHttpError(401, "Unauthorized", {}, "create override").message).toBe(
       "AxonFlow create override failed: HTTP 401 Unauthorized",
     );
+  });
+
+  it("collapses and truncates a long body on the pre-existing call sites too", () => {
+    // Call sites like createOverride/revokeOverride already passed
+    // `{ error: <raw text> }`. Their messages are now whitespace-collapsed
+    // and capped, where before the full raw body was carried. Deliberate —
+    // these strings reach an LLM's context — and pinned here so the change
+    // is a decision rather than a surprise.
+    const e = new AxonFlowHttpError(
+      500,
+      "Internal Server Error",
+      { error: "line one\n\n   line two " + "z".repeat(1000) },
+      "create override",
+    );
+    expect(e.message).toContain("line one line two");
+    expect(e.message.length).toBeLessThan(400);
+    expect(e.message.endsWith("…")).toBe(true);
+    // The untouched body is still available for anything that needs it.
+    expect(String(e.responseBody["error"]).length).toBeGreaterThan(1000);
   });
 });
 
@@ -162,6 +215,23 @@ describe("mcpCheckInput / mcpCheckOutput 401 body", () => {
     await expect(new AxonFlowClient(config()).mcpCheckInput("openclaw.bash", "{}"))
       .rejects.toThrow("AxonFlow check-input failed: HTTP 401 Unauthorized");
   });
+
+  it("does not hang forever when the peer stalls the 401 body", async () => {
+    // fetchWithTimeout clears its abort timer once the RESPONSE resolves, so
+    // an unbounded body read here would wedge before_tool_call — and with it
+    // every governed tool call in the session — which is exactly what the
+    // fail-open policy exists to prevent.
+    globalThis.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      headers: { get: () => null },
+      text: () => new Promise<string>(() => { /* never settles */ }),
+    } as unknown as Response) as unknown as typeof fetch;
+    const cfg = { ...config(), requestTimeoutMs: 50 } as AxonFlowPluginConfig;
+    await expect(new AxonFlowClient(cfg).mcpCheckInput("openclaw.bash", "{}"))
+      .rejects.toThrow("AxonFlow check-input failed: HTTP 401 Unauthorized");
+  }, 5000);
 
   it("tolerates a response object with no text() method", async () => {
     globalThis.fetch = jest.fn().mockResolvedValue({

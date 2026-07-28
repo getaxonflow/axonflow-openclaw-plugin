@@ -135,9 +135,17 @@ describe("before_tool_call network fail-open", () => {
   });
 
   it("does NOT warn on an auth error that is configured to fail open", async () => {
-    // onError=allow makes a 401 proceed ungoverned too, but that is an
-    // operator-chosen posture on a path that already emits its own
-    // one-shot auth warning from the client. Warning here would double it.
+    // Pinning the SCOPED behaviour, not an endorsement. This notice is
+    // defined as the network-fail-open announcement (#167 DoD: "NOT on auth
+    // errors"), so the auth branch is excluded regardless of onError.
+    //
+    // For a 401 that is harmless — the client's own one-shot auth warning
+    // fires from markAuthFailed(). For a 403 it is a real gap: markAuthFailed
+    // is called only on status 401, so a 403 under onError=allow proceeds
+    // ungoverned and emits nothing at all. Tracked in #170; deliberately NOT
+    // widened here because doing so would contradict this change's accepted
+    // scope. This test exists so the gap stays visible rather than becoming
+    // folklore.
     const handler = createBeforeToolCallHandler(
       throwingClientRef(new AxonFlowHttpError(403, "Forbidden", {}, "check-input")),
       baseConfig({ onError: "allow" }),
@@ -162,5 +170,45 @@ describe("before_tool_call network fail-open", () => {
     );
     await handler({ toolName: "bash", params: {} });
     expect(String(warnSpy.mock.calls[0]?.[0])).toContain("https://axonflow.acme.internal");
+  });
+
+  it("names the endpoint the CLIENT is on, not the pre-bootstrap config value", async () => {
+    // In community-saas mode index.ts swaps in a client built on the endpoint
+    // the register response named, while the handler still closes over the
+    // original config. The notice must follow the client, or it names a host
+    // the failing request never touched.
+    const ref = throwingClientRef(new Error("fetch failed"));
+    (ref.current as unknown as { getEndpoint: () => string }).getEndpoint = () =>
+      "https://eu.try.getaxonflow.com";
+    const handler = createBeforeToolCallHandler(
+      ref,
+      baseConfig({ endpoint: "https://try.getaxonflow.com" }),
+    );
+    await handler({ toolName: "bash", params: {} });
+    const msg = String(warnSpy.mock.calls[0]?.[0]);
+    expect(msg).toContain("https://eu.try.getaxonflow.com");
+    expect(msg).not.toContain("https://try.getaxonflow.com (");
+  });
+
+  it("falls back to the config endpoint when the client exposes no accessor", async () => {
+    const handler = createBeforeToolCallHandler(
+      throwingClientRef(new Error("fetch failed")),
+      baseConfig({ endpoint: "https://fallback.example" }),
+    );
+    await handler({ toolName: "bash", params: {} });
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("https://fallback.example");
+  });
+
+  it("never lets a throwing console.warn escape the fail-open catch", async () => {
+    warnSpy.mockImplementation(() => {
+      throw new Error("host console is broken");
+    });
+    const handler = createBeforeToolCallHandler(
+      throwingClientRef(new Error("fetch failed")),
+      baseConfig(),
+    );
+    // Must still fail OPEN — an exception here would convert the fail-open
+    // into a rejected hook, the opposite of the policy.
+    await expect(handler({ toolName: "bash", params: {} })).resolves.toBeUndefined();
   });
 });

@@ -2,33 +2,41 @@
  * Bridge between the governance runtime and the standalone status CLI.
  *
  * `bin/axonflow-openclaw-status.mjs` runs as its own process, outside the
- * OpenClaw host, so it has no access to `pluginConfig` — the channel most
- * self-hosted operators configure. Through v2.8.4 it therefore resolved the
- * endpoint from the environment alone and reported the Community SaaS to
- * operators whose governed traffic was going to their own stack (#167).
+ * OpenClaw host, so it can see neither `pluginConfig` nor the environment
+ * the runtime was started with. Through v2.8.4 it therefore resolved from
+ * its own environment alone and reported the Community SaaS to operators
+ * whose governed traffic was going to their own stack (#167).
  *
- * This module closes that gap by recording, at every plugin load, the raw
- * pluginConfig values that feed the deployment decision. The CLI reads them
+ * This module closes that gap by recording, at every plugin load, the
+ * user-provided inputs that fed the deployment decision. The CLI reads them
  * back and hands them to `resolveDeploymentTarget` — the SAME function the
  * runtime uses — so both surfaces run one resolution, not two.
  *
- * WHAT IS RECORDED: inputs, never the answer.
+ * WHAT IS RECORDED: the user's inputs, not the resolved answer.
  *
- * Recording the resolved endpoint would make the file a cache that goes
- * stale the moment `AXONFLOW_ENDPOINT` changes in the reader's shell.
- * Recording the inputs instead means the highest-precedence source (the
- * environment) is always read live at CLI time, and the file only supplies
- * the lower-precedence value the reader genuinely cannot observe. A stale
- * env value cannot win, because no env value is ever stored.
+ * `endpointOverride` is the value `resolveEndpointOverride` returned at
+ * load: `AXONFLOW_ENDPOINT` if the runtime's environment carried one, else
+ * `pluginConfig.endpoint`, else "". Both channels have to be covered —
+ * recording only `pluginConfig` leaves an operator who configures through
+ * the environment (a first-class, documented channel) with exactly the
+ * v2.8.4 wrong answer whenever the CLI is run from a shell that does not
+ * export the variable. `endpointSource` is kept alongside so the display
+ * can say which channel it came from.
+ *
+ * What is NOT recorded is the resolved endpoint, mode or identity. Those
+ * stay derived, so the reader's LIVE environment is always applied on top:
+ * `resolveEndpointOverride` consults `AXONFLOW_ENDPOINT` before falling
+ * back to the value handed to it, which means a recorded value fills a gap
+ * but can never outrank the environment the CLI is actually run in.
  *
  * The record is rewritten on every plugin load, so any configuration change
- * the runtime picks up is reflected here as well. The residual case — the
- * user edits `pluginConfig` and the OpenClaw runtime has not reloaded the
- * plugin yet — is reported rather than hidden: `resolveStatusInputs` carries
- * the record's timestamp through to the status report, and the CLI prints it
- * next to the endpoint. In that window the record still describes what the
- * running runtime is actually doing, which is what the status surface is
- * asked about.
+ * the runtime picks up is reflected here too. The residual case — the user
+ * edits configuration and the OpenClaw runtime has not reloaded the plugin
+ * yet — is reported rather than hidden: `resolveStatusInputs` carries the
+ * record's timestamp through to the status report, and the CLI prints it,
+ * but ONLY when the record actually contributed a value. A record that
+ * contributed nothing must not decorate an environment-only answer with a
+ * timestamp that reads as "I consulted the running runtime".
  *
  * `axonflow_get_tenant_id` runs inside the runtime process and is passed the
  * live `pluginConfig` directly, so it never consults this file at all.
@@ -46,6 +54,7 @@ import {
   ensureSecureDir,
   writeFileAtomicallyWithMode,
 } from "./community-saas-context.js";
+import { endpointFromEnv, resolveEndpointOverride } from "./endpoint-env.js";
 
 /** Filename under the AxonFlow config dir. */
 export const RUNTIME_STATE_FILE_NAME = "openclaw-plugin-runtime-state.json";
@@ -55,11 +64,18 @@ export const RUNTIME_STATE_FILE_NAME = "openclaw-plugin-runtime-state.json";
  * readers ignore any record whose version they do not understand and fall
  * back to environment-only resolution (the pre-#167 behaviour), which is
  * degraded but never wrong about the environment.
+ *
+ * v2: `plugin_config.endpoint` (pluginConfig only) became
+ * `endpoint_override` + `endpoint_source`, covering the `AXONFLOW_ENDPOINT`
+ * channel that v1 silently dropped.
  */
-export const RUNTIME_STATE_SCHEMA = 1;
+export const RUNTIME_STATE_SCHEMA = 2;
+
+/** Which channel supplied the endpoint override the runtime resolved. */
+export type EndpointSource = "env" | "plugin-config" | "none";
 
 /**
- * The subset of pluginConfig that feeds `resolveDeploymentTarget`.
+ * The user-provided inputs that feed `resolveDeploymentTarget`.
  *
  * `clientSecret` is deliberately absent. It participates in the deployment
  * decision only through the "user provided credentials" test, and
@@ -67,8 +83,12 @@ export const RUNTIME_STATE_SCHEMA = 1;
  * `clientId` — so for any config that loaded successfully, `clientId` alone
  * carries the same signal.
  */
-export interface PluginConfigView {
-  endpoint: string;
+export interface RecordedRuntimeInputs {
+  /** `AXONFLOW_ENDPOINT` if the runtime's env carried one, else pluginConfig.endpoint, else "". */
+  endpointOverride: string;
+  /** Which channel `endpointOverride` came from. */
+  endpointSource: EndpointSource;
+  /** `pluginConfig.clientId`, trimmed. */
   clientId: string;
 }
 
@@ -79,7 +99,9 @@ export interface PluginRuntimeState {
   recorded_at: string;
   /** Plugin version that wrote the record — diagnostic only. */
   plugin_version: string;
-  plugin_config: PluginConfigView;
+  endpoint_override: string;
+  endpoint_source: EndpointSource;
+  client_id: string;
 }
 
 /** Absolute path of the record, or "" when no config dir is resolvable. */
@@ -93,21 +115,30 @@ function trimmedString(value: unknown): string {
 }
 
 /**
- * Project the raw pluginConfig blob down to the recordable view.
- * Pure — no env, no fs.
+ * Project the raw pluginConfig blob plus the current environment down to
+ * the recordable inputs. Reads `AXONFLOW_ENDPOINT` through the same leaf
+ * helpers the resolver uses — no independent precedence logic lives here.
  */
-export function buildPluginConfigView(
+export function buildRecordedRuntimeInputs(
   pluginConfig: Record<string, unknown> | undefined,
-): PluginConfigView {
+): RecordedRuntimeInputs {
   const cfg = pluginConfig ?? {};
+  const endpointOverride = resolveEndpointOverride(cfg["endpoint"]);
+  const envRaw = endpointFromEnv();
+  const envEndpoint = typeof envRaw === "string" ? envRaw.trim() : "";
+  let endpointSource: EndpointSource = "none";
+  if (endpointOverride !== "") {
+    endpointSource = envEndpoint !== "" ? "env" : "plugin-config";
+  }
   return {
-    endpoint: trimmedString(cfg["endpoint"]),
+    endpointOverride,
+    endpointSource,
     clientId: trimmedString(cfg["clientId"]),
   };
 }
 
 /**
- * Record the pluginConfig view for the standalone CLI.
+ * Record the runtime's resolved inputs for the standalone CLI.
  *
  * Best-effort: returns false on any failure (unresolvable config dir,
  * read-only home, permission error) and never throws. A missing record just
@@ -122,11 +153,14 @@ export function writePluginRuntimeState(
   const file = runtimeStatePath(configDir);
   if (!file) return false;
   if (!ensureSecureDir(configDir)) return false;
+  const inputs = buildRecordedRuntimeInputs(pluginConfig);
   const state: PluginRuntimeState = {
     schema: RUNTIME_STATE_SCHEMA,
     recorded_at: now().toISOString(),
     plugin_version: pluginVersion,
-    plugin_config: buildPluginConfigView(pluginConfig),
+    endpoint_override: inputs.endpointOverride,
+    endpoint_source: inputs.endpointSource,
+    client_id: inputs.clientId,
   };
   try {
     writeFileAtomicallyWithMode(file, JSON.stringify(state), 0o600);
@@ -134,6 +168,10 @@ export function writePluginRuntimeState(
   } catch {
     return false;
   }
+}
+
+function readEndpointSource(value: unknown): EndpointSource {
+  return value === "env" || value === "plugin-config" ? value : "none";
 }
 
 /**
@@ -168,18 +206,12 @@ export function readPluginRuntimeState(file: string): PluginRuntimeState | null 
   if (record["schema"] !== RUNTIME_STATE_SCHEMA) {
     return null;
   }
-  const rawConfig = record["plugin_config"];
-  const configBlob =
-    rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
-      ? (rawConfig as Record<string, unknown>)
-      : {};
   return {
     schema: RUNTIME_STATE_SCHEMA,
     recorded_at: trimmedString(record["recorded_at"]),
     plugin_version: trimmedString(record["plugin_version"]),
-    plugin_config: {
-      endpoint: trimmedString(configBlob["endpoint"]),
-      clientId: trimmedString(configBlob["clientId"]),
-    },
+    endpoint_override: trimmedString(record["endpoint_override"]),
+    endpoint_source: readEndpointSource(record["endpoint_source"]),
+    client_id: trimmedString(record["client_id"]),
   };
 }

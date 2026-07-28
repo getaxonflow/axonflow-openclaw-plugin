@@ -12,7 +12,9 @@
  * ungoverned while the user believed governance was on (#167). A governance
  * plugin that has stopped governing has to say so.
  *
- * Emitted at most once per process, mirroring the auth-failure breaker in
+ * Emitted at most once per process (the latch is module-scoped, so a plugin
+ * hot-reload inside the same process does not re-arm it), mirroring the
+ * auth-failure breaker in
  * src/axonflow-client.ts (`authFailed` / `authWarningEmitted`): the first
  * unreachable-endpoint call announces the state, and the rest stay quiet
  * rather than printing a line per tool call. `console.warn` is the same
@@ -50,13 +52,21 @@ export function noteNetworkFailOpen(endpoint: string, err: unknown): boolean {
   if (noticeEmitted) return false;
   noticeEmitted = true;
   const target = endpoint && endpoint.trim() !== "" ? endpoint.trim() : "(no endpoint configured)";
-  console.warn(
-    `[AxonFlow] Could not reach ${target} (${describeCause(err)}). ` +
-      "This tool call ran UNGOVERNED — no policy was evaluated, nothing was blocked, " +
-      "and no decision was recorded. Tool calls continue to run ungoverned while the " +
-      "endpoint is unreachable; restore connectivity to resume enforcement. " +
-      "Shown once per session.",
-  );
+  // The caller is inside the catch block whose entire job is to let the tool
+  // call through. A host that replaces console.warn with something that
+  // throws must not turn this notice into a rejected before_tool_call hook —
+  // that would convert the fail-open into a hard failure.
+  try {
+    console.warn(
+      `[AxonFlow] Could not reach ${target} (${describeCause(err)}). ` +
+        "This tool call ran UNGOVERNED — no policy was evaluated, nothing was blocked, " +
+        "and no decision was recorded. Tool calls continue to run ungoverned while the " +
+        "endpoint is unreachable; restore connectivity to resume enforcement. " +
+        "Shown once per process.",
+    );
+  } catch {
+    // Nowhere left to report it. Never propagate.
+  }
   return true;
 }
 

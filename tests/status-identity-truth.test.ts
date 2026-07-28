@@ -28,14 +28,14 @@ import {
 } from "../src/endpoint-env.js";
 import { resolveConfig } from "../src/config.js";
 import {
-  buildPluginConfigView,
+  buildRecordedRuntimeInputs,
   readPluginRuntimeState,
   runtimeStatePath,
   writePluginRuntimeState,
   RUNTIME_STATE_FILE_NAME,
   RUNTIME_STATE_SCHEMA,
 } from "../src/plugin-runtime-state.js";
-import { buildStatusReport, resolveStatusInputs } from "../src/status.js";
+import { buildStatusReport, formatStatusReport, resolveStatusInputs } from "../src/status.js";
 import { buildGetTenantIdTool } from "../src/agent-tools.js";
 
 const SELF_HOSTED_URL = "https://axonflow.acme.internal";
@@ -223,7 +223,7 @@ describe("resolveStatusInputs — standalone CLI (no pluginConfig in scope)", ()
     const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
     expect(report.endpoint).toBe(COMMUNITY_SAAS_DEFAULT_ENDPOINT);
     expect(report.mode).toBe("community-saas");
-    expect(report.plugin_config_recorded_at).toBeNull();
+    expect(report.config_recorded_at).toBeNull();
   });
 
   it("keeps the Community-SaaS registration as the identity in community-saas mode", () => {
@@ -239,7 +239,11 @@ describe("resolveStatusInputs — standalone CLI (no pluginConfig in scope)", ()
     expect(report.identity_source).toBe("community-saas-registration");
   });
 
-  it("adopts the endpoint the register response named, like the bootstrap does", () => {
+  it("does NOT adopt an endpoint from the registration file", () => {
+    // Withdrawn deliberately: this surface reads that file without the
+    // permission and freshness checks the runtime applies, and cannot see an
+    // AXONFLOW_COMMUNITY_SAAS=0 opt-out in the runtime's environment, so
+    // adopting its endpoint could report one the runtime would have refused.
     fs.writeFileSync(
       path.join(tmpDir, "try-registration.json"),
       JSON.stringify({
@@ -250,10 +254,11 @@ describe("resolveStatusInputs — standalone CLI (no pluginConfig in scope)", ()
       }),
     );
     const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
-    expect(report.endpoint).toBe("https://eu.try.getaxonflow.com");
+    expect(report.endpoint).toBe(COMMUNITY_SAAS_DEFAULT_ENDPOINT);
+    expect(report.client_id).toBe("cs_real");
   });
 
-  it("surfaces when the pluginConfig values came from a previous plugin load", () => {
+  it("surfaces when the configuration values came from a previous plugin load", () => {
     writePluginRuntimeState(
       tmpDir,
       { endpoint: SELF_HOSTED_URL },
@@ -261,7 +266,111 @@ describe("resolveStatusInputs — standalone CLI (no pluginConfig in scope)", ()
       () => new Date("2026-07-28T11:02:14.881Z"),
     );
     const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
-    expect(report.plugin_config_recorded_at).toBe("2026-07-28T11:02:14.881Z");
+    expect(report.config_recorded_at).toBe("2026-07-28T11:02:14.881Z");
+    expect(report.config_recorded_source).toBe("plugin-config");
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// The AXONFLOW_ENDPOINT channel — the half a pluginConfig-only record drops
+//
+// Round-1 hostile review of this change found that recording pluginConfig
+// alone left the #167 wrong answer fully intact for operators who configure
+// through the environment: the runtime resolves their endpoint, the CLI is
+// run from a shell that does not export the variable (a different terminal,
+// a launchd/systemd-started OpenClaw, CI), and the CLI reports the
+// Community-SaaS default plus the cached cs_ tenant — now decorated with a
+// provenance timestamp. These tests pin both halves of that fix.
+// ───────────────────────────────────────────────────────────────────────
+
+describe("endpoint configured through AXONFLOW_ENDPOINT", () => {
+  /** Simulate a plugin load whose ENVIRONMENT carried the endpoint. */
+  function loadWithEnvEndpoint(url: string, cfg: Record<string, unknown> = {}): void {
+    process.env["AXONFLOW_ENDPOINT"] = url;
+    writePluginRuntimeState(tmpDir, cfg, "test");
+    delete process.env["AXONFLOW_ENDPOINT"];
+  }
+
+  it("reports the runtime's endpoint to a CLI whose own shell has no AXONFLOW_ENDPOINT", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "try-registration.json"),
+      JSON.stringify({ tenant_id: "cs_cached", secret: "s", expires_at: "2030-01-01T00:00:00Z" }),
+    );
+    loadWithEnvEndpoint(SELF_HOSTED_URL);
+
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+
+    expect(report.endpoint).toBe(SELF_HOSTED_URL);
+    expect(report.mode).toBe("self-hosted");
+    expect(report.client_id).not.toBe("cs_cached");
+    expect(report.config_recorded_source).toBe("env");
+  });
+
+  it("matches what the runtime resolved, for both channels", () => {
+    for (const [label, viaEnv] of [["env", true], ["pluginConfig", false]] as const) {
+      fs.rmSync(runtimeStatePath(tmpDir), { force: true });
+      if (viaEnv) {
+        process.env["AXONFLOW_ENDPOINT"] = SELF_HOSTED_URL;
+      }
+      const cfg = viaEnv ? {} : { endpoint: SELF_HOSTED_URL };
+      const runtime = resolveConfig(cfg);
+      writePluginRuntimeState(tmpDir, cfg, "test");
+      delete process.env["AXONFLOW_ENDPOINT"];
+
+      const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+      expect(`${label}:${report.endpoint}`).toBe(`${label}:${runtime.endpoint}`);
+      expect(`${label}:${report.mode}`).toBe(`${label}:${runtime.mode}`);
+    }
+  });
+
+  it("still lets the CLI's own live AXONFLOW_ENDPOINT win over the recorded one", () => {
+    loadWithEnvEndpoint(SELF_HOSTED_URL);
+    process.env["AXONFLOW_ENDPOINT"] = OTHER_URL;
+
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+
+    expect(report.endpoint).toBe(OTHER_URL);
+    // ...and says so, rather than silently picking one of the two.
+    expect(report.runtime_endpoint_at_last_load).toBe(SELF_HOSTED_URL);
+    expect(formatStatusReport(report)).toContain(SELF_HOSTED_URL);
+    expect(formatStatusReport(report)).toContain("NOTE:");
+  });
+
+  it("adds no divergence note when the live env agrees with the recorded value", () => {
+    loadWithEnvEndpoint(SELF_HOSTED_URL);
+    process.env["AXONFLOW_ENDPOINT"] = SELF_HOSTED_URL;
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+    expect(report.runtime_endpoint_at_last_load).toBeNull();
+    expect(formatStatusReport(report)).not.toContain("NOTE:");
+  });
+});
+
+describe("provenance is claimed only when the record contributed", () => {
+  it("does NOT stamp an environment-only answer with a recorded timestamp", () => {
+    // A record exists but carries nothing — the runtime had no endpoint
+    // override and no clientId. Advertising its timestamp would read as
+    // "I consulted the running runtime", which is the false-confirmation
+    // half of #162/#167.
+    writePluginRuntimeState(tmpDir, {}, "test");
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+    expect(report.config_recorded_at).toBeNull();
+    expect(report.config_recorded_source).toBeNull();
+    expect(formatStatusReport(report)).not.toContain("as recorded by the plugin load");
+  });
+
+  it("does NOT claim the recorded endpoint contributed when the live env overrode it", () => {
+    writePluginRuntimeState(tmpDir, { endpoint: SELF_HOSTED_URL }, "test");
+    process.env["AXONFLOW_ENDPOINT"] = OTHER_URL;
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+    expect(report.config_recorded_source).toBeNull();
+  });
+
+  it("claims provenance when the recorded clientId contributed even under an env override", () => {
+    writePluginRuntimeState(tmpDir, { endpoint: SELF_HOSTED_URL, clientId: "acme-prod" }, "test");
+    process.env["AXONFLOW_ENDPOINT"] = OTHER_URL;
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+    expect(report.client_id).toBe("acme-prod");
+    expect(report.config_recorded_at).not.toBeNull();
   });
 });
 
@@ -298,7 +407,7 @@ describe("stale persisted state cannot survive a config change", () => {
     writePluginRuntimeState(tmpDir, { endpoint: OTHER_URL }, "test");
     const report = buildStatusReport(resolveStatusInputs({}, tmpDir));
     expect(report.endpoint).toBe(COMMUNITY_SAAS_DEFAULT_ENDPOINT);
-    expect(report.plugin_config_recorded_at).toBeNull();
+    expect(report.config_recorded_at).toBeNull();
   });
 
   it("a config change rewrites the record on the next plugin load", () => {
@@ -343,16 +452,32 @@ describe("plugin runtime-state record", () => {
     expect(raw).not.toContain("super-secret-value");
     expect(raw).not.toContain("AXON-secret-token");
     expect(raw).not.toContain("user-secret-token");
-    expect(Object.keys(JSON.parse(raw).plugin_config).sort()).toEqual(["clientId", "endpoint"]);
+    expect(Object.keys(JSON.parse(raw)).sort()).toEqual([
+      "client_id",
+      "endpoint_override",
+      "endpoint_source",
+      "plugin_version",
+      "recorded_at",
+      "schema",
+    ]);
     if (process.platform !== "win32") {
       expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     }
   });
 
   it("trims values and tolerates non-string config entries", () => {
-    expect(buildPluginConfigView({ endpoint: "  x  ", clientId: 5 } as unknown as Record<string, unknown>))
-      .toEqual({ endpoint: "x", clientId: "" });
-    expect(buildPluginConfigView(undefined)).toEqual({ endpoint: "", clientId: "" });
+    expect(buildRecordedRuntimeInputs({ endpoint: "  x  ", clientId: 5 } as unknown as Record<string, unknown>))
+      .toEqual({ endpointOverride: "x", endpointSource: "plugin-config", clientId: "" });
+    expect(buildRecordedRuntimeInputs(undefined))
+      .toEqual({ endpointOverride: "", endpointSource: "none", clientId: "" });
+  });
+
+  it("records which channel supplied the endpoint override", () => {
+    expect(buildRecordedRuntimeInputs({ endpoint: SELF_HOSTED_URL }).endpointSource).toBe("plugin-config");
+    process.env["AXONFLOW_ENDPOINT"] = OTHER_URL;
+    const fromEnv = buildRecordedRuntimeInputs({ endpoint: SELF_HOSTED_URL });
+    expect(fromEnv.endpointOverride).toBe(OTHER_URL);
+    expect(fromEnv.endpointSource).toBe("env");
   });
 
   it("returns null for missing, malformed, and unknown-schema records", () => {
@@ -367,7 +492,15 @@ describe("plugin runtime-state record", () => {
 
     fs.writeFileSync(
       file,
-      JSON.stringify({ schema: RUNTIME_STATE_SCHEMA + 99, plugin_config: { endpoint: OTHER_URL } }),
+      JSON.stringify({ schema: RUNTIME_STATE_SCHEMA + 99, endpoint_override: OTHER_URL }),
+    );
+    expect(readPluginRuntimeState(file)).toBeNull();
+
+    // A v1 record (pluginConfig-only shape) must be ignored, not
+    // half-interpreted: v1 could not represent the env channel at all.
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schema: 1, plugin_config: { endpoint: OTHER_URL, clientId: "old" } }),
     );
     expect(readPluginRuntimeState(file)).toBeNull();
 
@@ -380,13 +513,15 @@ describe("plugin runtime-state record", () => {
     expect(report.endpoint).toBe(COMMUNITY_SAAS_DEFAULT_ENDPOINT);
   });
 
-  it("tolerates a record whose plugin_config block is missing or wrong-typed", () => {
+  it("tolerates a record whose fields are missing or wrong-typed", () => {
     fs.writeFileSync(
       runtimeStatePath(tmpDir),
-      JSON.stringify({ schema: RUNTIME_STATE_SCHEMA, recorded_at: "", plugin_version: "x" }),
+      JSON.stringify({ schema: RUNTIME_STATE_SCHEMA, endpoint_override: 42, endpoint_source: "bogus" }),
     );
     const state = readPluginRuntimeState(runtimeStatePath(tmpDir));
-    expect(state?.plugin_config).toEqual({ endpoint: "", clientId: "" });
+    expect(state?.endpoint_override).toBe("");
+    expect(state?.endpoint_source).toBe("none");
+    expect(state?.client_id).toBe("");
     expect(buildStatusReport(resolveStatusInputs(undefined, tmpDir)).endpoint).toBe(
       COMMUNITY_SAAS_DEFAULT_ENDPOINT,
     );

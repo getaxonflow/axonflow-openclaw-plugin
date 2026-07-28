@@ -1,5 +1,90 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **The status surfaces now report the endpoint and identity the governance
+  runtime actually uses.** (#167) `axonflow-openclaw-status` runs as its own
+  process and can see neither `pluginConfig` nor the environment the OpenClaw
+  runtime was started with, so a self-hosted operator was told their traffic
+  went to the Community SaaS and was shown the cached `cs_` tenant they never
+  authenticate as; `axonflow_get_tenant_id` reported the same. Endpoint, mode
+  and tenant identity are now one decision (`resolveDeploymentTarget`) shared
+  by the runtime and every display surface. Each plugin load records the
+  user-provided inputs that fed it — the endpoint override the runtime
+  resolved, from **either** `AXONFLOW_ENDPOINT` or `pluginConfig.endpoint`,
+  plus the configured `clientId` — at
+  `$AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json` (mode `0600`), and
+  the CLI feeds those to the same resolver. Inputs are recorded, never the
+  resolved answer, so the reader's own `AXONFLOW_ENDPOINT` is always applied
+  live and a recorded value can only fill a gap. Same drift family as #162,
+  opposite direction: there the runtime was wrong, here the display was.
+
+- **A governed tool call that proceeds because the endpoint is unreachable now
+  says so.** (#167) The network fail-open is deliberate and is **unchanged** —
+  no fail-closed mode was added — but it was silent: a session could run
+  entirely ungoverned while the user believed governance was on. The first
+  such call now emits a one-shot notice naming the endpoint, the underlying
+  error, and the fact that no policy was evaluated, on the same channel as the
+  auth-failure notice. Auth errors do not trigger it; see #170 for the
+  remaining `403` + `onError: "allow"` gap.
+
+- **An error response's own reason is rendered instead of a bare status line.**
+  (#167, axonflow-enterprise#3062) `axonflow_create_override` /
+  `axonflow_revoke_override` reported `HTTP 401 Unauthorized` with nothing
+  explaining why. The `check-input` / `check-output` 401 paths no longer
+  discard the response body, and the agent-tool renderer appends whatever
+  reason it carries. No platform version is assumed: several conventional
+  reason properties are probed, and an absent, non-JSON or malformed body
+  degrades to the previous message byte-for-byte. Rendered reasons are
+  whitespace-collapsed, capped at 300 characters, and stripped of
+  credential-shaped content so an echoing proxy cannot leak the request's own
+  `Authorization` header into a transcript.
+
+- The 401 body read is independently time-bounded. `fetchWithTimeout` clears
+  its abort timer once the response resolves, so reading a body after it was
+  unbounded — a peer that returned 401 headers and then stalled would have
+  wedged `before_tool_call`, and with it every governed tool call in the
+  session.
+
+- Manifest and README sweep for surfaces this touched, plus pre-existing gaps
+  found in the same census: `AXONFLOW_CONFIG_DIR` / `AXONFLOW_CACHE_DIR`
+  descriptions now name everything they hold; the two free-tier cache stamps
+  (`throttle-until`, `upgrade-prompt-last-shown`) and the credential-recovery
+  network calls are declared; the disclosure stamp's declared contents match
+  what is written; `onError` has a `uiHints` entry.
+
+### Changed
+
+- `StatusReport` gains `mode`, `identity_source`, `config_recorded_at`,
+  `config_recorded_source` and `runtime_endpoint_at_last_load`, and the
+  `endpoint:` line of the human-readable output carries a `(mode=…)` suffix.
+  `client_id` / `tenant_id` keep their meaning and both stay populated. In
+  self-hosted mode `client_id` is now the tenant the runtime authenticates as
+  rather than a cached Community-SaaS registration.
+- `buildAgentTools(clientRef, pluginConfig?)` and
+  `buildGetTenantIdTool(pluginConfig?)` accept the live plugin config. Called
+  without it, the tool falls back to the persisted record.
+
+### Testing
+
+- New `runtime-e2e/status-identity-truth/` (6 legs) and
+  `runtime-e2e/failopen-notice/` (4 legs), both driving the real host, the
+  real bin and real agent dispatch, each with a vacuity control that
+  reproduces the pre-fix answer.
+- `runtime-e2e/governance-lifecycle/` no longer prints `SKIP:` and exits 0
+  when its pre-flight `create_override` returns non-201. That is the default
+  posture on every stack since platform 9.9.0 made the identity trust gate
+  opt-in, so the lifecycle had never actually run in CI. It now fails, naming
+  the flag to set. The posture is server-side and cannot be provisioned from
+  the harness.
+- `runtime-e2e/endpoint-env-override/` isolates `AXONFLOW_CONFIG_DIR` so its
+  ephemeral sentinel ports cannot end up in a developer's real config.
+- Jest pins `AXONFLOW_CONFIG_DIR` to a throwaway directory: plugin
+  registration now writes a file, and without the pin every test that
+  registers the plugin would write into the developer's real AxonFlow config.
+
 ## [2.8.4] - 2026-07-18: AXONFLOW_ENDPOINT honored by the governance runtime
 
 ### Fixed

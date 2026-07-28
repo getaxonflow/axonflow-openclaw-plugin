@@ -29,6 +29,13 @@
 #
 #   S5. `openclaw plugins doctor` reports zero diagnostics for the plugin.
 #
+#   S6. The OTHER configuration channel: the runtime is loaded with
+#       AXONFLOW_ENDPOINT set and no pluginConfig at all, then the CLI is run
+#       from a shell that does NOT export it. Round-1 hostile review of this
+#       change found that a pluginConfig-only record left #167 fully intact
+#       here. Also asserts that the reader's own AXONFLOW_ENDPOINT still wins,
+#       with the endpoint the runtime is still on reported alongside it.
+#
 # Env hygiene (#2937 class): AXONFLOW_ENDPOINT / AXONFLOW_CONFIG_DIR are
 # commonly exported by the e2e driver shell, so every openclaw and node
 # invocation below pins or clears them explicitly with `env VAR=` / `env -u
@@ -184,7 +191,7 @@ if [ -f "$RUNTIME_STATE_FILE" ]; then
   fi
   if grep -q "synth-tok-e2e-secret" "$RUNTIME_STATE_FILE"; then
     fail "runtime-state record contains the clientSecret"
-    else
+  else
     pass "runtime-state record contains no credential"
   fi
 else
@@ -249,6 +256,21 @@ mv "$RUNTIME_STATE_FILE.bak" "$RUNTIME_STATE_FILE" 2>/dev/null
 # S3 — axonflow_get_tenant_id through a real agent dispatch
 # ---------------------------------------------------------------------------
 echo "--- S3: axonflow_get_tenant_id through a real agent turn ---"
+# The tool runs INSIDE the runtime and is handed the live pluginConfig, so it
+# must not consult the record at all. Plant a DIVERGENT record first: if the
+# in-process plumbing were reverted, the tool would fall back to reading this
+# file and would report the decoy — so the leg can tell the feature apart from
+# the file. Without this the assertion would pass either way.
+DECOY_URL="http://127.0.0.1:1"
+RECORD_FILE="$RUNTIME_STATE_FILE" DECOY="$DECOY_URL" python3 - <<'PYDECOY'
+import json, os
+path = os.environ["RECORD_FILE"]
+rec = json.load(open(path))
+rec["endpoint_override"] = os.environ["DECOY"]
+rec["endpoint_source"] = "plugin-config"
+rec["client_id"] = "decoy-tenant-must-not-appear"
+json.dump(rec, open(path, "w"))
+PYDECOY
 TOOL_OUT="$(mktemp -t axonflow-status-truth-tool.XXXXXX)"
 TOOL_PROMPT="Call the axonflow_get_tenant_id tool with no arguments. Then output exactly the literal text SMOKE_RESULT: followed by a single-line JSON object containing the tool's endpoint, tenant_id and mode values, like SMOKE_RESULT: {\"endpoint\":\"...\",\"tenant_id\":\"...\",\"mode\":\"...\"}."
 env -u AXONFLOW_ENDPOINT AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
@@ -279,6 +301,12 @@ else
   else
     fail "axonflow_get_tenant_id reported mode '$TOOL_MODE' (expected self-hosted)"
   fi
+  # The decoy record must have been ignored entirely.
+  if [ "$TOOL_ENDPOINT" = "$DECOY_URL" ] || [ "$TOOL_TENANT" = "decoy-tenant-must-not-appear" ]; then
+    fail "axonflow_get_tenant_id read the persisted record instead of the live config"
+  else
+    pass "axonflow_get_tenant_id ignored the divergent persisted record (in-process path proven)"
+  fi
 fi
 rm -f "$TOOL_OUT"
 
@@ -308,6 +336,57 @@ if [ "$DOCTOR_HITS" = "0" ]; then
 else
   fail "plugins doctor reported $DOCTOR_HITS diagnostic line(s) for axonflow-governance"
   printf '%s\n' "$DOCTOR_OUT" | grep "axonflow-governance" | head -10 | sed 's/^/      /'
+fi
+
+# ---------------------------------------------------------------------------
+# S6 — the AXONFLOW_ENDPOINT channel: runtime env set, reader's shell clean
+# ---------------------------------------------------------------------------
+# Round-1 hostile review found that recording pluginConfig alone left #167
+# fully intact through the other documented channel. This is that repro,
+# through the real host and the real bin.
+echo "--- S6: endpoint configured via AXONFLOW_ENDPOINT on the runtime only ---"
+plugin_config_patch "{}" "endpoint clientId clientSecret"
+ENV_ONLY_OUT="$( cd "$PLUGIN_DIR" && env AXONFLOW_ENDPOINT="$SENTINEL_URL" AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
+    openclaw plugins install --force --dangerously-force-unsafe-install . 2>&1 )"
+if printf '%s' "$ENV_ONLY_OUT" | grep -qF "[AxonFlow] Connected to AxonFlow at $SENTINEL_URL (mode=self-hosted)"; then
+  pass "runtime resolved the env endpoint with mode=self-hosted"
+else
+  fail "runtime did not resolve the env endpoint"
+  printf '%s\n' "$ENV_ONLY_OUT" | grep -F "[AxonFlow]" | head -3 | sed 's/^/      /'
+fi
+
+# The reader's shell deliberately does NOT export AXONFLOW_ENDPOINT.
+ENV_ONLY_JSON="$( env -u AXONFLOW_ENDPOINT AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
+    node "$STATUS_BIN" --json 2>/dev/null )"
+S6_ENDPOINT=$(printf '%s' "$ENV_ONLY_JSON" | jq -r '.endpoint // empty')
+S6_MODE=$(printf '%s' "$ENV_ONLY_JSON" | jq -r '.mode // empty')
+S6_CLIENT=$(printf '%s' "$ENV_ONLY_JSON" | jq -r '.client_id // empty')
+S6_SOURCE=$(printf '%s' "$ENV_ONLY_JSON" | jq -r '.config_recorded_source // empty')
+if [ "$S6_ENDPOINT" = "$SENTINEL_URL" ] && [ "$S6_MODE" = "self-hosted" ]; then
+  pass "status CLI reports the env-configured endpoint from a shell that does not export it"
+else
+  fail "status CLI reported '$S6_ENDPOINT' / '$S6_MODE' (expected $SENTINEL_URL / self-hosted)"
+fi
+if [ "$S6_CLIENT" = "$CACHED_SAAS_TENANT" ]; then
+  fail "status CLI reported the cached cs_ tenant for an env-configured self-hosted install"
+else
+  pass "status CLI did not fall back to the cached cs_ tenant"
+fi
+if [ "$S6_SOURCE" = "env" ]; then
+  pass "status CLI names the environment as the channel the value came from"
+else
+  fail "config_recorded_source was '$S6_SOURCE' (expected env)"
+fi
+
+# And the reader's OWN environment still wins, with the divergence surfaced.
+DIVERGE_JSON="$( env AXONFLOW_ENDPOINT="http://127.0.0.1:9" AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
+    node "$STATUS_BIN" --json 2>/dev/null )"
+D_ENDPOINT=$(printf '%s' "$DIVERGE_JSON" | jq -r '.endpoint // empty')
+D_ATLOAD=$(printf '%s' "$DIVERGE_JSON" | jq -r '.runtime_endpoint_at_last_load // empty')
+if [ "$D_ENDPOINT" = "http://127.0.0.1:9" ] && [ "$D_ATLOAD" = "$SENTINEL_URL" ]; then
+  pass "the reader's own env wins, and the endpoint the runtime is still on is reported alongside"
+else
+  fail "divergence not surfaced: endpoint='$D_ENDPOINT' runtime_endpoint_at_last_load='$D_ATLOAD'"
 fi
 
 echo ""

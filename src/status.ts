@@ -45,8 +45,9 @@ import * as fs from "fs";
 import * as path from "path";
 import { axonflowConfigDir } from "./cache-dir.js";
 import {
+  COMMUNITY_SAAS_DEFAULT_ENDPOINT,
+  endpointFromEnv,
   resolveDeploymentTarget,
-  resolveRegisteredEndpoint,
   SELF_HOSTED_DEFAULT_CLIENT_ID,
 } from "./endpoint-env.js";
 import {
@@ -57,8 +58,13 @@ import {
 /** Filename used by Community-SaaS bootstrap and recovery to persist credentials. */
 const REGISTRATION_FILE_NAME = "try-registration.json";
 
-/** Default agent endpoint the plugin talks to when no override is set. */
-export const STATUS_DEFAULT_ENDPOINT = "https://try.getaxonflow.com";
+/**
+ * Default agent endpoint the plugin talks to when no override is set.
+ * Aliases the resolver's constant rather than repeating the literal — a
+ * second copy of a user-visible default is the drift this module exists to
+ * prevent.
+ */
+export const STATUS_DEFAULT_ENDPOINT = COMMUNITY_SAAS_DEFAULT_ENDPOINT;
 
 /** Default upgrade URL surfaced in status output for free-tier users. */
 export const STATUS_DEFAULT_UPGRADE_URL = "https://getaxonflow.com/pricing/";
@@ -119,14 +125,28 @@ export interface StatusInputs {
   clientIdSource?: "plugin-config" | "self-hosted-default" | "community-saas-bootstrap";
 
   /**
-   * ISO-8601 timestamp of the plugin load whose pluginConfig this report is
-   * based on, when the values came from the persisted runtime-state record
-   * rather than a live in-process config. Surfaced so a reader can tell how
-   * current the pluginConfig half of the answer is. Undefined when the
-   * caller supplied pluginConfig directly (in-process) or when no record
-   * was available.
+   * ISO-8601 timestamp of the plugin load this report's configuration came
+   * from, set ONLY when the persisted runtime-state record actually
+   * contributed a value the caller could not otherwise see.
+   *
+   * A record that contributed nothing must not be advertised: stamping an
+   * environment-only answer with a timestamp reads as "I consulted the
+   * running runtime", which is the false-confirmation half of #162/#167.
    */
-  pluginConfigRecordedAt?: string;
+  configRecordedAt?: string;
+
+  /** Which channel supplied the recorded endpoint, when one contributed. */
+  configRecordedSource?: "env" | "plugin-config";
+
+  /**
+   * The endpoint the last plugin load resolved, when it differs from the
+   * endpoint this report names. Happens when the CLI is run in a shell that
+   * exports a different `AXONFLOW_ENDPOINT` than the runtime was started
+   * with: the reported value is what a fresh load would resolve, this is
+   * what the process currently running is using. Surfaced rather than
+   * silently picked between.
+   */
+  runtimeEndpointAtLastLoad?: string;
 
   /** Override config dir for tests / non-default deployments. */
   configDirOverride?: string;
@@ -221,12 +241,22 @@ export interface StatusReport {
     | "community-saas-registration"
     | "unregistered";
   /**
-   * ISO-8601 timestamp of the plugin load whose pluginConfig fed this
-   * report, when the pluginConfig half came from the persisted runtime-state
-   * record (the standalone CLI's only view of it). Null for in-process
-   * callers, which read the live config, and when no record was available.
+   * ISO-8601 timestamp of the plugin load this report's configuration came
+   * from, when the persisted runtime-state record actually contributed a
+   * value. Null for in-process callers (which read the live config), when
+   * no record was available, and when the record contributed nothing.
    */
-  plugin_config_recorded_at: string | null;
+  config_recorded_at: string | null;
+  /**
+   * Which channel supplied the recorded endpoint ("env" | "plugin-config"),
+   * or null when nothing was recorded or nothing contributed.
+   */
+  config_recorded_source: "env" | "plugin-config" | null;
+  /**
+   * Endpoint the last plugin load resolved, when it differs from
+   * {@link endpoint}. Null when they agree — the normal case.
+   */
+  runtime_endpoint_at_last_load: string | null;
 }
 
 /**
@@ -422,18 +452,27 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
     ? readPersistedRegistration(registrationFile)
     : { tenantId: null, endpoint: null };
 
-  // Identity + endpoint both follow the resolved deployment mode (#167).
+  // Identity follows the resolved deployment mode (#167).
   //
   // self-hosted: the runtime authenticates with pluginConfig.clientId (or
-  //   the "community" default) against the resolved endpoint. A cached
-  //   Community-SaaS registration on disk is irrelevant — reporting it told
-  //   self-hosted operators their traffic went somewhere it does not.
-  // community-saas: the bootstrap owns both. It adopts the endpoint the
-  //   register response named, so status applies the same substitution via
-  //   the shared helper rather than assuming the default.
+  //   the "community" default). A cached Community-SaaS registration on disk
+  //   is irrelevant — reporting it told self-hosted operators their traffic
+  //   went somewhere it does not.
+  // community-saas: the bootstrap owns the identity and persists it in the
+  //   registration file, which is where it has always been read from.
+  //
+  // The ENDPOINT is always the resolved one, in both modes. An earlier
+  // revision of this change also adopted the endpoint recorded inside
+  // try-registration.json, mirroring what the bootstrap does with the
+  // register response. That was withdrawn: this surface reads that file
+  // without the permission and freshness checks the runtime applies
+  // (`readRegistrationIfFreshAndSafe`), and cannot see an
+  // `AXONFLOW_COMMUNITY_SAAS=0` opt-out in the runtime's environment, so it
+  // could report an endpoint the runtime would have refused to use. Two
+  // divergences to close one that no deployment has been observed to hit.
   let clientId: string | null;
   let identitySource: StatusReport["identity_source"];
-  let endpoint: string;
+  const endpoint = resolvedEndpoint;
   if (mode === "self-hosted") {
     const configured = (inputs.clientId ?? "").trim();
     clientId = configured || SELF_HOSTED_DEFAULT_CLIENT_ID;
@@ -441,11 +480,9 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
       inputs.clientIdSource === "self-hosted-default" || configured === ""
         ? "self-hosted-default"
         : "plugin-config";
-    endpoint = resolvedEndpoint;
   } else {
     clientId = registration.tenantId;
     identitySource = clientId ? "community-saas-registration" : "unregistered";
-    endpoint = resolveRegisteredEndpoint(registration.endpoint, resolvedEndpoint);
   }
 
   const licensePreview = redactLicenseToken(inputs.licenseToken);
@@ -488,7 +525,12 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
     registration_present: registration.tenantId !== null,
     mode,
     identity_source: identitySource,
-    plugin_config_recorded_at: inputs.pluginConfigRecordedAt ?? null,
+    config_recorded_at: inputs.configRecordedAt ?? null,
+    config_recorded_source: inputs.configRecordedSource ?? null,
+    runtime_endpoint_at_last_load:
+      inputs.runtimeEndpointAtLastLoad && inputs.runtimeEndpointAtLastLoad !== endpoint
+        ? inputs.runtimeEndpointAtLastLoad
+        : null,
   };
 }
 
@@ -496,7 +538,8 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
  * Resolve `StatusInputs` from the process environment + the plugin config
  * (mirrors `resolveConfig` semantics for the licenseToken / endpoint / mode
  * / identity fields). Pulled out as its own function so tests can drive the
- * resolution branches without the fs read.
+ * resolution branches directly; note it does touch the filesystem when no
+ * plugin configuration is supplied (see below).
  *
  * Resolution order:
  *   - licenseToken: env AXONFLOW_LICENSE_TOKEN > pluginConfig.licenseToken > undefined
@@ -507,18 +550,21 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
  *     construction, what the governance runtime USES (#162, #167).
  *   - upgradeUrl:   env AXONFLOW_UPGRADE_URL > STATUS_DEFAULT_UPGRADE_URL
  *
- * WHERE `pluginConfig` COMES FROM (#167). Two callers, two channels:
+ * WHERE THE CONFIGURATION COMES FROM (#167). Two callers, two channels:
  *
  *   - In-process (`axonflow_get_tenant_id`): index.ts hands the tool the
  *     live `api.pluginConfig`, which is passed straight through here. Always
  *     current; the persisted record is never consulted.
  *   - Standalone CLI (`bin/axonflow-openclaw-status.mjs`): runs outside the
- *     OpenClaw host with no pluginConfig available, so it calls this with
- *     `undefined` and we read back the record the last plugin load wrote
- *     (src/plugin-runtime-state.ts). Only the pluginConfig values are read
- *     from disk — `AXONFLOW_ENDPOINT` is resolved live from THIS process's
- *     environment by the shared resolver, so a persisted value can never
- *     outrank the caller's current environment.
+ *     OpenClaw host, seeing neither `pluginConfig` nor the environment the
+ *     runtime was started with, so it calls this with `undefined` and we
+ *     read back the record the last plugin load wrote
+ *     (src/plugin-runtime-state.ts). The record supplies the user's INPUTS
+ *     — the endpoint override the runtime resolved, from either channel,
+ *     and the configured clientId. The resolved endpoint, mode and identity
+ *     are still derived here, so THIS process's `AXONFLOW_ENDPOINT` is
+ *     applied on top by the shared resolver and a recorded value can only
+ *     fill a gap, never outrank the environment the CLI is run in.
  *
  * Passing `{}` explicitly means "the live config is empty", which is
  * distinct from `undefined` ("I cannot see the config, read the record").
@@ -537,14 +583,19 @@ export function resolveStatusInputs(
   // governance runtime wrote at its last load. Absent / malformed / unknown
   // schema yields null and we resolve from the environment alone, which is
   // the pre-#167 behaviour: degraded, but never wrong about the environment.
-  let recordedAt: string | undefined;
   let cfg: Record<string, unknown>;
+  let state: ReturnType<typeof readPluginRuntimeState> = null;
   if (pluginConfig !== undefined) {
     cfg = pluginConfig;
   } else {
-    const state = readPluginRuntimeState(runtimeStatePath(configDir));
-    cfg = state ? { ...state.plugin_config } : {};
-    if (state && state.recorded_at !== "") recordedAt = state.recorded_at;
+    state = readPluginRuntimeState(runtimeStatePath(configDir));
+    // The recorded override is fed in through the pluginConfig-shaped
+    // `endpoint` slot, which is exactly the slot `resolveEndpointOverride`
+    // falls back to AFTER consulting the live environment. That ordering is
+    // what makes a recorded value gap-filling rather than authoritative.
+    cfg = state
+      ? { endpoint: state.endpoint_override, clientId: state.client_id }
+      : {};
   }
 
   const envToken = typeof process.env["AXONFLOW_LICENSE_TOKEN"] === "string"
@@ -570,8 +621,34 @@ export function resolveStatusInputs(
   if (target.clientId !== "") inputs.clientId = target.clientId;
   inputs.clientIdSource = target.clientIdSource;
   if (upgradeUrl !== undefined) inputs.upgradeUrl = upgradeUrl;
-  if (recordedAt !== undefined) inputs.pluginConfigRecordedAt = recordedAt;
   if (configDirOverride !== undefined) inputs.configDirOverride = configDirOverride;
+
+  if (state !== null) {
+    // Only advertise the record when it actually CONTRIBUTED. The live
+    // environment outranks the recorded endpoint, so the recorded endpoint
+    // contributes only when this process has no AXONFLOW_ENDPOINT of its
+    // own; the recorded clientId always contributes when it is set.
+    const liveEnvRaw = endpointFromEnv();
+    const liveEnvSet = typeof liveEnvRaw === "string" && liveEnvRaw.trim() !== "";
+    const endpointContributed = !liveEnvSet && state.endpoint_override !== "";
+    if ((endpointContributed || state.client_id !== "") && state.recorded_at !== "") {
+      inputs.configRecordedAt = state.recorded_at;
+      if (endpointContributed && state.endpoint_source !== "none") {
+        inputs.configRecordedSource = state.endpoint_source;
+      }
+    }
+    // When this process's environment overrides a DIFFERENT endpoint than
+    // the runtime resolved at its last load, both facts matter: the reported
+    // value is what a fresh load would resolve, the recorded one is what the
+    // running process is using. Report both rather than silently pick.
+    // A non-empty recorded override IS the endpoint the runtime resolved:
+    // a user-provided override always wins over every default, so no second
+    // resolution is needed (and none is done — re-running the resolver here
+    // would consult the live environment again and defeat the comparison).
+    if (liveEnvSet && state.endpoint_override !== "" && state.endpoint_override !== target.endpoint) {
+      inputs.runtimeEndpointAtLastLoad = state.endpoint_override;
+    }
+  }
   return inputs;
 }
 
@@ -615,9 +692,20 @@ export function formatStatusReport(report: StatusReport): string {
     lines.push("              Lost your registration? Run `axonflow-openclaw-recover <email>`");
   }
   lines.push(`  endpoint:   ${report.endpoint}  (mode=${report.mode})`);
-  if (report.plugin_config_recorded_at !== null) {
-    lines.push(`              (plugin config read from the last plugin load at ${report.plugin_config_recorded_at};`);
-    lines.push("              reload OpenClaw after editing pluginConfig to refresh it)");
+  if (report.config_recorded_at !== null) {
+    const channel =
+      report.config_recorded_source === "env"
+        ? "AXONFLOW_ENDPOINT in the runtime's environment"
+        : report.config_recorded_source === "plugin-config"
+          ? "pluginConfig"
+          : "plugin configuration";
+    lines.push(`              (from ${channel}, as recorded by the plugin load at`);
+    lines.push(`              ${report.config_recorded_at}; reload OpenClaw after changing it)`);
+  }
+  if (report.runtime_endpoint_at_last_load !== null) {
+    lines.push("              NOTE: AXONFLOW_ENDPOINT in THIS shell resolves the endpoint above,");
+    lines.push(`              but the running plugin resolved ${report.runtime_endpoint_at_last_load} at its`);
+    lines.push("              last load and is still governing against that until it reloads.");
   }
 
   // V1 SaaS Plugin Pro tier-line surface parity (codex / cursor / claude /

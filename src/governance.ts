@@ -203,7 +203,17 @@ export function createBeforeToolCallHandler(
         // without policy evaluation, so a session cannot go ungoverned
         // without the user being told. Auth errors are excluded — they take
         // the config.onError path below and carry their own notice.
-        noteNetworkFailOpen(config.endpoint, err);
+        //
+        // The endpoint is read off the CLIENT, not off `config`: in
+        // community-saas mode registerAxonFlowGovernance swaps in a client
+        // built on the endpoint the register response named, so `config`
+        // can name a host the failing request never touched. Optional call
+        // so test doubles without the accessor degrade to the config value.
+        const failedEndpoint =
+          (typeof clientRef.current.getEndpoint === "function"
+            ? clientRef.current.getEndpoint()
+            : "") || config.endpoint;
+        noteNetworkFailOpen(failedEndpoint, err);
         recordToolCallAllowed();
         return undefined; // Fail-open: transient network issue
       }

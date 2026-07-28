@@ -95,8 +95,8 @@ The plugin recognizes the following environment variables. All are optional with
 | `AXONFLOW_ENDPOINT` | Override the AxonFlow agent gateway endpoint. Wins over `pluginConfig.endpoint` when both are set. Setting this selects self-hosted mode: all governed traffic targets this endpoint and the Community-SaaS auto-registration never runs. When unset and `AXONFLOW_COMMUNITY_SAAS` is not opted out, the plugin auto-bootstraps against `https://try.getaxonflow.com`. For self-hosted deployments, set this (or `pluginConfig.endpoint`) to your AxonFlow URL. |
 | `AXONFLOW_TELEMETRY=off` | Disables the 7-day usage heartbeat to `checkpoint.getaxonflow.com`. Accepted off-values: `off`, `0`, `false`, `no`. |
 | `AXONFLOW_COMMUNITY_SAAS=0` | Disables auto-registration with `try.getaxonflow.com`. You must then set `pluginConfig.endpoint` (or `AXONFLOW_ENDPOINT`) for the plugin to enforce policy. Accepted off-values: `0`, `false`, `off`, `no`. |
-| `AXONFLOW_CACHE_DIR` | Overrides the per-user cache dir (telemetry stamp, rate-limit backoff). Defaults to `$XDG_CACHE_HOME/axonflow` (Linux), `~/Library/Caches/axonflow` (macOS), `%LOCALAPPDATA%\axonflow` (Windows). |
-| `AXONFLOW_CONFIG_DIR` | Overrides the per-user config dir (Community-SaaS registration file, disclosure stamp). Defaults to OS conventions: `$XDG_CONFIG_HOME/axonflow` (Linux), `~/Library/Application Support/axonflow` (macOS), `%APPDATA%\axonflow` (Windows). |
+| `AXONFLOW_CACHE_DIR` | Overrides the per-user cache dir (telemetry stamp, rate-limit backoff, free-tier throttle + upgrade-prompt stamps). Defaults to `$XDG_CACHE_HOME/axonflow` (Linux), `~/Library/Caches/axonflow` (macOS), `%LOCALAPPDATA%\axonflow` (Windows). |
+| `AXONFLOW_CONFIG_DIR` | Overrides the per-user config dir (Community-SaaS registration file, disclosure stamp, plugin runtime-state record read by `axonflow-openclaw-status`). Defaults to OS conventions: `$XDG_CONFIG_HOME/axonflow` (Linux), `~/Library/Application Support/axonflow` (macOS), `%APPDATA%\axonflow` (Windows). |
 | `AXONFLOW_LICENSE_TOKEN` | AxonFlow Pro plugin-claim license token (begins with `AXON-`). Forwarded on every governed request via the `X-License-Token` header so the agent applies Pro-tier entitlements. Wins over `pluginConfig.licenseToken`. |
 | `AXONFLOW_USER_TOKEN` | Per-user authorization token forwarded on every governed request via the `X-User-Token` header, giving this developer a **validated** `{identity, role}` on the AxonFlow fleet plane: role-scoped reads return the developer's own rows, and audit attribution keys on the token's canonical email — beating the forgeable `userEmail` label — on the planes that consume the header (the MCP tools at `/api/v1/mcp-server` and the audit/decisions/overrides REST surface; the `check-input`/`check-output` hook plane keeps client-scoped attribution on current platforms). Minted by an org admin via the AxonFlow user-token mint API; delivered via managed settings/MDM. Resolution order: `pluginConfig.userToken` wins over this env var, which wins over the `0600` provisioning file `~/.config/axonflow/user-token.json` (a cross-plugin path shared with the other AxonFlow plugins). A malformed value is dropped with a warning — never sent — and resolution falls through to the next source. Unset (default): no header is sent; requests are byte-identical to v2.6.x. |
 | `AXONFLOW_RECOVERY_TIMEOUT_MS` | Per-HTTP-request timeout in milliseconds for the bundled `axonflow-openclaw-recover` CLI's calls to `/api/v1/recover` and `/api/v1/recover/verify`. Default `10000` (10s). Increase for high-latency networks; decrease for fail-fast CI environments. |
@@ -149,7 +149,7 @@ AxonFlow OpenClaw plugin status
               (paste this into the Stripe checkout custom field when buying Pro —
               the form's field label is still 'AxonFlow tenant ID' for now)
   endpoint:   https://try.getaxonflow.com  (mode=community-saas)
-  tier:       Free
+  tier:       Free (no Pro license configured)
   upgrade:    https://getaxonflow.com/pricing/
 ```
 
@@ -161,8 +161,8 @@ AxonFlow OpenClaw plugin status
   client_id:  acme-prod  (formerly tenant_id)
               (from pluginConfig.clientId — the identity governed requests authenticate with)
   endpoint:   https://axonflow.acme.internal  (mode=self-hosted)
-              (plugin config read from the last plugin load at 2026-07-28T11:02:14.881Z;
-              reload OpenClaw after editing pluginConfig to refresh it)
+              (from pluginConfig, as recorded by the plugin load at
+              2026-07-28T11:02:14.881Z; reload OpenClaw after changing it)
   tier:       Free (no Pro license configured)
   upgrade:    https://getaxonflow.com/pricing/
 ```
@@ -176,13 +176,23 @@ AxonFlow OpenClaw plugin status
               (paste this into the Stripe checkout custom field when buying Pro —
               the form's field label is still 'AxonFlow tenant ID' for now)
   endpoint:   https://try.getaxonflow.com  (mode=community-saas)
-  tier:       Pro (license token configured)
+  tier:       Pro (expires 2026-10-14, 78 days remaining)
   license:    …XYZ9 (redacted — last 4 chars only)
 ```
 
 The license token is **never** printed in full — only the last four characters are shown so you can confirm the token is the one you expect without exposing it via screen-share, copy-paste, or shell history. If `client_id` is missing, the CLI points you at `axonflow-openclaw-recover` to re-issue credentials against your registered email. JSON output (`--json`) populates BOTH `client_id` and the legacy `tenant_id` key with the same value so v2.4.x consumers keep working unchanged.
 
-**Self-hosted installs.** The CLI runs as its own process and cannot read OpenClaw's `pluginConfig`, so through v2.8.4 it reported the Community-SaaS default endpoint and the cached Community-SaaS `client_id` even when governed traffic was going to a self-hosted stack ([#167](https://github.com/getaxonflow/axonflow-openclaw-plugin/issues/167)). It now resolves the endpoint, mode and identity through the same helper the governance runtime uses, reading the plugin config values the last plugin load recorded at `$AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json` (mode `0600`; endpoint and `clientId` only — no credentials are written). `AXONFLOW_ENDPOINT` is still read live from the environment of whatever shell you run the CLI in, and still wins, so a recorded value can never override your current environment. The `mode=` suffix on the `endpoint` line and the `mode` / `identity_source` keys in `--json` tell you which deployment the answer describes. If you edit `pluginConfig` and have not reloaded OpenClaw yet, the CLI prints the timestamp of the load the values came from — the running runtime is still using them until it reloads.
+**Self-hosted installs.** The CLI runs as its own process. It can see neither OpenClaw's `pluginConfig` nor the environment the OpenClaw runtime was started with, so through v2.8.4 it reported the Community-SaaS default endpoint and the cached Community-SaaS `client_id` even when governed traffic was going to a self-hosted stack ([#167](https://github.com/getaxonflow/axonflow-openclaw-plugin/issues/167)).
+
+It now resolves the endpoint, mode and identity through the same helper the governance runtime uses. To give that helper the inputs it otherwise could not see, every plugin load records them at `$AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json` (mode `0600`): the endpoint override the runtime resolved — from **either** `AXONFLOW_ENDPOINT` or `pluginConfig.endpoint` — plus the configured `clientId`. No credentials are written: `clientSecret`, `licenseToken` and `userToken` are excluded.
+
+What is recorded is your input, not the resolved answer. `AXONFLOW_ENDPOINT` is still read live from whatever shell you run the CLI in, and still wins, so a recorded value only ever fills a gap and can never override your current environment. Three consequences worth knowing:
+
+- The `mode=` suffix on the `endpoint` line, and the `mode` / `identity_source` keys in `--json`, tell you which deployment the answer describes.
+- When a recorded value contributed, the CLI names the channel it came from and the timestamp of the load that recorded it. When nothing was recorded, or nothing contributed, that line is absent rather than decorating an environment-only answer with a timestamp that would suggest otherwise.
+- If your shell exports a *different* `AXONFLOW_ENDPOINT` than the runtime was started with, the CLI reports what a fresh load would resolve **and** adds a `NOTE:` naming the endpoint the running plugin is still governing against until it reloads.
+
+Change `pluginConfig` or the runtime's environment and reload OpenClaw, and the record is rewritten to match.
 
 The same values are available to the agent through the `axonflow_get_tenant_id` tool, which runs inside the runtime and reads the live config directly.
 
@@ -455,16 +465,18 @@ The plugin classifies errors from the AxonFlow client into two buckets and appli
 | `message_sending` | Respects `onError`. With `"block"` (default), the outbound message is cancelled. With `"allow"`, it is delivered ungoverned. | Same as network error — respects `onError`. |
 | `after_tool_call`, `llm_input`, `llm_output` (audit) | Always silently caught. Governance was already enforced on the pre-execution hook. | Always silently caught. |
 
-The `before_tool_call` fail-open is not silent. The first time a governed tool call proceeds because the endpoint was unreachable, the plugin writes one warning to the session naming the endpoint, the underlying error, and the fact that the call ran with no policy evaluated:
+The `before_tool_call` network fail-open is not silent. The first time a governed tool call proceeds because the endpoint was unreachable, the plugin emits one warning on the same channel as the auth-failure notice (`console.warn`, so it lands in the OpenClaw plugin log and in the terminal running the session), naming the endpoint, the underlying error, and the fact that the call ran with no policy evaluated:
 
 ```
 [AxonFlow] Could not reach http://localhost:8080 (fetch failed). This tool call ran
 UNGOVERNED — no policy was evaluated, nothing was blocked, and no decision was recorded.
 Tool calls continue to run ungoverned while the endpoint is unreachable; restore
-connectivity to resume enforcement. Shown once per session.
+connectivity to resume enforcement. Shown once per process.
 ```
 
-It appears once per session rather than once per tool call, mirroring the auth-failure notice, so a long outage does not flood the transcript. Auth errors do not trigger it — those take the `onError` path above and carry their own notice.
+It appears once per process rather than once per tool call, mirroring the auth-failure notice, so a long outage does not flood the transcript.
+
+Auth errors do not trigger this notice — they take the `onError` path above. With the default `onError: "block"` nothing runs ungoverned, so there is nothing to announce, and a 401 additionally trips the client's own one-time authentication warning. **One gap remains:** with `onError: "allow"`, an HTTP **403** proceeds ungoverned and emits nothing (only 401 trips the client warning). Tracked in [#170](https://github.com/getaxonflow/axonflow-openclaw-plugin/issues/170); until it is closed, treat `onError: "allow"` as a posture that can go quiet.
 
 If you need tool-execution itself to fail-closed during an AxonFlow outage (for example on a production infrastructure agent), pair the plugin with an OpenClaw-side health check or a front-door liveness gate — the plugin alone will not achieve that for `before_tool_call`.
 
@@ -613,6 +625,7 @@ Opt out: set `AXONFLOW_TELEMETRY=off` in the environment OpenClaw runs in.
 | Platform version probe | During heartbeat (if not opted out) | Nothing (GET to /health) | Disabled when `AXONFLOW_TELEMETRY=off` |
 | Version compatibility check | On plugin init | Plugin version | Fire-and-forget |
 | Community SaaS registration | First run (community-saas mode only) | Machine label (plugin version + OS) | `AXONFLOW_COMMUNITY_SAAS=0` or self-hosted endpoint |
+| Credential recovery | Only when you run `axonflow-openclaw-recover` | The email address you pass on the command line, then the magic-link token you paste back | Don't run the CLI — it never fires from the plugin runtime |
 
 ---
 

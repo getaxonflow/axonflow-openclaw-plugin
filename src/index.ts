@@ -116,7 +116,7 @@ export type { DeploymentTarget } from "./endpoint-env.js";
 // Runtime-state record that lets the standalone status CLI see the
 // pluginConfig the runtime resolved (#167).
 export {
-  buildPluginConfigView,
+  buildRecordedRuntimeInputs,
   readPluginRuntimeState,
   runtimeStatePath,
   writePluginRuntimeState,
@@ -124,8 +124,9 @@ export {
   RUNTIME_STATE_SCHEMA,
 } from "./plugin-runtime-state.js";
 export type {
-  PluginConfigView,
+  EndpointSource,
   PluginRuntimeState,
+  RecordedRuntimeInputs,
 } from "./plugin-runtime-state.js";
 
 /**
@@ -154,13 +155,16 @@ export function registerAxonFlowGovernance(api: {
   // Reset metrics on each registration (handles hot-reload)
   resetMetrics();
 
-  // #167 — record the pluginConfig values that fed the deployment decision
-  // so `axonflow-openclaw-status`, which runs as a separate process with no
-  // pluginConfig context, resolves the same endpoint and identity this
-  // runtime just did instead of falling back to the Community-SaaS default.
-  // Inputs only, no credentials; rewritten on every load so a config change
-  // the runtime picks up is reflected on the display surface too. Failure to
-  // write is non-fatal: the CLI degrades to environment-only resolution.
+  // #167 — record the user-provided inputs that fed the deployment decision
+  // (the endpoint override this runtime resolved, from EITHER the
+  // AXONFLOW_ENDPOINT environment variable or pluginConfig, plus the
+  // configured clientId) so `axonflow-openclaw-status` — a separate process
+  // that can see neither channel — resolves the same endpoint and identity
+  // this runtime just did instead of falling back to the Community-SaaS
+  // default. Inputs only, no credentials; rewritten on every load so a
+  // configuration change the runtime picks up is reflected on the display
+  // surface too. Failure to write is non-fatal: the CLI degrades to
+  // environment-only resolution.
   writePluginRuntimeState(axonflowConfigDir(), api.pluginConfig, VERSION);
 
   // Mode-clarity canary — emitted on every plugin init so users always know

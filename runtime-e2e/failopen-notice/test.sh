@@ -56,7 +56,7 @@ cleanup() {
   fi
   [ -n "$LIVE_PID" ] && kill "$LIVE_PID" 2>/dev/null
   rm -rf "$AXONFLOW_STATE_DIR"
-  rm -f "$LIVE_LOG"
+  rm -f "$LIVE_LOG" "${SECRET_ONE:-}" "${SECRET_TWO:-}"
 }
 trap cleanup EXIT INT TERM HUP
 
@@ -87,12 +87,26 @@ echo "--- Building + installing local OpenClaw plugin ---"
 ( cd "$PLUGIN_DIR" && npm run --silent build ) >/dev/null 2>&1 || { echo "FAIL: plugin build failed"; exit 1; }
 
 # Two governed tool calls in one turn: proves the notice is one-shot per
-# process rather than one per call. Ask for two distinct writes so the model
-# cannot collapse them into a single tool invocation.
+# process rather than one per call.
+#
+# The tool calls must be UNAVOIDABLE. An earlier revision asked the model to
+# `echo` two literal strings and asserted it reported them back — which a
+# model can satisfy from the prompt alone without invoking any tool, and did:
+# the run showed `toolSummary.calls = 0` while the assertion passed. Instead
+# each step must read a secret this script generates and never puts in the
+# prompt, so the only way to produce it is to actually execute the tool.
+NONCE_ONE="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+NONCE_TWO="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+SECRET_ONE="$(mktemp -t axonflow-failopen-s1.XXXXXX)"
+SECRET_TWO="$(mktemp -t axonflow-failopen-s2.XXXXXX)"
+printf '%s' "$NONCE_ONE" >"$SECRET_ONE"
+printf '%s' "$NONCE_TWO" >"$SECRET_TWO"
+
 PROMPT="Do exactly two things, using a shell/bash tool for each, then report.
-Step 1: run the command: echo axonflow-failopen-one
-Step 2: run the command: echo axonflow-failopen-two
-Then output exactly the literal text SMOKE_RESULT: followed by single-line JSON like SMOKE_RESULT: {\"step1\":\"<stdout of step 1>\",\"step2\":\"<stdout of step 2>\"}."
+Step 1: run the command: cat $SECRET_ONE
+Step 2: run the command: cat $SECRET_TWO
+Do not guess the file contents — you must run both commands to read them.
+Then output exactly the literal text SMOKE_RESULT: followed by single-line JSON like SMOKE_RESULT: {\"step1\":\"<exact stdout of step 1>\",\"step2\":\"<exact stdout of step 2>\"}."
 
 run_turn() {
   local endpoint="$1" out_file="$2" err_file="$3"
@@ -123,25 +137,46 @@ else
   tail -20 "$DEAD_ERR" | sed 's/^/      /'
 fi
 
-if grep -q "$DEAD_URL" "$DEAD_ERR" 2>/dev/null; then
-  pass "notice names the unreachable endpoint"
+# Grep the NOTICE LINE, not the whole stream. The same stderr already carries
+# the init canary ("Connected to AxonFlow at <url>") and the health-check
+# warning, both naming this endpoint — a whole-stream grep would pass with the
+# notice entirely absent.
+if grep "$NOTICE_MARKER" "$DEAD_ERR" 2>/dev/null | grep -q "$DEAD_URL"; then
+  pass "the notice line itself names the unreachable endpoint"
 else
-  fail "notice does not name $DEAD_URL"
+  fail "the notice line does not name $DEAD_URL"
 fi
 
-# F3: one-shot. The turn makes two governed tool calls; exactly one notice.
-if [ "$NOTICE_COUNT" -le 1 ]; then
-  pass "notice emitted at most once for the whole session (count=$NOTICE_COUNT)"
+# F3: one-shot. EXACTLY one, not "at most one" — `-le 1` would also pass at
+# zero, i.e. when the feature is missing entirely.
+if [ "$NOTICE_COUNT" -eq 1 ]; then
+  pass "notice emitted exactly once for the whole session (count=$NOTICE_COUNT)"
 else
-  fail "notice repeated $NOTICE_COUNT times — the one-shot latch is not holding"
+  fail "expected exactly 1 notice for the session, got $NOTICE_COUNT"
 fi
 
-# F2: the fail-open POLICY is unchanged — the governed tools still ran.
+# ...and the latch is only under test if MORE THAN ONE governed tool call
+# actually hit the dead endpoint. Count real tool dispatches from the agent
+# transcript rather than trusting the model's own summary text.
+# OpenClaw reports the authoritative count at .meta.toolSummary.calls
+# (alongside .tools / .failures). Read it there rather than counting shapes.
+TOOL_CALLS=$(jq -r '(.meta.toolSummary.calls // .meta.agentMeta.toolSummary.calls // 0)' "$DEAD_OUT" 2>/dev/null || echo 0)
+case "$TOOL_CALLS" in ''|*[!0-9]*) TOOL_CALLS=0 ;; esac
+if [ "$TOOL_CALLS" -ge 2 ]; then
+  pass "the turn dispatched $TOOL_CALLS tool calls, so the one-shot latch was genuinely exercised"
+else
+  fail "only $TOOL_CALLS tool dispatch(es) observed — the one-shot assertion above is vacuous"
+  jq -r '.payloads[]?.text // empty' "$DEAD_OUT" 2>/dev/null | head -5 | sed 's/^/      /'
+fi
+
+# F2: the fail-open POLICY is unchanged — the governed tools still ran. The
+# nonces are only obtainable by executing both commands, so reporting them
+# back is proof of execution rather than proof of plausible narration.
 DEAD_LINE=$(extract_smoke_line "$DEAD_OUT")
 if [ -n "$DEAD_LINE" ] \
-   && printf '%s' "$DEAD_LINE" | grep -q "axonflow-failopen-one" \
-   && printf '%s' "$DEAD_LINE" | grep -q "axonflow-failopen-two"; then
-  pass "fail-open policy unchanged — both governed tool calls still executed"
+   && printf '%s' "$DEAD_LINE" | grep -q "$NONCE_ONE" \
+   && printf '%s' "$DEAD_LINE" | grep -q "$NONCE_TWO"; then
+  pass "fail-open policy unchanged — both governed tool calls executed against the dead endpoint"
 else
   fail "governed tool calls did not execute against a dead endpoint; the fail-open policy was changed"
   echo "      SMOKE_RESULT: ${DEAD_LINE:-<none>}"
@@ -195,11 +230,16 @@ else
 
   # Control must have FIRED: the governed calls really did reach the
   # listener. Absence of a notice means nothing if nothing was governed.
-  if grep -q "POST /api/v1/mcp/check-input" "$LIVE_LOG" 2>/dev/null; then
-    pass "control fired — governed check-input calls reached the live endpoint"
+  LIVE_TOOL_CALLS=$(jq -r '(.meta.toolSummary.calls // .meta.agentMeta.toolSummary.calls // 0)' "$LIVE_OUT" 2>/dev/null || echo 0)
+  case "$LIVE_TOOL_CALLS" in ''|*[!0-9]*) LIVE_TOOL_CALLS=0 ;; esac
+  if [ "$LIVE_TOOL_CALLS" -lt 1 ]; then
+    fail "the control turn dispatched no tool calls at all — nothing was governed, so the no-notice assertion below is vacuous"
+    jq -r '.payloads[]?.text // empty' "$LIVE_OUT" 2>/dev/null | head -5 | sed 's/^/      /'
+  elif grep -q "POST /api/v1/mcp/check-input" "$LIVE_LOG" 2>/dev/null; then
+    pass "control fired — $LIVE_TOOL_CALLS governed tool call(s) reached the live endpoint as check-input"
   else
-    fail "no check-input reached the live endpoint; the no-notice assertion below is vacuous"
-    head -10 "$LIVE_LOG" 2>/dev/null | sed 's/^/      /'
+    fail "$LIVE_TOOL_CALLS tool call(s) dispatched but no check-input reached the live endpoint; the no-notice assertion below is vacuous"
+    echo "      listener log:"; head -10 "$LIVE_LOG" 2>/dev/null | sed 's/^/        /'
   fi
 
   if grep -q "$NOTICE_MARKER" "$LIVE_ERR" 2>/dev/null; then
