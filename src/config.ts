@@ -5,10 +5,7 @@
  * (openclaw.plugin.json or runtime config).
  */
 
-import {
-  resolveEffectiveEndpoint,
-  resolveEndpointOverride,
-} from "./endpoint-env.js";
+import { resolveDeploymentTarget } from "./endpoint-env.js";
 import { resolveUserToken } from "./user-token.js";
 
 export interface AxonFlowPluginConfig {
@@ -202,8 +199,6 @@ export function resolveConfig(
 ): AxonFlowPluginConfig {
   const safe = raw ?? {};
 
-  // Env > pluginConfig, trimmed, empty-is-unset — see src/endpoint-env.ts.
-  const rawEndpoint = resolveEndpointOverride(safe["endpoint"]);
   const rawClientId = typeof safe["clientId"] === "string" ? (safe["clientId"] as string).trim() : "";
   const rawClientSecret = typeof safe["clientSecret"] === "string" ? (safe["clientSecret"] as string).trim() : "";
 
@@ -216,33 +211,18 @@ export function resolveConfig(
     );
   }
 
-  const userProvidedAnything =
-    rawEndpoint !== "" || rawClientId !== "" || rawClientSecret !== "";
-
-  let clientId: string;
-  let clientSecret: string;
-  let mode: "community-saas" | "self-hosted";
-
-  // Endpoint value comes from the SAME shared decision the status surface
-  // uses (env > pluginConfig > credentials-implied local default >
-  // Community-SaaS default) so display and runtime cannot disagree (#162).
-  // `resolveEffectiveEndpoint` returns the Community-SaaS default exactly
-  // when the user provided nothing, which is also the community-saas mode
-  // condition — the two stay consistent by construction.
-  const endpoint = resolveEffectiveEndpoint(safe);
-
-  if (userProvidedAnything) {
-    mode = "self-hosted";
-    clientId = rawClientId || "community";
-    clientSecret = rawClientSecret;
-  } else {
-    mode = "community-saas";
-    // Bootstrap will fill these in. We deliberately leave them empty here
-    // so a misconfigured caller that skips the bootstrap step gets a clear
-    // 401 from the agent rather than a half-credentialled request.
-    clientId = "";
-    clientSecret = "";
-  }
+  // Endpoint, mode AND tenant identity all come from the SAME shared
+  // decision the status surfaces use (env > pluginConfig > credentials-
+  // implied local default > Community-SaaS default), so display and runtime
+  // cannot disagree (#162, widened to identity + mode in #167).
+  const target = resolveDeploymentTarget(safe);
+  const { endpoint, mode } = target;
+  // In community-saas mode the bootstrap fills the credentials in. We
+  // deliberately leave them empty here so a misconfigured caller that skips
+  // the bootstrap step gets a clear 401 from the agent rather than a
+  // half-credentialled request.
+  const clientId = target.clientId;
+  const clientSecret = mode === "self-hosted" ? rawClientSecret : "";
 
   // License token resolution — env wins over pluginConfig per ADR-049 + the
   // W4 spec, matching how every other AxonFlow surface resolves credentials

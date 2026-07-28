@@ -29,14 +29,30 @@
  * output, which made it trivially leakable via screen-share / copy-paste.
  * Same surface here, same defensive redaction.
  *
- * Read-only introspection — reads the process environment and the
- * registration file but performs no network calls and no writes.
+ * Endpoint / mode / identity all come from `resolveDeploymentTarget`
+ * (src/endpoint-env.ts) — the one function the governance runtime also
+ * calls — so this surface reports what the runtime does rather than a
+ * parallel guess (#162, #167). The standalone CLI cannot see `pluginConfig`,
+ * so it feeds that resolver the values the last plugin load recorded in
+ * src/plugin-runtime-state.ts.
+ *
+ * Read-only introspection — reads the process environment, the registration
+ * file, and the plugin runtime-state record, but performs no network calls
+ * and no writes.
  */
 
 import * as fs from "fs";
 import * as path from "path";
 import { axonflowConfigDir } from "./cache-dir.js";
-import { resolveEffectiveEndpoint } from "./endpoint-env.js";
+import {
+  resolveDeploymentTarget,
+  resolveRegisteredEndpoint,
+  SELF_HOSTED_DEFAULT_CLIENT_ID,
+} from "./endpoint-env.js";
+import {
+  readPluginRuntimeState,
+  runtimeStatePath,
+} from "./plugin-runtime-state.js";
 
 /** Filename used by Community-SaaS bootstrap and recovery to persist credentials. */
 const REGISTRATION_FILE_NAME = "try-registration.json";
@@ -78,6 +94,40 @@ export interface StatusInputs {
   /** Endpoint the plugin would talk to. Defaults to STATUS_DEFAULT_ENDPOINT. */
   endpoint?: string;
 
+  /**
+   * Deployment mode the governance runtime resolved. Drives which identity
+   * the report presents: in self-hosted mode the tenant comes from the
+   * plugin config, in community-saas mode from the bootstrap registration
+   * file. Defaults to "community-saas" so a caller that supplies nothing
+   * keeps the v2.8.4 registration-file behaviour.
+   */
+  mode?: "community-saas" | "self-hosted";
+
+  /**
+   * Tenant identity the runtime authenticates as in self-hosted mode
+   * (`pluginConfig.clientId`, or the "community" default when the operator
+   * named an endpoint but no clientId). Ignored in community-saas mode.
+   */
+  clientId?: string;
+
+  /**
+   * Where {@link clientId} came from, as reported by `resolveDeploymentTarget`.
+   * Distinguishes an operator who explicitly configured `clientId: "community"`
+   * from one who configured none — same resolved identity, different advice.
+   * Defaults to treating a supplied clientId as operator-configured.
+   */
+  clientIdSource?: "plugin-config" | "self-hosted-default" | "community-saas-bootstrap";
+
+  /**
+   * ISO-8601 timestamp of the plugin load whose pluginConfig this report is
+   * based on, when the values came from the persisted runtime-state record
+   * rather than a live in-process config. Surfaced so a reader can tell how
+   * current the pluginConfig half of the answer is. Undefined when the
+   * caller supplied pluginConfig directly (in-process) or when no record
+   * was available.
+   */
+  pluginConfigRecordedAt?: string;
+
   /** Override config dir for tests / non-default deployments. */
   configDirOverride?: string;
 
@@ -95,10 +145,16 @@ export interface StatusInputs {
 /** Resolved status report — stable shape for both human + JSON consumers. */
 export interface StatusReport {
   /**
-   * Client identifier from try-registration.json (the JSON key on disk
-   * is still `tenant_id` for file-format compat with installed base —
-   * see v1.5.0 CHANGELOG and axonflow-enterprise#2230). Null if the
-   * registration file is missing.
+   * Client identifier the governance runtime authenticates as.
+   *
+   * In community-saas mode this is the `tenant_id` from
+   * try-registration.json (the JSON key on disk is still `tenant_id` for
+   * file-format compat with installed base — see v1.5.0 CHANGELOG and
+   * axonflow-enterprise#2230), or null when the registration file is
+   * missing. In self-hosted mode it is `pluginConfig.clientId` (or the
+   * "community" default) — #167: reporting the cached Community-SaaS
+   * tenant to a self-hosted operator named an identity their traffic
+   * never uses.
    *
    * v9 canonical field name. JSON consumers reading from
    * `axonflow-openclaw-status --json` SHOULD prefer this key over the
@@ -146,6 +202,31 @@ export interface StatusReport {
   registration_file: string;
   /** True when the registration file is present + parseable. */
   registration_present: boolean;
+  /**
+   * Deployment mode the runtime resolved — "self-hosted" when the operator
+   * provided an endpoint or credentials through either channel,
+   * "community-saas" otherwise.
+   */
+  mode: "community-saas" | "self-hosted";
+  /**
+   * Where {@link client_id} came from:
+   *   - "plugin-config"           — operator-named clientId (self-hosted)
+   *   - "self-hosted-default"     — no clientId named; runtime uses "community"
+   *   - "community-saas-registration" — bootstrap registration file
+   *   - "unregistered"            — community-saas mode, no registration yet
+   */
+  identity_source:
+    | "plugin-config"
+    | "self-hosted-default"
+    | "community-saas-registration"
+    | "unregistered";
+  /**
+   * ISO-8601 timestamp of the plugin load whose pluginConfig fed this
+   * report, when the pluginConfig half came from the persisted runtime-state
+   * record (the standalone CLI's only view of it). Null for in-process
+   * callers, which read the live config, and when no record was available.
+   */
+  plugin_config_recorded_at: string | null;
 }
 
 /**
@@ -183,23 +264,60 @@ export function redactLicenseToken(token: string | undefined | null): string | n
  * showing "no tenant_id found".
  */
 export function readPersistedTenantId(file: string): string | null {
+  return readPersistedRegistration(file).tenantId;
+}
+
+/**
+ * Registration-file fields the status surface reports on.
+ *
+ * `endpoint` is the value the Community-SaaS `/api/v1/register` response
+ * named, which the bootstrap adopts in place of the resolved default (see
+ * `resolveRegisteredEndpoint`). Null when absent, so the caller falls back
+ * to the resolved endpoint.
+ */
+export interface PersistedRegistrationSummary {
+  tenantId: string | null;
+  endpoint: string | null;
+}
+
+/**
+ * Read the persisted Community-SaaS registration file. Returns nulls when
+ * the file is missing, unreadable, or has no usable field. Never throws —
+ * status output should degrade gracefully when state is partial.
+ *
+ * Mode/permission checks are intentionally NOT enforced here: status is a
+ * read-only surface and we want to report a tenant_id even from a file with
+ * surprising permissions, so the user can see "yes you have a tenant, but
+ * the file is unsafe — re-register" rather than silently showing "no
+ * tenant_id found".
+ */
+export function readPersistedRegistration(file: string): PersistedRegistrationSummary {
+  const empty: PersistedRegistrationSummary = { tenantId: null, endpoint: null };
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
   } catch {
-    return null;
+    return empty;
   }
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch {
-    return null;
+    return empty;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return empty;
   }
   const tenantId = parsed["tenant_id"];
-  if (typeof tenantId !== "string" || tenantId.length === 0) {
-    return null;
-  }
-  return tenantId;
+  const endpoint = parsed["endpoint"];
+  return {
+    tenantId:
+      typeof tenantId === "string" && tenantId.length > 0 ? tenantId : null,
+    endpoint:
+      typeof endpoint === "string" && endpoint.trim().length > 0
+        ? endpoint.trim()
+        : null,
+  };
 }
 
 /**
@@ -289,8 +407,9 @@ export function daysUntil(epochSeconds: number | null, nowEpochSeconds: number):
  * deterministic given the same inputs + on-disk state.
  */
 export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
-  const endpoint = (inputs.endpoint ?? "").trim() || STATUS_DEFAULT_ENDPOINT;
+  const resolvedEndpoint = (inputs.endpoint ?? "").trim() || STATUS_DEFAULT_ENDPOINT;
   const upgradeUrl = (inputs.upgradeUrl ?? "").trim() || STATUS_DEFAULT_UPGRADE_URL;
+  const mode = inputs.mode ?? "community-saas";
 
   const configDir = inputs.configDirOverride ?? axonflowConfigDir();
   // axonflowConfigDir() can legitimately return "" on locked-down hosts.
@@ -299,7 +418,35 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
   const registrationFile = configDir
     ? path.join(configDir, REGISTRATION_FILE_NAME)
     : "(unresolved — set AXONFLOW_CONFIG_DIR)";
-  const tenantId = configDir ? readPersistedTenantId(registrationFile) : null;
+  const registration = configDir
+    ? readPersistedRegistration(registrationFile)
+    : { tenantId: null, endpoint: null };
+
+  // Identity + endpoint both follow the resolved deployment mode (#167).
+  //
+  // self-hosted: the runtime authenticates with pluginConfig.clientId (or
+  //   the "community" default) against the resolved endpoint. A cached
+  //   Community-SaaS registration on disk is irrelevant — reporting it told
+  //   self-hosted operators their traffic went somewhere it does not.
+  // community-saas: the bootstrap owns both. It adopts the endpoint the
+  //   register response named, so status applies the same substitution via
+  //   the shared helper rather than assuming the default.
+  let clientId: string | null;
+  let identitySource: StatusReport["identity_source"];
+  let endpoint: string;
+  if (mode === "self-hosted") {
+    const configured = (inputs.clientId ?? "").trim();
+    clientId = configured || SELF_HOSTED_DEFAULT_CLIENT_ID;
+    identitySource =
+      inputs.clientIdSource === "self-hosted-default" || configured === ""
+        ? "self-hosted-default"
+        : "plugin-config";
+    endpoint = resolvedEndpoint;
+  } else {
+    clientId = registration.tenantId;
+    identitySource = clientId ? "community-saas-registration" : "unregistered";
+    endpoint = resolveRegisteredEndpoint(registration.endpoint, resolvedEndpoint);
+  }
 
   const licensePreview = redactLicenseToken(inputs.licenseToken);
 
@@ -329,8 +476,8 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
   }
 
   return {
-    client_id: tenantId,
-    tenant_id: tenantId,
+    client_id: clientId,
+    tenant_id: clientId,
     endpoint,
     tier,
     license_token_preview: licensePreview,
@@ -338,25 +485,43 @@ export function buildStatusReport(inputs: StatusInputs = {}): StatusReport {
     expires_in_days: expiresInDays,
     upgrade_url: upgradeUrl,
     registration_file: registrationFile,
-    registration_present: tenantId !== null,
+    registration_present: registration.tenantId !== null,
+    mode,
+    identity_source: identitySource,
+    plugin_config_recorded_at: inputs.pluginConfigRecordedAt ?? null,
   };
 }
 
 /**
- * Resolve `StatusInputs` from the process environment + an optional pluginConfig
- * blob (mirrors `resolveConfig` semantics for the licenseToken /
- * endpoint fields). Pulled out as its own function so tests can drive
- * the env-resolution branches without the fs read.
+ * Resolve `StatusInputs` from the process environment + the plugin config
+ * (mirrors `resolveConfig` semantics for the licenseToken / endpoint / mode
+ * / identity fields). Pulled out as its own function so tests can drive the
+ * resolution branches without the fs read.
  *
  * Resolution order:
  *   - licenseToken: env AXONFLOW_LICENSE_TOKEN > pluginConfig.licenseToken > undefined
- *   - endpoint:     env AXONFLOW_ENDPOINT > pluginConfig.endpoint >
- *                   credentials-implied local default > STATUS_DEFAULT_ENDPOINT,
- *                   via the shared `resolveEffectiveEndpoint` helper
- *                   (src/endpoint-env.ts) that `resolveConfig` also calls —
- *                   so the endpoint status DISPLAYS is, by construction, the
- *                   endpoint the governance runtime USES (#162)
+ *   - endpoint / mode / clientId: `resolveDeploymentTarget` (src/endpoint-env.ts),
+ *     the SAME function `resolveConfig` calls, applying
+ *     env AXONFLOW_ENDPOINT > pluginConfig.endpoint > credentials-implied
+ *     local default > Community-SaaS default. What status DISPLAYS is, by
+ *     construction, what the governance runtime USES (#162, #167).
  *   - upgradeUrl:   env AXONFLOW_UPGRADE_URL > STATUS_DEFAULT_UPGRADE_URL
+ *
+ * WHERE `pluginConfig` COMES FROM (#167). Two callers, two channels:
+ *
+ *   - In-process (`axonflow_get_tenant_id`): index.ts hands the tool the
+ *     live `api.pluginConfig`, which is passed straight through here. Always
+ *     current; the persisted record is never consulted.
+ *   - Standalone CLI (`bin/axonflow-openclaw-status.mjs`): runs outside the
+ *     OpenClaw host with no pluginConfig available, so it calls this with
+ *     `undefined` and we read back the record the last plugin load wrote
+ *     (src/plugin-runtime-state.ts). Only the pluginConfig values are read
+ *     from disk — `AXONFLOW_ENDPOINT` is resolved live from THIS process's
+ *     environment by the shared resolver, so a persisted value can never
+ *     outrank the caller's current environment.
+ *
+ * Passing `{}` explicitly means "the live config is empty", which is
+ * distinct from `undefined` ("I cannot see the config, read the record").
  *
  * `configDirOverride` is honoured for tests; production callers leave
  * it undefined and rely on `axonflowConfigDir()` (which itself honours
@@ -366,7 +531,21 @@ export function resolveStatusInputs(
   pluginConfig?: Record<string, unknown>,
   configDirOverride?: string,
 ): StatusInputs {
-  const cfg = pluginConfig ?? {};
+  const configDir = configDirOverride ?? axonflowConfigDir();
+
+  // No live pluginConfig (standalone CLI) → fall back to the record the
+  // governance runtime wrote at its last load. Absent / malformed / unknown
+  // schema yields null and we resolve from the environment alone, which is
+  // the pre-#167 behaviour: degraded, but never wrong about the environment.
+  let recordedAt: string | undefined;
+  let cfg: Record<string, unknown>;
+  if (pluginConfig !== undefined) {
+    cfg = pluginConfig;
+  } else {
+    const state = readPluginRuntimeState(runtimeStatePath(configDir));
+    cfg = state ? { ...state.plugin_config } : {};
+    if (state && state.recorded_at !== "") recordedAt = state.recorded_at;
+  }
 
   const envToken = typeof process.env["AXONFLOW_LICENSE_TOKEN"] === "string"
     ? process.env["AXONFLOW_LICENSE_TOKEN"]!.trim()
@@ -376,17 +555,22 @@ export function resolveStatusInputs(
     : "";
   const licenseToken = envToken || cfgToken || undefined;
 
-  const endpoint = resolveEffectiveEndpoint(cfg);
+  const target = resolveDeploymentTarget(cfg);
 
   const envUpgrade = typeof process.env["AXONFLOW_UPGRADE_URL"] === "string"
     ? process.env["AXONFLOW_UPGRADE_URL"]!.trim()
     : "";
   const upgradeUrl = envUpgrade || undefined;
 
-  const inputs: StatusInputs = {};
+  const inputs: StatusInputs = {
+    endpoint: target.endpoint,
+    mode: target.mode,
+  };
   if (licenseToken !== undefined) inputs.licenseToken = licenseToken;
-  if (endpoint !== undefined) inputs.endpoint = endpoint;
+  if (target.clientId !== "") inputs.clientId = target.clientId;
+  inputs.clientIdSource = target.clientIdSource;
   if (upgradeUrl !== undefined) inputs.upgradeUrl = upgradeUrl;
+  if (recordedAt !== undefined) inputs.pluginConfigRecordedAt = recordedAt;
   if (configDirOverride !== undefined) inputs.configDirOverride = configDirOverride;
   return inputs;
 }
@@ -402,12 +586,25 @@ export function resolveStatusInputs(
  * want a stable structured surface should consume `buildStatusReport()`
  * directly — both `client_id` and `tenant_id` keys are populated in
  * the report for v2.4.x → v2.5.0 JSON-consumer compat.
+ *
+ * The identity block is mode-aware (#167). Self-hosted installs get the
+ * tenant identity their traffic actually authenticates with and no Stripe
+ * copy (there is nothing to buy against a self-hosted tenant); Community-SaaS
+ * installs keep the checkout guidance they had.
  */
 export function formatStatusReport(report: StatusReport): string {
   const lines: string[] = [];
   lines.push("AxonFlow OpenClaw plugin status");
   lines.push("");
-  if (report.client_id) {
+  if (report.mode === "self-hosted") {
+    lines.push(`  client_id:  ${report.client_id}  (formerly tenant_id)`);
+    if (report.identity_source === "self-hosted-default") {
+      lines.push("              (default identity — no clientId configured; set pluginConfig.clientId");
+      lines.push("              to your deployment's tenant identity)");
+    } else {
+      lines.push("              (from pluginConfig.clientId — the identity governed requests authenticate with)");
+    }
+  } else if (report.client_id) {
     lines.push(`  client_id:  ${report.client_id}  (formerly tenant_id)`);
     lines.push("              (paste this into the Stripe checkout custom field when buying Pro —");
     lines.push("              the form's field label is still 'AxonFlow tenant ID' for now)");
@@ -417,7 +614,11 @@ export function formatStatusReport(report: StatusReport): string {
     lines.push("              The plugin auto-registers with Community SaaS on first init.");
     lines.push("              Lost your registration? Run `axonflow-openclaw-recover <email>`");
   }
-  lines.push(`  endpoint:   ${report.endpoint}`);
+  lines.push(`  endpoint:   ${report.endpoint}  (mode=${report.mode})`);
+  if (report.plugin_config_recorded_at !== null) {
+    lines.push(`              (plugin config read from the last plugin load at ${report.plugin_config_recorded_at};`);
+    lines.push("              reload OpenClaw after editing pluginConfig to refresh it)");
+  }
 
   // V1 SaaS Plugin Pro tier-line surface parity (codex / cursor / claude /
   // openclaw): four shapes, see StatusTier doc + parseLicenseTokenExpiry.

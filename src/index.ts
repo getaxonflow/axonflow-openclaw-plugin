@@ -37,6 +37,8 @@ import { bootstrapCommunitySaas } from "./community-saas-bootstrap.js";
 import { resetMetrics } from "./metrics.js";
 import { runPluginVersionCheck } from "./plugin-version-check.js";
 import { buildAgentTools, type AgentToolDef } from "./agent-tools.js";
+import { axonflowConfigDir } from "./cache-dir.js";
+import { writePluginRuntimeState } from "./plugin-runtime-state.js";
 import { buildProTierInitLogLine } from "./status.js";
 import { VERSION } from "./version.js";
 
@@ -89,15 +91,42 @@ export {
   parseLicenseTokenExpiry,
   resolveStatusInputs,
   redactLicenseToken,
+  readPersistedRegistration,
   readPersistedTenantId,
   STATUS_DEFAULT_ENDPOINT,
   STATUS_DEFAULT_UPGRADE_URL,
 } from "./status.js";
 export type {
+  PersistedRegistrationSummary,
   StatusInputs,
   StatusReport,
   StatusTier,
 } from "./status.js";
+// Deployment-target resolution — the single helper the governance runtime
+// and every display surface share (#162, #167).
+export {
+  resolveDeploymentTarget,
+  resolveEffectiveEndpoint,
+  resolveRegisteredEndpoint,
+  COMMUNITY_SAAS_DEFAULT_ENDPOINT,
+  SELF_HOSTED_DEFAULT_CLIENT_ID,
+  SELF_HOSTED_DEFAULT_ENDPOINT,
+} from "./endpoint-env.js";
+export type { DeploymentTarget } from "./endpoint-env.js";
+// Runtime-state record that lets the standalone status CLI see the
+// pluginConfig the runtime resolved (#167).
+export {
+  buildPluginConfigView,
+  readPluginRuntimeState,
+  runtimeStatePath,
+  writePluginRuntimeState,
+  RUNTIME_STATE_FILE_NAME,
+  RUNTIME_STATE_SCHEMA,
+} from "./plugin-runtime-state.js";
+export type {
+  PluginConfigView,
+  PluginRuntimeState,
+} from "./plugin-runtime-state.js";
 
 /**
  * Plugin registration function.
@@ -124,6 +153,15 @@ export function registerAxonFlowGovernance(api: {
 
   // Reset metrics on each registration (handles hot-reload)
   resetMetrics();
+
+  // #167 — record the pluginConfig values that fed the deployment decision
+  // so `axonflow-openclaw-status`, which runs as a separate process with no
+  // pluginConfig context, resolves the same endpoint and identity this
+  // runtime just did instead of falling back to the Community-SaaS default.
+  // Inputs only, no credentials; rewritten on every load so a config change
+  // the runtime picks up is reflected on the display surface too. Failure to
+  // write is non-fatal: the CLI degrades to environment-only resolution.
+  writePluginRuntimeState(axonflowConfigDir(), api.pluginConfig, VERSION);
 
   // Mode-clarity canary — emitted on every plugin init so users always know
   // which AxonFlow they're connected to. The Gate 4 mode-clarity test
@@ -309,7 +347,12 @@ export function registerAxonFlowGovernance(api: {
   // policies via the standard tool-calling path. Includes both read-only
   // and mutating operations. Gated on the runtime providing `registerTool`.
   if (typeof api.registerTool === "function") {
-    const tools = buildAgentTools(clientRef);
+    // The live pluginConfig is handed to the tool table so
+    // `axonflow_get_tenant_id` reports the identity + endpoint THIS runtime
+    // resolved rather than re-deriving from the environment or a cached
+    // Community-SaaS registration (#167). In-process, no persisted record
+    // is involved at all.
+    const tools = buildAgentTools(clientRef, api.pluginConfig ?? {});
     for (const tool of tools) {
       api.registerTool(tool);
     }

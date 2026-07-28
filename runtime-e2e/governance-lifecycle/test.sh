@@ -40,11 +40,34 @@ case "$PROBE_STATUS" in
         -H "X-User-Email: dev@getaxonflow.com" \
         "$AXONFLOW_ENDPOINT/api/v1/overrides/$PROBE_ID" >/dev/null
     fi
+    echo "--- Pre-flight: override posture confirmed (HTTP 201) ---"
     ;;
   *)
-    echo "SKIP: pre-flight create_override returned HTTP $PROBE_STATUS"
-    echo "      Body: $PROBE_BODY"
-    exit 0
+    # #167 / axonflow-enterprise#3062. This branch used to print "SKIP:" and
+    # exit 0, which meant the suite reported success in exactly the default
+    # configuration every user runs — the lifecycle this file exists to
+    # verify had never actually been exercised in CI. The posture cannot be
+    # provisioned from here (it is a server-side setting on the AxonFlow
+    # agent, not a plugin or request-level knob), so the only honest outcome
+    # is a failure that names precisely what is missing.
+    echo "FAIL: pre-flight create_override returned HTTP $PROBE_STATUS (expected 201)"
+    echo "      Endpoint: $AXONFLOW_ENDPOINT"
+    echo "      Body:     $PROBE_BODY"
+    echo ""
+    echo "      The override lifecycle endpoints require a per-user identity."
+    echo "      Since platform 9.9.0 the agent ignores X-User-Email unless the"
+    echo "      identity trust gate is explicitly enabled, so an otherwise"
+    echo "      healthy stack answers 401 here. Enable it on the AGENT and"
+    echo "      restart it:"
+    echo ""
+    echo "          AXONFLOW_TRUST_IDENTITY_HEADERS=true"
+    echo ""
+    echo "      Then re-run this test. See axonflow-enterprise#3062 for the"
+    echo "      platform-side work making this 401 self-explanatory."
+    echo ""
+    echo "      This test does NOT skip on a missing posture: a lifecycle test"
+    echo "      that exits 0 without running the lifecycle is not a test."
+    exit 1
     ;;
 esac
 

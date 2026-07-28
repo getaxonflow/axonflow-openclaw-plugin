@@ -9,6 +9,7 @@ import type { MCPCheckInputResponse } from "./axonflow-client.js";
 import type { ClientRef } from "./client-ref.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import { shouldGovernTool } from "./config.js";
+import { noteNetworkFailOpen } from "./fail-open-notice.js";
 import {
   recordToolCallEvaluated,
   recordToolCallBlocked,
@@ -197,6 +198,12 @@ export function createBeforeToolCallHandler(
       // operator can and should fix.
       const isAuthError = isAxonFlowAuthError(err);
       if (!isAuthError) {
+        // #167: the fail-open POLICY above is unchanged; the silence is what
+        // changes. Announce once per process that governed calls are running
+        // without policy evaluation, so a session cannot go ungoverned
+        // without the user being told. Auth errors are excluded — they take
+        // the config.onError path below and carry their own notice.
+        noteNetworkFailOpen(config.endpoint, err);
         recordToolCallAllowed();
         return undefined; // Fail-open: transient network issue
       }

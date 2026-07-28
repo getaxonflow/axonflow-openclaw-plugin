@@ -148,8 +148,22 @@ AxonFlow OpenClaw plugin status
   client_id:  cs_demo_tenant_abc123  (formerly tenant_id)
               (paste this into the Stripe checkout custom field when buying Pro —
               the form's field label is still 'AxonFlow tenant ID' for now)
-  endpoint:   https://try.getaxonflow.com
+  endpoint:   https://try.getaxonflow.com  (mode=community-saas)
   tier:       Free
+  upgrade:    https://getaxonflow.com/pricing/
+```
+
+Sample output (self-hosted):
+
+```
+AxonFlow OpenClaw plugin status
+
+  client_id:  acme-prod  (formerly tenant_id)
+              (from pluginConfig.clientId — the identity governed requests authenticate with)
+  endpoint:   https://axonflow.acme.internal  (mode=self-hosted)
+              (plugin config read from the last plugin load at 2026-07-28T11:02:14.881Z;
+              reload OpenClaw after editing pluginConfig to refresh it)
+  tier:       Free (no Pro license configured)
   upgrade:    https://getaxonflow.com/pricing/
 ```
 
@@ -161,12 +175,16 @@ AxonFlow OpenClaw plugin status
   client_id:  cs_demo_tenant_abc123  (formerly tenant_id)
               (paste this into the Stripe checkout custom field when buying Pro —
               the form's field label is still 'AxonFlow tenant ID' for now)
-  endpoint:   https://try.getaxonflow.com
+  endpoint:   https://try.getaxonflow.com  (mode=community-saas)
   tier:       Pro (license token configured)
   license:    …XYZ9 (redacted — last 4 chars only)
 ```
 
 The license token is **never** printed in full — only the last four characters are shown so you can confirm the token is the one you expect without exposing it via screen-share, copy-paste, or shell history. If `client_id` is missing, the CLI points you at `axonflow-openclaw-recover` to re-issue credentials against your registered email. JSON output (`--json`) populates BOTH `client_id` and the legacy `tenant_id` key with the same value so v2.4.x consumers keep working unchanged.
+
+**Self-hosted installs.** The CLI runs as its own process and cannot read OpenClaw's `pluginConfig`, so through v2.8.4 it reported the Community-SaaS default endpoint and the cached Community-SaaS `client_id` even when governed traffic was going to a self-hosted stack ([#167](https://github.com/getaxonflow/axonflow-openclaw-plugin/issues/167)). It now resolves the endpoint, mode and identity through the same helper the governance runtime uses, reading the plugin config values the last plugin load recorded at `$AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json` (mode `0600`; endpoint and `clientId` only — no credentials are written). `AXONFLOW_ENDPOINT` is still read live from the environment of whatever shell you run the CLI in, and still wins, so a recorded value can never override your current environment. The `mode=` suffix on the `endpoint` line and the `mode` / `identity_source` keys in `--json` tell you which deployment the answer describes. If you edit `pluginConfig` and have not reloaded OpenClaw yet, the CLI prints the timestamp of the load the values came from — the running runtime is still using them until it reloads.
+
+The same values are available to the agent through the `axonflow_get_tenant_id` tool, which runs inside the runtime and reads the live config directly.
 
 ### Recover lost Community-SaaS credentials
 
@@ -436,6 +454,17 @@ The plugin classifies errors from the AxonFlow client into two buckets and appli
 | `before_tool_call` | **Always fail-open** — tool call proceeds regardless of `onError`. Transient infrastructure issues should not block legitimate dev workflows. |  Respects `onError`. With the default `"block"`, the tool call is denied with a message pointing at the misconfiguration. With `"allow"`, the call proceeds ungoverned. |
 | `message_sending` | Respects `onError`. With `"block"` (default), the outbound message is cancelled. With `"allow"`, it is delivered ungoverned. | Same as network error — respects `onError`. |
 | `after_tool_call`, `llm_input`, `llm_output` (audit) | Always silently caught. Governance was already enforced on the pre-execution hook. | Always silently caught. |
+
+The `before_tool_call` fail-open is not silent. The first time a governed tool call proceeds because the endpoint was unreachable, the plugin writes one warning to the session naming the endpoint, the underlying error, and the fact that the call ran with no policy evaluated:
+
+```
+[AxonFlow] Could not reach http://localhost:8080 (fetch failed). This tool call ran
+UNGOVERNED — no policy was evaluated, nothing was blocked, and no decision was recorded.
+Tool calls continue to run ungoverned while the endpoint is unreachable; restore
+connectivity to resume enforcement. Shown once per session.
+```
+
+It appears once per session rather than once per tool call, mirroring the auth-failure notice, so a long outage does not flood the transcript. Auth errors do not trigger it — those take the `onError` path above and carry their own notice.
 
 If you need tool-execution itself to fail-closed during an AxonFlow outage (for example on a production infrastructure agent), pair the plugin with an OpenClaw-side health check or a front-door liveness gate — the plugin alone will not achieve that for `before_tool_call`.
 

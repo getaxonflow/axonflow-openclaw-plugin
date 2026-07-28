@@ -25,6 +25,80 @@ import { VERSION } from "./version.js";
  * with the status number embedded in the message, which forced the
  * classifier to use fragile substring matching.
  */
+/**
+ * Property names platforms use to carry a human-readable reason on an error
+ * response, most specific first. Probed in order rather than pinned to one
+ * key so the plugin renders whatever the deployment it is talking to sends,
+ * without assuming a platform version (#167 / axonflow-enterprise#3062: the
+ * override endpoints' 401 was collapsed to a bare "HTTP 401 Unauthorized",
+ * leaving the user no way to discover that a server-side identity-trust
+ * setting governs the feature).
+ */
+const ERROR_BODY_REASON_KEYS = [
+  "error",
+  "message",
+  "reason",
+  "detail",
+  "error_description",
+] as const;
+
+/** Longest reason rendered into a message; proxies can return whole HTML pages. */
+const MAX_REASON_LENGTH = 300;
+
+/**
+ * Extract a human-readable reason from a platform error body.
+ *
+ * Returns "" when the body carries nothing usable — an empty object, a
+ * non-object, or only non-string values — so callers fall back to the bare
+ * status line. Whitespace is collapsed and the result is length-capped: the
+ * reason is rendered into agent-visible text, and an unreachable-through-a-
+ * proxy call can answer with an HTML error page rather than JSON.
+ */
+export function describeErrorBody(body: unknown): string {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return "";
+  const record = body as Record<string, unknown>;
+  for (const key of ERROR_BODY_REASON_KEYS) {
+    const value = record[key];
+    if (typeof value !== "string") continue;
+    const collapsed = value.replace(/\s+/g, " ").trim();
+    if (collapsed === "") continue;
+    return collapsed.length > MAX_REASON_LENGTH
+      ? collapsed.slice(0, MAX_REASON_LENGTH) + "…"
+      : collapsed;
+  }
+  return "";
+}
+
+/**
+ * Read a non-2xx response body into the `responseBody` shape
+ * `AxonFlowHttpError` carries, tolerating every wire form a deployment can
+ * answer with: JSON object, JSON scalar/array, plain text from an ALB /
+ * nginx / WAF, or nothing at all.
+ *
+ * Never throws and never rejects — an unreadable body degrades to `{}`, which
+ * renders as the bare status line. Callers must not read the body again.
+ */
+async function readErrorBody(response: Response): Promise<Record<string, unknown>> {
+  if (typeof response.text !== "function") return {};
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    return {};
+  }
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (trimmed === "") return {};
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Not JSON — fall through and surface the raw text as the reason.
+  }
+  return { error: trimmed };
+}
+
 export class AxonFlowHttpError extends Error {
   readonly status: number;
   readonly statusText: string;
@@ -36,9 +110,7 @@ export class AxonFlowHttpError extends Error {
     responseBody: Record<string, unknown>,
     context: string,
   ) {
-    const serverError = typeof responseBody["error"] === "string"
-      ? responseBody["error"]
-      : "";
+    const serverError = describeErrorBody(responseBody);
     super(`AxonFlow ${context} failed: HTTP ${status} ${statusText}${serverError ? " — " + serverError : ""}`);
     this.name = "AxonFlowHttpError";
     this.status = status;
@@ -556,11 +628,16 @@ export class AxonFlowClient {
     // propagate past the breaker. fetchWithTimeout already flipped
     // the authFailed flag for any 401; we just need to surface the
     // typed error in the same shape the JSON-body path would have.
+    //
+    // #167: the body is read through readErrorBody rather than discarded, so
+    // whatever reason the platform sends reaches the user. It handles the
+    // JSON and the plain-text infra-layer forms alike and degrades to {} —
+    // the bare status line — when the body is empty or unreadable.
     if (response.status === 401) {
       throw new AxonFlowHttpError(
         401,
         response.statusText,
-        {},
+        await readErrorBody(response),
         "check-input",
       );
     }
@@ -649,13 +726,14 @@ export class AxonFlowClient {
 
     // Issue #2275 follow-up — detect 401 BEFORE response.json() (see
     // mcpCheckInput for full rationale). Mirror the exact AxonFlowHttpError
-    // shape so the governance.ts classifier behaves identically across
-    // input + output paths.
+    // shape — including the #167 platform-reason rendering — so the
+    // governance.ts classifier and the user-facing message behave
+    // identically across input + output paths.
     if (response.status === 401) {
       throw new AxonFlowHttpError(
         401,
         response.statusText,
-        {},
+        await readErrorBody(response),
         "check-output",
       );
     }
