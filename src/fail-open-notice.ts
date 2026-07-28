@@ -43,12 +43,15 @@ function describeCause(err: unknown): string {
 
 /**
  * Announce, once per process, that a governed tool call proceeded without
- * policy evaluation because the AxonFlow endpoint was unreachable.
+ * policy evaluation because the governance check failed for a non-auth
+ * reason — the endpoint was unreachable, timed out, or answered 5xx. The
+ * wording says "failed" rather than "could not reach" because a 5xx WAS
+ * reached; the user-visible fact is that nothing was governed.
  *
  * Returns true when this call emitted the notice, false when a previous
  * call already did — so callers can assert the one-shot contract.
  */
-export function noteNetworkFailOpen(endpoint: string, err: unknown): boolean {
+export function noteUngovernedFailOpen(endpoint: string, err: unknown): boolean {
   if (noticeEmitted) return false;
   noticeEmitted = true;
   const target = endpoint && endpoint.trim() !== "" ? endpoint.trim() : "(no endpoint configured)";
@@ -58,10 +61,10 @@ export function noteNetworkFailOpen(endpoint: string, err: unknown): boolean {
   // that would convert the fail-open into a hard failure.
   try {
     console.warn(
-      `[AxonFlow] Could not reach ${target} (${describeCause(err)}). ` +
+      `[AxonFlow] Governance check against ${target} failed (${describeCause(err)}). ` +
         "This tool call ran UNGOVERNED — no policy was evaluated, nothing was blocked, " +
-        "and no decision was recorded. Tool calls continue to run ungoverned while the " +
-        "endpoint is unreachable; restore connectivity to resume enforcement. " +
+        "and no decision was recorded. Tool calls continue to run ungoverned until the " +
+        "endpoint answers again; restore it to resume enforcement. " +
         "Shown once per process.",
     );
   } catch {

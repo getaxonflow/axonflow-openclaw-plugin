@@ -54,7 +54,7 @@ import {
   ensureSecureDir,
   writeFileAtomicallyWithMode,
 } from "./community-saas-context.js";
-import { endpointFromEnv, resolveEndpointOverride } from "./endpoint-env.js";
+import { resolveEndpointOverrideWithSource } from "./endpoint-env.js";
 
 /** Filename under the AxonFlow config dir. */
 export const RUNTIME_STATE_FILE_NAME = "openclaw-plugin-runtime-state.json";
@@ -116,23 +116,18 @@ function trimmedString(value: unknown): string {
 
 /**
  * Project the raw pluginConfig blob plus the current environment down to
- * the recordable inputs. Reads `AXONFLOW_ENDPOINT` through the same leaf
- * helpers the resolver uses — no independent precedence logic lives here.
+ * the recordable inputs. Both the value AND the channel it came from are
+ * taken from the resolver — no precedence logic, and no inference of the
+ * channel by comparing values, lives here.
  */
 export function buildRecordedRuntimeInputs(
   pluginConfig: Record<string, unknown> | undefined,
 ): RecordedRuntimeInputs {
   const cfg = pluginConfig ?? {};
-  const endpointOverride = resolveEndpointOverride(cfg["endpoint"]);
-  const envRaw = endpointFromEnv();
-  const envEndpoint = typeof envRaw === "string" ? envRaw.trim() : "";
-  let endpointSource: EndpointSource = "none";
-  if (endpointOverride !== "") {
-    endpointSource = envEndpoint !== "" ? "env" : "plugin-config";
-  }
+  const resolved = resolveEndpointOverrideWithSource(cfg["endpoint"]);
   return {
-    endpointOverride,
-    endpointSource,
+    endpointOverride: resolved.endpoint,
+    endpointSource: resolved.source,
     clientId: trimmedString(cfg["clientId"]),
   };
 }

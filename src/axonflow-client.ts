@@ -46,10 +46,17 @@ const MAX_REASON_LENGTH = 300;
  * moment we started rendering response bodies.
  */
 const CREDENTIAL_ECHO_PATTERN =
-  // Header form first, and it must swallow an optional `Basic`/`Bearer`
-  // scheme token before the value — otherwise `\S+` stops at the scheme and
-  // leaves the credential itself in the string.
-  /\b(?:authorization|proxy-authorization|x-license-token|x-user-token|x-api-key|api[_-]?key)\b\s*[:=]\s*(?:basic|bearer)?\s*\S+|\b(?:basic|bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
+  // Header form first. Two things it must tolerate, both seen in real proxy
+  // error bodies: the value may be quoted (a gateway rendering `req.headers`
+  // as JSON), and it may carry a `Basic`/`Bearer` scheme token before the
+  // credential. The tokens this client sends — X-License-Token, X-User-Token,
+  // X-API-Key — carry no scheme at all, so a scheme-anchored pattern alone
+  // leaks them. The value run stops at a quote, comma, semicolon or brace so
+  // one header does not swallow the rest of a JSON object. The trailing
+  // alternative catches a bare `Basic <b64>` / `Bearer <token>` that appears
+  // without its header name — the shape left over once an object walk has
+  // already split key from value.
+  /\b(?:authorization|proxy-authorization|x-license-token|x-user-token|x-api-key|api[_-]?key)\b["']?\s*[:=]\s*["']?(?:basic|bearer)?\s*[^"',;}\s]+|\b(?:basic|bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 
 /**
  * Extract a human-readable reason from a platform error body.
@@ -76,6 +83,42 @@ export function describeErrorBody(body: unknown): string {
       : collapsed;
   }
   return "";
+}
+
+/**
+ * Object keys whose VALUE is a credential regardless of the value's shape.
+ * Anchored (no `g` flag) so `.test()` carries no `lastIndex` state.
+ */
+const CREDENTIAL_KEY_PATTERN =
+  /^(?:authorization|proxy-authorization|x-license-token|x-user-token|x-api-key|api[_-]?key|secret|client_?secret|password|token)$/i;
+
+/**
+ * Apply {@link describeErrorBody}'s credential redaction to EVERY string in an
+ * error body, so a caller that forwards the whole body — not just the
+ * extracted reason — cannot leak what the reason path strips.
+ *
+ * `AxonFlowHttpError.responseBody` deliberately stays raw for programmatic
+ * use; this is applied at the boundaries where the body reaches a model or a
+ * human (see `describeError` in src/agent-tools.ts). Nested objects and
+ * arrays are walked; non-string leaves pass through untouched.
+ */
+export function redactErrorBody(body: unknown, depth = 0): unknown {
+  if (typeof body === "string") {
+    return body.replace(CREDENTIAL_ECHO_PATTERN, "<redacted>");
+  }
+  if (depth >= 6 || body === null || typeof body !== "object") return body;
+  if (Array.isArray(body)) return body.map((v) => redactErrorBody(v, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+    // Redact on the KEY as well as the value. Once a body is walked as an
+    // object, the value of a credential-named key is a bare token with no
+    // header name left in it for the pattern to anchor on — the exact shape
+    // a gateway produces when it renders `req.headers` as JSON.
+    out[k] = CREDENTIAL_KEY_PATTERN.test(k)
+      ? "<redacted>"
+      : redactErrorBody(v, depth + 1);
+  }
+  return out;
 }
 
 /**
@@ -558,7 +601,10 @@ export class AxonFlowClient {
         ? " A per-user token is configured — if it was revoked or expired, re-provision it (pluginConfig.userToken / AXONFLOW_USER_TOKEN / ~/.config/axonflow/user-token.json)."
         : "";
       console.warn(
-        `[AxonFlow] Authentication failed (HTTP 401). Audit calls disabled for this session. Refresh credentials via the OpenClaw runtime config.${tokenHint}`,
+        "[AxonFlow] Authentication failed (HTTP 401). Governance checks and audit calls are " +
+          "disabled for the rest of this session: with onError=block every governed tool call " +
+          "is denied, with onError=allow every governed tool call runs UNGOVERNED. " +
+          `Refresh credentials via the OpenClaw runtime config.${tokenHint}`,
       );
     }
   }

@@ -42,6 +42,28 @@
   credential-shaped content so an echoing proxy cannot leak the request's own
   `Authorization` header into a transcript.
 
+- **A transient 5xx whose body mentions authentication no longer hard-blocks
+  every governed tool call.** Rendering the platform's reason into the error
+  message meant `isAxonFlowAuthError`'s message-regex fallback could classify
+  an ALB answering `502 {"error":"upstream authentication service
+  unavailable"}` as an auth error — skipping the fail-open branch and, under
+  the default `onError: "block"`, denying every tool while telling the
+  operator to fix credentials that were fine. A numeric HTTP status is now
+  decisive in both directions; the message is consulted only for errors that
+  expose no status at all. Server-controlled text must not steer the
+  fail-open/fail-closed decision.
+
+- Rendered reasons and the error body handed to the agent are stripped of
+  credential-shaped content, including quoted/JSON header dumps and bare
+  scheme-less tokens (`X-License-Token`, `X-User-Token`, `X-API-Key`), and
+  credential-named keys are redacted by key when a body is walked. A gateway
+  that renders `req.headers` into its 401 JSON would otherwise have put the
+  request's own Basic credential into the agent transcript.
+
+- The 401 authentication warning now says governance checks — not just audit
+  calls — stop for the rest of the session, and what that means under each
+  `onError` setting.
+
 - The 401 body read is independently time-bounded. `fetchWithTimeout` clears
   its abort timer once the response resolves, so reading a body after it was
   unbounded — a peer that returned 401 headers and then stalled would have

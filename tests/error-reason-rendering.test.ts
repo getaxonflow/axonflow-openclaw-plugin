@@ -18,6 +18,7 @@ import {
   AxonFlowClient,
   AxonFlowHttpError,
   describeErrorBody,
+  redactErrorBody,
 } from "../src/axonflow-client.js";
 import { buildCreateOverrideTool, buildGetTenantIdTool } from "../src/agent-tools.js";
 import type { AxonFlowPluginConfig } from "../src/config.js";
@@ -106,9 +107,61 @@ describe("describeErrorBody credential redaction", () => {
     expect(out).not.toContain("abcdefghijklmnop");
   });
 
+  it("strips credentials from QUOTED / JSON header dumps", () => {
+    // Round-2 review: the first pattern required the header name to be
+    // immediately followed by `:`/`=`, so a gateway rendering `req.headers`
+    // as JSON defeated it — and X-License-Token / X-User-Token / X-API-Key
+    // carry no Basic/Bearer scheme for the fallback to anchor on.
+    const SECRETS = [
+      "AXON-eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJhIn0.SIGNATURE_PART",
+      "YWNtZS10ZW5hbnQ6czNjcjN0LWNsaWVudC1zZWNyZXQ=",
+      "dGVuYW50OnN1cGVyLXNlY3JldA==",
+    ];
+    const BODIES = [
+      '{"x-user-token":"AXON-eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJhIn0.SIGNATURE_PART"}',
+      'denied for {"x-license-token": "AXON-eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJhIn0.SIGNATURE_PART"}',
+      '{"x-api-key":"YWNtZS10ZW5hbnQ6czNjcjN0LWNsaWVudC1zZWNyZXQ="} rejected',
+      "rejected: Authorization: Basic dGVuYW50OnN1cGVyLXNlY3JldA== path=/api/v1/mcp/check-input",
+      "headers={'authorization': 'Basic dGVuYW50OnN1cGVyLXNlY3JldA=='} upstream=deny",
+    ];
+    for (const b of BODIES) {
+      const out = describeErrorBody({ error: b });
+      for (const secret of SECRETS) expect(out).not.toContain(secret);
+    }
+  });
+
+  it("is linear on a pathological input (no catastrophic backtracking)", () => {
+    const started = Date.now();
+    describeErrorBody({ error: "authorization: " + "a".repeat(200_000) });
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it("leaves an ordinary reason untouched", () => {
     expect(describeErrorBody({ error: "per-user identity is not trusted on this deployment" }))
       .toBe("per-user identity is not trusted on this deployment");
+  });
+});
+
+describe("redactErrorBody — the whole body, not just the reason", () => {
+  it("redacts nested strings and credential-named keys", () => {
+    const out = redactErrorBody({
+      error: "no",
+      headers: { authorization: "Basic dGVuYW50OnN1cGVyLXNlY3JldA==" },
+      nested: { deep: { "x-user-token": "AXON-eyJhbGciOiJFZERTQSJ9.abc.SIGPART" } },
+      arr: ["x-license-token: AXON-eyJhbGciOiJFZERTQSJ9.abc.SIGPART"],
+      keep: "ordinary text",
+    });
+    const rendered = JSON.stringify(out);
+    expect(rendered).not.toContain("dGVuYW50OnN1cGVyLXNlY3JldA==");
+    expect(rendered).not.toContain("AXON-eyJhbGciOiJFZERTQSJ9.abc.SIGPART");
+    expect(rendered).toContain("ordinary text");
+  });
+
+  it("passes non-string leaves through and terminates on deep nesting", () => {
+    expect(redactErrorBody({ n: 42, b: true, z: null })).toEqual({ n: 42, b: true, z: null });
+    let deep: unknown = "authorization: Basic dGVuYW50OnN1cGVyLXNlY3JldA==";
+    for (let i = 0; i < 30; i++) deep = { next: deep };
+    expect(() => redactErrorBody(deep)).not.toThrow();
   });
 });
 
@@ -282,7 +335,7 @@ describe("agent tool error rendering", () => {
     expect(res.content[0]?.text).toBe("Error: HTTP 401 Unauthorized");
   });
 
-  it("keeps the full body available on details for the agent to inspect", async () => {
+  it("keeps the body available on details, redacted", async () => {
     const body = { error: "nope", code: "IDENTITY_UNTRUSTED", docs: "https://example/doc" };
     const tool = buildCreateOverrideTool(
       clientRefRejecting(new AxonFlowHttpError(401, "Unauthorized", body, "create override")),
@@ -290,6 +343,24 @@ describe("agent tool error rendering", () => {
     const res = await tool.execute("c3", args);
     expect((res.details as Record<string, unknown>)["body"]).toEqual(body);
     expect((res.details as Record<string, unknown>)["status"]).toBe(401);
+  });
+
+  it("does NOT hand an echoed credential to the model through details", async () => {
+    // Round-2 review: the reason was redacted while the raw body went to the
+    // model on `details`, which made the protection decorative.
+    const body = {
+      error: "rejected",
+      request: { headers: { authorization: "Basic dGVuYW50OnN1cGVyLXNlY3JldA==" } },
+    };
+    const tool = buildCreateOverrideTool(
+      clientRefRejecting(new AxonFlowHttpError(401, "Unauthorized", body, "create override")),
+    );
+    const res = await tool.execute("c7", args);
+    const rendered = JSON.stringify(res.details);
+    expect(rendered).not.toContain("dGVuYW50OnN1cGVyLXNlY3JldA==");
+    // ...and the error object itself still carries the raw body for
+    // programmatic consumers.
+    expect(JSON.stringify(body)).toContain("dGVuYW50OnN1cGVyLXNlY3JldA==");
   });
 
   it("renders a malformed reason without crashing the tool", async () => {

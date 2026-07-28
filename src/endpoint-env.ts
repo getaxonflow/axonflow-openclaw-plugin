@@ -49,14 +49,34 @@ export function endpointFromEnv(): string | undefined {
  * self-hosted mode (no Community-SaaS auto-registration).
  */
 export function resolveEndpointOverride(pluginConfigEndpoint: unknown): string {
+  return resolveEndpointOverrideWithSource(pluginConfigEndpoint).endpoint;
+}
+
+/** Which channel {@link resolveEndpointOverrideWithSource} took the value from. */
+export type EndpointOverrideSource = "env" | "plugin-config" | "none";
+
+/**
+ * {@link resolveEndpointOverride} plus the channel it came from.
+ *
+ * The source is reported BY the resolver rather than re-derived by callers
+ * comparing values: a caller that infers "the env must have won because the
+ * result equals the env var" silently mislabels the moment the precedence
+ * order changes, and the recorded label would then name the wrong channel to
+ * the user.
+ */
+export function resolveEndpointOverrideWithSource(
+  pluginConfigEndpoint: unknown,
+): { endpoint: string; source: EndpointOverrideSource } {
   const envRaw = endpointFromEnv();
   const envEndpoint = typeof envRaw === "string" ? envRaw.trim() : "";
   if (envEndpoint !== "") {
-    return envEndpoint;
+    return { endpoint: envEndpoint, source: "env" };
   }
-  return typeof pluginConfigEndpoint === "string"
-    ? pluginConfigEndpoint.trim()
-    : "";
+  const cfgEndpoint =
+    typeof pluginConfigEndpoint === "string" ? pluginConfigEndpoint.trim() : "";
+  return cfgEndpoint !== ""
+    ? { endpoint: cfgEndpoint, source: "plugin-config" }
+    : { endpoint: "", source: "none" };
 }
 
 /** Endpoint used when the user provided nothing at all (Community SaaS). */
@@ -128,11 +148,30 @@ export function resolveDeploymentTarget(
   pluginConfig: Record<string, unknown> | undefined,
 ): DeploymentTarget {
   const cfg = pluginConfig ?? {};
-  const userEndpoint = resolveEndpointOverride(cfg["endpoint"]);
-  const clientId =
-    typeof cfg["clientId"] === "string" ? (cfg["clientId"] as string).trim() : "";
-  const clientSecret =
-    typeof cfg["clientSecret"] === "string" ? (cfg["clientSecret"] as string).trim() : "";
+  return deploymentTargetFor(
+    resolveEndpointOverride(cfg["endpoint"]),
+    typeof cfg["clientId"] === "string" ? (cfg["clientId"] as string).trim() : "",
+    typeof cfg["clientSecret"] === "string" ? (cfg["clientSecret"] as string).trim() : "",
+  );
+}
+
+/**
+ * The defaults / mode / identity half of {@link resolveDeploymentTarget},
+ * taking an ALREADY-RESOLVED endpoint override instead of consulting the
+ * environment.
+ *
+ * Exists so a caller that must reason about a decision made in a DIFFERENT
+ * environment — the status surface reconstructing what the last plugin load
+ * resolved — gets the identical defaults without this process's
+ * `AXONFLOW_ENDPOINT` leaking into the answer. Re-deriving those defaults at
+ * the call site is what this module exists to prevent.
+ */
+export function deploymentTargetFor(
+  endpointOverride: string,
+  clientId: string,
+  clientSecret: string = "",
+): DeploymentTarget {
+  const userEndpoint = endpointOverride;
 
   if (userEndpoint !== "" || clientId !== "" || clientSecret !== "") {
     return {

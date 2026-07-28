@@ -8,9 +8,9 @@
  * governed tool calls with no policy evaluation and no signal at all.
  */
 
-import { createBeforeToolCallHandler } from "../src/governance.js";
+import { createBeforeToolCallHandler, isAxonFlowAuthError } from "../src/governance.js";
 import {
-  noteNetworkFailOpen,
+  noteUngovernedFailOpen,
   resetFailOpenNoticeForTests,
 } from "../src/fail-open-notice.js";
 import { AxonFlowHttpError } from "../src/axonflow-client.js";
@@ -51,16 +51,16 @@ afterEach(() => {
   resetFailOpenNoticeForTests();
 });
 
-describe("noteNetworkFailOpen", () => {
+describe("noteUngovernedFailOpen", () => {
   it("emits exactly once per process", () => {
-    expect(noteNetworkFailOpen(ENDPOINT, new Error("fetch failed"))).toBe(true);
-    expect(noteNetworkFailOpen(ENDPOINT, new Error("fetch failed"))).toBe(false);
-    expect(noteNetworkFailOpen("http://other:9999", new Error("boom"))).toBe(false);
+    expect(noteUngovernedFailOpen(ENDPOINT, new Error("fetch failed"))).toBe(true);
+    expect(noteUngovernedFailOpen(ENDPOINT, new Error("fetch failed"))).toBe(false);
+    expect(noteUngovernedFailOpen("http://other:9999", new Error("boom"))).toBe(false);
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
   it("names the endpoint, the cause, and that the call was ungoverned", () => {
-    noteNetworkFailOpen(ENDPOINT, new Error("connect ECONNREFUSED 127.0.0.1:8080"));
+    noteUngovernedFailOpen(ENDPOINT, new Error("connect ECONNREFUSED 127.0.0.1:8080"));
     const msg = String(warnSpy.mock.calls[0]?.[0]);
     expect(msg).toContain("[AxonFlow]");
     expect(msg).toContain(ENDPOINT);
@@ -70,28 +70,72 @@ describe("noteNetworkFailOpen", () => {
   });
 
   it("degrades gracefully on an empty endpoint and a non-Error cause", () => {
-    noteNetworkFailOpen("   ", "some string failure");
+    noteUngovernedFailOpen("   ", "some string failure");
     const msg = String(warnSpy.mock.calls[0]?.[0]);
     expect(msg).toContain("(no endpoint configured)");
     expect(msg).toContain("some string failure");
   });
 
   it("bounds a pathologically long cause so it cannot flood the transcript", () => {
-    noteNetworkFailOpen(ENDPOINT, new Error("x".repeat(5000)));
+    noteUngovernedFailOpen(ENDPOINT, new Error("x".repeat(5000)));
     const msg = String(warnSpy.mock.calls[0]?.[0]);
     expect(msg.length).toBeLessThan(700);
     expect(msg).toContain("…");
   });
 
   it("collapses newlines so the notice stays one line", () => {
-    noteNetworkFailOpen(ENDPOINT, new Error("line one\nline two\n\tline three"));
+    noteUngovernedFailOpen(ENDPOINT, new Error("line one\nline two\n\tline three"));
     const msg = String(warnSpy.mock.calls[0]?.[0]);
     expect(msg).toContain("line one line two line three");
   });
 
   it("says something useful when the cause carries no detail", () => {
-    noteNetworkFailOpen(ENDPOINT, new Error(""));
+    noteUngovernedFailOpen(ENDPOINT, new Error(""));
     expect(String(warnSpy.mock.calls[0]?.[0])).toContain("no error detail available");
+  });
+});
+
+describe("a server-supplied reason must not steer the fail-open decision", () => {
+  // Round-2 review, BLOCKER. AxonFlowHttpError.message now carries the
+  // platform's own reason. isAxonFlowAuthError fell back to regex-matching
+  // that message whenever .status was not 401/403, so a transient 5xx whose
+  // body happened to mention authentication was classified as an auth error,
+  // skipped the fail-open branch, and — under the DEFAULT onError: "block" —
+  // hard-blocked every governed tool call while telling the operator to fix
+  // credentials that were fine. An ALB answering
+  // `502 {"error":"upstream authentication service unavailable"}` is the
+  // canonical case. The status now decides in both directions.
+  const AUTHY_BODIES = [
+    { error: "upstream authentication service unavailable" },
+    { message: "gateway timeout contacting the credentials store" },
+    { detail: "backend forbidden by upstream policy engine" },
+    { reason: "invalid token in the upstream proxy chain" },
+  ];
+
+  for (const body of AUTHY_BODIES) {
+    const label = Object.values(body)[0];
+    it(`treats a 502 as transient despite an auth-shaped reason: "${label}"`, async () => {
+      const err = new AxonFlowHttpError(502, "Bad Gateway", body, "check-input");
+      expect(isAxonFlowAuthError(err)).toBe(false);
+
+      const handler = createBeforeToolCallHandler(throwingClientRef(err), baseConfig({ onError: "block" }));
+      // Fail-OPEN, because it is a network-class failure.
+      await expect(handler({ toolName: "bash", params: {} })).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it("still classifies real 401/403 by status", () => {
+    expect(isAxonFlowAuthError(new AxonFlowHttpError(401, "Unauthorized", {}, "x"))).toBe(true);
+    expect(isAxonFlowAuthError(new AxonFlowHttpError(403, "Forbidden", {}, "x"))).toBe(true);
+    expect(isAxonFlowAuthError(new AxonFlowHttpError(500, "Server Error", {}, "x"))).toBe(false);
+    expect(isAxonFlowAuthError(new AxonFlowHttpError(429, "Too Many Requests", {}, "x"))).toBe(false);
+  });
+
+  it("still falls back to the message when NO status is exposed", () => {
+    // Third-party fetch wrappers and legacy code paths throw plain Errors.
+    expect(isAxonFlowAuthError(new Error("HTTP 401 Unauthorized: invalid credentials"))).toBe(true);
+    expect(isAxonFlowAuthError(new Error("connect ECONNREFUSED 127.0.0.1:8080"))).toBe(false);
   });
 });
 

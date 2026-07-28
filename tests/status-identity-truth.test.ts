@@ -365,12 +365,50 @@ describe("provenance is claimed only when the record contributed", () => {
     expect(report.config_recorded_source).toBeNull();
   });
 
-  it("claims provenance when the recorded clientId contributed even under an env override", () => {
+  it("attributes a clientId-only contribution to the IDENTITY, never to the endpoint", () => {
+    // Round-2 review: the earlier version of this test asserted only that
+    // `config_recorded_at` was non-null and never looked at the rendered
+    // text — so it PINNED a report that stamped an environment-only endpoint
+    // with "as recorded by the plugin load at <time>". Assert the claim a
+    // user actually reads, not just the field.
     writePluginRuntimeState(tmpDir, { endpoint: SELF_HOSTED_URL, clientId: "acme-prod" }, "test");
     process.env["AXONFLOW_ENDPOINT"] = OTHER_URL;
+
     const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+    const text = formatStatusReport(report);
+
     expect(report.client_id).toBe("acme-prod");
     expect(report.config_recorded_at).not.toBeNull();
+    // The endpoint came from THIS shell, so no endpoint provenance is claimed.
+    expect(report.config_recorded_source).toBeNull();
+    expect(text).not.toContain("as recorded by the plugin load");
+    // The identity provenance is stated where it belongs.
+    expect(text).toContain("(recorded by the plugin load at");
+  });
+
+  it("reports the divergence when the runtime resolved a DEFAULT, not an override", () => {
+    // The record's endpoint_override is empty (credentials-only config), yet
+    // the runtime resolved http://localhost:8080 from the credentials-implied
+    // default. Comparing against the raw override alone missed this entirely
+    // and reported no divergence.
+    writePluginRuntimeState(tmpDir, { clientId: "acme-prod" }, "test");
+    process.env["AXONFLOW_ENDPOINT"] = OTHER_URL;
+
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+
+    expect(report.endpoint).toBe(OTHER_URL);
+    expect(report.runtime_endpoint_at_last_load).toBe(SELF_HOSTED_DEFAULT_ENDPOINT);
+    expect(formatStatusReport(report)).toContain(SELF_HOSTED_DEFAULT_ENDPOINT);
+  });
+
+  it("reports the divergence when the runtime was in community-saas mode", () => {
+    writePluginRuntimeState(tmpDir, {}, "test");
+    process.env["AXONFLOW_ENDPOINT"] = OTHER_URL;
+
+    const report = buildStatusReport(resolveStatusInputs(undefined, tmpDir));
+
+    expect(report.endpoint).toBe(OTHER_URL);
+    expect(report.runtime_endpoint_at_last_load).toBe(COMMUNITY_SAAS_DEFAULT_ENDPOINT);
   });
 });
 
@@ -472,7 +510,7 @@ describe("plugin runtime-state record", () => {
       .toEqual({ endpointOverride: "", endpointSource: "none", clientId: "" });
   });
 
-  it("records which channel supplied the endpoint override", () => {
+  it("takes the channel label from the resolver, not from comparing values", () => {
     expect(buildRecordedRuntimeInputs({ endpoint: SELF_HOSTED_URL }).endpointSource).toBe("plugin-config");
     process.env["AXONFLOW_ENDPOINT"] = OTHER_URL;
     const fromEnv = buildRecordedRuntimeInputs({ endpoint: SELF_HOSTED_URL });

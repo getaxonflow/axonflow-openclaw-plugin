@@ -20,8 +20,10 @@
 #       carried by the mechanism under test and not by ambient state.
 #
 #   S3. `axonflow_get_tenant_id` through a real agent dispatch reports the
-#       self-hosted endpoint + identity, with the same cs_ registration file
-#       present as the competing wrong answer.
+#       self-hosted endpoint + identity — with the runtime-state record made
+#       UNREADABLE for the turn, so only the live in-process config can
+#       produce the right answer and a reverted in-process path would fall
+#       back to the Community-SaaS default.
 #
 #   S4. AXONFLOW_ENDPOINT in the CLI's own environment still wins over the
 #       recorded pluginConfig — a persisted value can never outrank the
@@ -257,20 +259,20 @@ mv "$RUNTIME_STATE_FILE.bak" "$RUNTIME_STATE_FILE" 2>/dev/null
 # ---------------------------------------------------------------------------
 echo "--- S3: axonflow_get_tenant_id through a real agent turn ---"
 # The tool runs INSIDE the runtime and is handed the live pluginConfig, so it
-# must not consult the record at all. Plant a DIVERGENT record first: if the
-# in-process plumbing were reverted, the tool would fall back to reading this
-# file and would report the decoy — so the leg can tell the feature apart from
-# the file. Without this the assertion would pass either way.
-DECOY_URL="http://127.0.0.1:1"
-RECORD_FILE="$RUNTIME_STATE_FILE" DECOY="$DECOY_URL" python3 - <<'PYDECOY'
-import json, os
-path = os.environ["RECORD_FILE"]
-rec = json.load(open(path))
-rec["endpoint_override"] = os.environ["DECOY"]
-rec["endpoint_source"] = "plugin-config"
-rec["client_id"] = "decoy-tenant-must-not-appear"
-json.dump(rec, open(path, "w"))
-PYDECOY
+# must not consult the record at all. Proving that needs a control the RUNTIME
+# cannot erase: an earlier revision planted a divergent record here, but
+# `openclaw agent` loads the plugin, which rewrites the record from the live
+# config before the tool ever runs — so a reverted in-process path would have
+# read the corrected record and the leg passed either way.
+#
+# Instead make the record permanently unavailable to this turn by replacing it
+# with a DIRECTORY. `writePluginRuntimeState` cannot rename over it (fails,
+# non-fatal by design) and `readPluginRuntimeState` cannot read it (EISDIR →
+# null). If the tool consulted the record it would now resolve the
+# Community-SaaS default; only the live in-process config can still produce
+# the sentinel. This doubles as a real test of the record-unwritable path.
+rm -f "$RUNTIME_STATE_FILE"
+mkdir -p "$RUNTIME_STATE_FILE"
 TOOL_OUT="$(mktemp -t axonflow-status-truth-tool.XXXXXX)"
 TOOL_PROMPT="Call the axonflow_get_tenant_id tool with no arguments. Then output exactly the literal text SMOKE_RESULT: followed by a single-line JSON object containing the tool's endpoint, tenant_id and mode values, like SMOKE_RESULT: {\"endpoint\":\"...\",\"tenant_id\":\"...\",\"mode\":\"...\"}."
 env -u AXONFLOW_ENDPOINT AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
@@ -301,14 +303,25 @@ else
   else
     fail "axonflow_get_tenant_id reported mode '$TOOL_MODE' (expected self-hosted)"
   fi
-  # The decoy record must have been ignored entirely.
-  if [ "$TOOL_ENDPOINT" = "$DECOY_URL" ] || [ "$TOOL_TENANT" = "decoy-tenant-must-not-appear" ]; then
-    fail "axonflow_get_tenant_id read the persisted record instead of the live config"
+  # With the record unreadable, the Community-SaaS fallback is what a
+  # record-reading implementation would have produced.
+  if [ "$TOOL_ENDPOINT" = "https://try.getaxonflow.com" ] || [ "$TOOL_TENANT" = "$CACHED_SAAS_TENANT" ]; then
+    fail "axonflow_get_tenant_id fell back to the record/registration path instead of the live config"
   else
-    pass "axonflow_get_tenant_id ignored the divergent persisted record (in-process path proven)"
+    pass "axonflow_get_tenant_id answered with the record unreadable — in-process path proven"
   fi
 fi
 rm -f "$TOOL_OUT"
+
+# Restore the record for the legs that follow.
+rmdir "$RUNTIME_STATE_FILE" 2>/dev/null
+( cd "$PLUGIN_DIR" && env -u AXONFLOW_ENDPOINT AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
+    openclaw plugins install --force --dangerously-force-unsafe-install . ) >/dev/null 2>&1
+if [ -f "$RUNTIME_STATE_FILE" ]; then
+  pass "record restored by a normal plugin load after the unwritable-path control"
+else
+  fail "record was not restored after the control — later legs would be unsound"
+fi
 
 # ---------------------------------------------------------------------------
 # S4 — a live AXONFLOW_ENDPOINT still outranks the recorded pluginConfig

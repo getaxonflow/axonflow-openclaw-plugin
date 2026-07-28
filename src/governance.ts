@@ -9,7 +9,7 @@ import type { MCPCheckInputResponse } from "./axonflow-client.js";
 import type { ClientRef } from "./client-ref.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import { shouldGovernTool } from "./config.js";
-import { noteNetworkFailOpen } from "./fail-open-notice.js";
+import { noteUngovernedFailOpen } from "./fail-open-notice.js";
 import {
   recordToolCallEvaluated,
   recordToolCallBlocked,
@@ -107,14 +107,23 @@ const AUTH_ERROR_PATTERN = new RegExp(
  * vs a transient network / server-side error.
  *
  * Decision order:
- * 1. If the error exposes `.status` or `.statusCode` === 401/403 → auth.
- *    (v1.2.1 prefers this path — the AxonFlowHttpError class exported from
- *    `axonflow-client.ts` always exposes `.status`, so new code paths never
- *    need to fall through to message matching.)
- * 2. Otherwise, regex-match the error message against AUTH_ERROR_PATTERN
- *    with word-boundary anchors. Still needed because thrown errors from
- *    third-party fetch wrappers and legacy code may not expose `.status`.
+ * 1. If the error exposes a numeric `.status` / `.statusCode`, that status is
+ *    AUTHORITATIVE: 401/403 is an auth error, anything else is not, and the
+ *    message is never consulted.
+ * 2. Only when no status is exposed — thrown errors from third-party fetch
+ *    wrappers and legacy code — fall back to regex-matching the message with
+ *    word-boundary anchors.
  * 3. Everything else is a network/transient error — fail-open.
+ *
+ * WHY THE STATUS SHORT-CIRCUITS BOTH WAYS (#167 R3). `AxonFlowHttpError`
+ * carries the platform's own reason in its message. A transient 5xx whose
+ * body happens to mention authentication — an ALB answering
+ * `502 {"error":"upstream authentication service unavailable"}` is the
+ * canonical case — would otherwise fall through to the message regex, be
+ * classified as an auth error, skip the fail-open branch, and hard-block
+ * every governed tool call under the default `onError: "block"`, telling the
+ * operator to fix credentials that are fine. Server-controlled text must not
+ * steer the fail-open/fail-closed decision when the status already answers it.
  *
  * Used by the fail-open / fail-closed decision in the before_tool_call
  * hook handler.
@@ -122,11 +131,14 @@ const AUTH_ERROR_PATTERN = new RegExp(
 export function isAxonFlowAuthError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
 
-  // Preferred path: typed error with HTTP status.
+  // Preferred path: typed error with an HTTP status. Decisive in BOTH
+  // directions — a non-auth status ends the classification here.
   const maybeStatus =
     (err as { status?: number; statusCode?: number }).status ??
     (err as { status?: number; statusCode?: number }).statusCode;
-  if (maybeStatus === 401 || maybeStatus === 403) return true;
+  if (typeof maybeStatus === "number" && Number.isFinite(maybeStatus)) {
+    return maybeStatus === 401 || maybeStatus === 403;
+  }
 
   // Fallback: message-based pattern match with word boundaries.
   const message =
@@ -213,7 +225,7 @@ export function createBeforeToolCallHandler(
           (typeof clientRef.current.getEndpoint === "function"
             ? clientRef.current.getEndpoint()
             : "") || config.endpoint;
-        noteNetworkFailOpen(failedEndpoint, err);
+        noteUngovernedFailOpen(failedEndpoint, err);
         recordToolCallAllowed();
         return undefined; // Fail-open: transient network issue
       }

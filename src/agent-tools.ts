@@ -13,7 +13,7 @@
  */
 
 import type { ClientRef } from "./client-ref.js";
-import { AxonFlowHttpError, describeErrorBody } from "./axonflow-client.js";
+import { AxonFlowHttpError, describeErrorBody, redactErrorBody } from "./axonflow-client.js";
 
 interface ToolContent {
   type: "text";
@@ -78,7 +78,10 @@ function describeError(e: unknown): { message: string; details?: Record<string, 
     const status = `HTTP ${e.status} ${e.statusText}`;
     return {
       message: reason ? `${status} — ${reason}` : status,
-      details: { status: e.status, body: e.responseBody },
+      // The body goes to the model verbatim apart from redaction, so it gets
+      // the same treatment as the extracted reason. Redacting one and
+      // forwarding the other would make the protection decorative.
+      details: { status: e.status, body: redactErrorBody(e.responseBody) },
     };
   }
   if (e instanceof Error) return { message: e.message };

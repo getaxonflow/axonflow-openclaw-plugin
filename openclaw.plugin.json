@@ -106,7 +106,7 @@
         {
           "path": "$AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json",
           "mode": "0o600",
-          "purpose": "Rewritten on every plugin load with the pluginConfig endpoint and clientId the governance runtime resolved, so the axonflow-openclaw-status CLI — a separate process with no pluginConfig access — reports the endpoint and identity your traffic actually uses instead of the Community-SaaS default. Contains no credentials: clientSecret, licenseToken and userToken are never written."
+          "purpose": "Rewritten on every plugin load with the endpoint override the governance runtime resolved — from either the AXONFLOW_ENDPOINT environment variable or pluginConfig.endpoint — plus which of those channels supplied it and the configured clientId. Lets the axonflow-openclaw-status CLI, a separate process that can see neither channel, report the endpoint and identity your traffic actually uses instead of the Community-SaaS default. Contains no credentials: clientSecret, licenseToken and userToken are never written."
         },
         {
           "path": "$AXONFLOW_CACHE_DIR/openclaw-plugin-telemetry-sent",

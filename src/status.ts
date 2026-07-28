@@ -46,6 +46,7 @@ import * as path from "path";
 import { axonflowConfigDir } from "./cache-dir.js";
 import {
   COMMUNITY_SAAS_DEFAULT_ENDPOINT,
+  deploymentTargetFor,
   endpointFromEnv,
   resolveDeploymentTarget,
   SELF_HOSTED_DEFAULT_CLIENT_ID,
@@ -624,29 +625,38 @@ export function resolveStatusInputs(
   if (configDirOverride !== undefined) inputs.configDirOverride = configDirOverride;
 
   if (state !== null) {
-    // Only advertise the record when it actually CONTRIBUTED. The live
-    // environment outranks the recorded endpoint, so the recorded endpoint
-    // contributes only when this process has no AXONFLOW_ENDPOINT of its
-    // own; the recorded clientId always contributes when it is set.
+    // Only advertise the record when it actually CONTRIBUTED, and advertise
+    // only the PART that contributed. The live environment outranks the
+    // recorded endpoint, so the recorded endpoint contributes only when this
+    // process has no AXONFLOW_ENDPOINT of its own; the recorded clientId
+    // contributes whenever it is set.
+    //
+    // These are tracked separately because they render separately: a record
+    // whose clientId contributed but whose endpoint was overridden by the
+    // reader's environment must NOT put a provenance stamp on the endpoint
+    // line. Stamping an environment-only endpoint with "as recorded by the
+    // plugin load at <time>" is the false-confirmation half of #162/#167
+    // rebuilt one field over.
     const liveEnvRaw = endpointFromEnv();
     const liveEnvSet = typeof liveEnvRaw === "string" && liveEnvRaw.trim() !== "";
     const endpointContributed = !liveEnvSet && state.endpoint_override !== "";
-    if ((endpointContributed || state.client_id !== "") && state.recorded_at !== "") {
+    const identityContributed = state.client_id !== "";
+    if ((endpointContributed || identityContributed) && state.recorded_at !== "") {
       inputs.configRecordedAt = state.recorded_at;
       if (endpointContributed && state.endpoint_source !== "none") {
         inputs.configRecordedSource = state.endpoint_source;
       }
     }
-    // When this process's environment overrides a DIFFERENT endpoint than
-    // the runtime resolved at its last load, both facts matter: the reported
-    // value is what a fresh load would resolve, the recorded one is what the
-    // running process is using. Report both rather than silently pick.
-    // A non-empty recorded override IS the endpoint the runtime resolved:
-    // a user-provided override always wins over every default, so no second
-    // resolution is needed (and none is done — re-running the resolver here
-    // would consult the live environment again and defeat the comparison).
-    if (liveEnvSet && state.endpoint_override !== "" && state.endpoint_override !== target.endpoint) {
-      inputs.runtimeEndpointAtLastLoad = state.endpoint_override;
+
+    // What the last plugin load ACTUALLY resolved, reconstructed from the
+    // record alone. `deploymentTargetFor` applies the identical defaults
+    // without consulting this process's environment — the recorded override
+    // may be empty while the runtime still resolved a real endpoint from the
+    // credentials-implied or Community-SaaS default, and comparing against
+    // the raw override alone would miss exactly those cases.
+    const atLastLoad = deploymentTargetFor(state.endpoint_override, state.client_id);
+    if (atLastLoad.endpoint !== target.endpoint) {
+      inputs.runtimeEndpointAtLastLoad = atLastLoad.endpoint;
     }
   }
   return inputs;
@@ -681,6 +691,11 @@ export function formatStatusReport(report: StatusReport): string {
     } else {
       lines.push("              (from pluginConfig.clientId — the identity governed requests authenticate with)");
     }
+    // Identity provenance lives here, not on the endpoint line: the recorded
+    // clientId can contribute while the endpoint came only from this shell.
+    if (report.config_recorded_source === null && report.config_recorded_at !== null) {
+      lines.push(`              (recorded by the plugin load at ${report.config_recorded_at})`);
+    }
   } else if (report.client_id) {
     lines.push(`  client_id:  ${report.client_id}  (formerly tenant_id)`);
     lines.push("              (paste this into the Stripe checkout custom field when buying Pro —");
@@ -692,20 +707,22 @@ export function formatStatusReport(report: StatusReport): string {
     lines.push("              Lost your registration? Run `axonflow-openclaw-recover <email>`");
   }
   lines.push(`  endpoint:   ${report.endpoint}  (mode=${report.mode})`);
-  if (report.config_recorded_at !== null) {
+  // Provenance belongs on the endpoint line only when the RECORDED endpoint
+  // is what produced it. `config_recorded_source` is set exactly then; when
+  // only the recorded identity contributed, `config_recorded_at` is populated
+  // but the source is null and this line is correctly suppressed.
+  if (report.config_recorded_source !== null && report.config_recorded_at !== null) {
     const channel =
       report.config_recorded_source === "env"
         ? "AXONFLOW_ENDPOINT in the runtime's environment"
-        : report.config_recorded_source === "plugin-config"
-          ? "pluginConfig"
-          : "plugin configuration";
+        : "pluginConfig";
     lines.push(`              (from ${channel}, as recorded by the plugin load at`);
     lines.push(`              ${report.config_recorded_at}; reload OpenClaw after changing it)`);
   }
   if (report.runtime_endpoint_at_last_load !== null) {
-    lines.push("              NOTE: AXONFLOW_ENDPOINT in THIS shell resolves the endpoint above,");
-    lines.push(`              but the running plugin resolved ${report.runtime_endpoint_at_last_load} at its`);
-    lines.push("              last load and is still governing against that until it reloads.");
+    lines.push("              NOTE: this answer reflects THIS shell's environment. The running");
+    lines.push(`              plugin resolved ${report.runtime_endpoint_at_last_load} at its last load and`);
+    lines.push("              is still governing against that until it reloads.");
   }
 
   // V1 SaaS Plugin Pro tier-line surface parity (codex / cursor / claude /
