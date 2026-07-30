@@ -239,6 +239,46 @@ assert_tool_in_summary() {
     "$output_file" >/dev/null 2>&1
 }
 
+# assert_tool_dispatched <output_file> <tool_name>
+#
+# The STRUCTURED-ONLY form of assert_tool_in_summary, for assertions whose whole
+# point is "the runtime really called this tool".
+#
+# assert_tool_in_summary ORs the structured field with
+# `.payloads[].text | contains($t)`, which is right for a loose
+# "did this tool appear anywhere" check and wrong for a dispatch assertion: a
+# prompt that NAMES the tools it wants — which the governance-lifecycle prompt
+# does, three times — would satisfy the text arm on a turn that called nothing.
+# The suites that need dispatch evidence must not degrade to reading the model's
+# prose about itself.
+#
+# Measured on OpenClaw 2026.7.1-2: `.meta.toolSummary` is present and
+# `.tools` carries the real dispatched names, including plugin agent tools
+# (`{"calls":5,"tools":["axonflow_list_overrides","axonflow_create_override","axonflow_revoke_override"],"failures":0}`),
+# while the reply text contained none of them. So the structured path is the one
+# that actually carries these assertions today; requiring it removes a fallback
+# that could only ever weaken them.
+#
+# An ABSENT toolSummary fails rather than falling back, and says so — on an
+# OpenClaw version that stops emitting it, the honest outcome is a loud failure
+# telling the reader the evidence source is gone, not a green run resting on
+# prose.
+assert_tool_dispatched() {
+  local output_file="$1"
+  local tool_name="$2"
+
+  if ! jq -e '.meta.toolSummary.tools // .meta.agentMeta.toolSummary.tools' \
+       "$output_file" >/dev/null 2>&1; then
+    echo "      (no .meta.toolSummary.tools in the runtime output — dispatch evidence is unavailable on this OpenClaw version)"
+    return 1
+  fi
+
+  jq -e --arg t "$tool_name" \
+    '((.meta.toolSummary.tools // .meta.agentMeta.toolSummary.tools) // [])
+     | index($t) != null' \
+    "$output_file" >/dev/null 2>&1
+}
+
 assert_smoke_result() {
   local output_file="$1"
   # OpenClaw can emit progress text + final reply across multiple payloads,

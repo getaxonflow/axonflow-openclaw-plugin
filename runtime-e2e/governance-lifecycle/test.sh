@@ -106,7 +106,7 @@ errors=0
 # the strongest single evidence in OpenClaw's --json output is the tool summary,
 # and no suite in this directory was consulting it.
 for _tool in axonflow_create_override axonflow_revoke_override axonflow_list_overrides; do
-  if assert_tool_in_summary "$OUTPUT_FILE" "$_tool"; then
+  if assert_tool_dispatched "$OUTPUT_FILE" "$_tool"; then
     echo "PASS: runtime dispatched $_tool"
   else
     echo "FAIL: $_tool never appears in the turn's tool summary or reply — the"
