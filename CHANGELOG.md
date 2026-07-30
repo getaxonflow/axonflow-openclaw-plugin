@@ -1,6 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [2.8.5] - 2026-07-30: status/identity truth, an announced fail-open, and the platform's own error reason
+
+Validated against a local stack built from platform tag **v9.13.0** and against
+the deployed Community SaaS (**9.12.2**, read from `/health`) — the two versions
+in service on release day. All six `runtime-e2e` suites pass on 9.13.0 (47
+executed assertions, zero skips); on 9.12.2 the three suites covering this
+release's changes pass and the remaining three are limited by deployment
+posture, not by the plugin, and say so (see `### Testing`).
 
 ### Fixed
 
@@ -114,18 +121,7 @@
   `buildGetTenantIdTool(pluginConfig?)` accept the live plugin config. Called
   without it, the tool falls back to the persisted record.
 
-### Testing
 
-- New `runtime-e2e/status-identity-truth/` (6 legs) and
-  `runtime-e2e/failopen-notice/` (4 legs), both driving the real host, the
-  real bin and real agent dispatch, each with a vacuity control that
-  reproduces the pre-fix answer.
-- `runtime-e2e/endpoint-env-override/` isolates `AXONFLOW_CONFIG_DIR` so its
-  ephemeral sentinel ports cannot end up in a developer's real config.
-- Jest pins `AXONFLOW_CONFIG_DIR` to a throwaway directory: plugin
-  registration now writes a file, and without the pin every test that
-  registers the plugin would write into the developer's real AxonFlow config.
-### Changed
 
 - **`runtime-e2e` override tests fail instead of skipping when the deployment
   posture is wrong.** (#3062) `governance-lifecycle`, `list-overrides` and
@@ -150,6 +146,74 @@
   fails cannot detect anything. Both now fail with the diagnosis. Combined with
   the override pre-flight above, no suite in `runtime-e2e` exits 0 on a
   condition the default configuration produces or on its own subject failing.
+
+### Not fixed in this release
+
+- **#170 remains open.** A `403` combined with `onError: "allow"` still proceeds
+  without the notice this release adds — the notice covers the network fail-open
+  only, and auth errors keep their own path. Nothing here closes #170.
+
+### Testing
+
+- New `runtime-e2e/status-identity-truth/` (6 legs) and
+  `runtime-e2e/failopen-notice/` (4 legs), both driving the real host, the
+  real bin and real agent dispatch, each with a vacuity control that
+  reproduces the pre-fix answer.
+- `runtime-e2e/endpoint-env-override/` isolates `AXONFLOW_CONFIG_DIR` so its
+  ephemeral sentinel ports cannot end up in a developer's real config.
+- Jest pins `AXONFLOW_CONFIG_DIR` to a throwaway directory: plugin
+  registration now writes a file, and without the pin every test that
+  registers the plugin would write into the developer's real AxonFlow config.
+
+- **Three suites that could not pass have been repaired, found by executing
+  every suite against a live 9.13.0 stack.** No workflow in this repo runs a
+  `runtime-e2e/test.sh`: `definition-of-done.yml` checks only that
+  `runtime-e2e/**` was *touched* by the PR. Un-skipping a suite therefore
+  turned "silently green" into "red the first time anyone runs it", and three
+  suites had pre-existing defects the skip had been hiding.
+  - `explain-decision` asserted the reply named `Authentication Bypass` /
+    `sys_sqli_admin_bypass`, which its own seed statement (`id=1 OR 1=1`) cannot
+    produce — it fires the OR-always-true pattern. The expected name and id are
+    now read from the response that minted the decision, so the assertion is
+    correct for any pattern catalogue, and an empty name is refused rather than
+    degrading to `contains("")`.
+  - `audit-search` seeded its marker inside the `statement`. A check-input audit
+    row records `query` as `mcp check-input: <connector_type>` and persists only
+    a hash of the statement, so a marker in the statement is unfindable by
+    construction. The marker now goes in `connector_type`; the statement still
+    carries the SQLi pattern, so the seed is still a real recorded block.
+  - `audit-search`'s pre-flight probe sent only the shared client credential
+    while the plugin itself sends a per-user token when one is configured, so it
+    measured a read scope the plugin does not use. Both now present the same
+    identity, and a zero-row result is diagnosed as a read-scope posture
+    (role-scoped reads, platform 9.10.0+) rather than as an empty audit log.
+    `openclaw_install_local_plugin` also wires `AXONFLOW_USER_TOKEN` into
+    `pluginConfig.userToken` so the identity does not depend on whether the
+    invoking shell happened to export it.
+- `assert_reply_contains` matches fixed strings (`grep -F`). Needles are now
+  derived from platform responses, where a regex metacharacter would silently
+  change what is asserted or turn a match into a grep error reported as a
+  failure for the wrong reason.
+
+### Included from 2.8.4
+
+Restated because the ClawHub listing shows only the newest release body, and
+`publish.yml` auto-folds a parent MINOR, never the preceding patch — so without
+this the 2.8.4 endpoint fix disappears from the listing.
+
+- **The documented `AXONFLOW_ENDPOINT` environment override is honored by the
+  governance runtime**, with the manifest's precedence (`AXONFLOW_ENDPOINT` >
+  `pluginConfig.endpoint` > default). (#162) Previously only the status display
+  resolved the variable, so an operator who configured a self-hosted deployment
+  through the environment variable alone could leave governed traffic — tool
+  arguments, outbound message bodies, audit content — flowing to the default
+  Community SaaS endpoint while `axonflow-openclaw-status` displayed the
+  override, a false confirmation that data stayed on their network. Setting
+  `AXONFLOW_ENDPOINT` now also selects self-hosted mode, so the Community-SaaS
+  auto-registration never runs.
+- **Status and the governance runtime resolve the endpoint through one shared
+  function** (`src/endpoint-env.ts`), so the endpoint status displays is, by
+  construction, the endpoint governed traffic uses.
 
 ## [2.8.4] - 2026-07-18: AXONFLOW_ENDPOINT honored by the governance runtime
 
