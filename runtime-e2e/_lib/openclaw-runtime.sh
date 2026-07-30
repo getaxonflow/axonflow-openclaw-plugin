@@ -69,6 +69,88 @@ openclaw_install_local_plugin() {
   # actually exercise revoke against state seeded with the same identity.
   openclaw config set "plugins.entries.axonflow-governance.config.userEmail" \
     "${AXONFLOW_TEST_USER_EMAIL:-dev@getaxonflow.com}" >/dev/null
+  # A validated per-user token, when the harness has one, must reach the plugin
+  # through pluginConfig rather than only through the driver shell's environment.
+  # The plugin resolves userToken as pluginConfig > AXONFLOW_USER_TOKEN env >
+  # provisioning file, so an env-only value works when the suite is run from a
+  # shell that exports it and silently does not when it isn't — which makes
+  # every read-scope assertion depend on the invoker rather than on the suite.
+  # Setting it here means the plugin and the suites' own probes present the same
+  # identity to the platform.
+  if [ -n "${AXONFLOW_USER_TOKEN:-}" ]; then
+    openclaw config set "plugins.entries.axonflow-governance.config.userToken" \
+      "$AXONFLOW_USER_TOKEN" >/dev/null
+  fi
+}
+
+# Populate AUDIT_READ_IDENTITY_ARGS with the curl args carrying the identity the
+# PLUGIN sends on a governed read. An array, not command substitution: a header
+# value contains a space, so `$(...)` word-splitting would send `-HX-User-Token:`
+# (a header with an empty value) and pass the token itself as a URL — which
+# fails as "no rows" rather than as an error, i.e. the exact silent-wrong-answer
+# shape this helper exists to remove.
+AUDIT_READ_IDENTITY_ARGS=()
+set_audit_read_identity_args() {
+  AUDIT_READ_IDENTITY_ARGS=()
+  if [ -n "${AXONFLOW_USER_TOKEN:-}" ]; then
+    AUDIT_READ_IDENTITY_ARGS+=(-H "X-User-Token: $AXONFLOW_USER_TOKEN")
+  fi
+}
+
+# require_audit_read_scope <marker> <audit-search-response>
+#
+# Called when a seeded marker is not visible through /api/v1/audit/search.
+# Distinguishes the two causes and prints the remediation for each, then the
+# caller exits non-zero. Never exits 0: a suite that cannot see the audit trail
+# it just wrote has found something, and "skip" reported that as success until
+# #167.
+require_audit_read_scope() {
+  local marker="$1" response="$2"
+  local total entries
+  total=$(printf '%s' "$response" | jq -r '.total // "?"' 2>/dev/null)
+  entries=$(printf '%s' "$response" | jq -r '.entries | length' 2>/dev/null)
+
+  echo "FAIL: the seeded marker never landed in the audit log"
+  echo "      marker:   $marker"
+  echo "      endpoint: $AXONFLOW_ENDPOINT"
+  echo "      audit/search returned total=$total entries=${entries:-?}"
+  if [ -n "${AXONFLOW_USER_TOKEN:-}" ]; then
+    echo "      identity sent: X-User-Token (configured)"
+  else
+    echo "      identity sent: shared client credential only (no per-user token)"
+  fi
+  echo ""
+  # Branch on what was MEASURED (an empty result set vs a populated one that
+  # lacks the marker), never on which identity happened to be configured — an
+  # empty set with a token set is a real and different finding from an empty set
+  # without one, and the previous form conflated them into a message that said
+  # "rows ARE readable (entries=0)".
+  if [ "${entries:-0}" = "0" ]; then
+    echo "      The whole result set is empty, so this is a READ-SCOPE result and"
+    echo "      not a statement about the marker. Since platform 9.10.0 the"
+    echo "      audit/decisions/overrides reads are role-scoped: a shared client"
+    echo "      credential resolves to a synthetic shared identity and reads ZERO"
+    echo "      rows fail-closed (#2950), while a validated per-user token reads"
+    echo "      that developer's own rows."
+    echo ""
+    if [ -z "${AXONFLOW_USER_TOKEN:-}" ]; then
+      echo "      No per-user token is configured, which is exactly that posture."
+      echo "      Mint one for this org and re-run:"
+      echo "        AXONFLOW_USER_TOKEN=<token>   # forwarded as X-User-Token"
+      echo "      See the AXONFLOW_USER_TOKEN entry in openclaw.plugin.json."
+    else
+      echo "      A per-user token IS configured and the set is still empty, so"
+      echo "      either the token does not resolve to an identity on this"
+      echo "      deployment (wrong org, expired, wrong signing key) or the rows"
+      echo "      this suite just wrote are attributed to a different identity"
+      echo "      than the one the token names. Both are findings."
+    fi
+  else
+    echo "      ${entries} row(s) ARE readable but none carries the marker, so the"
+    echo "      audit write path, the search path, or the pattern catalogue that"
+    echo "      makes the seed a recorded block has drifted."
+    echo "      Any of those is a finding; none is a reason to exit 0."
+  fi
 }
 
 # Run a single agent turn against the local OpenClaw runtime.
@@ -108,7 +190,12 @@ assert_smoke_result() {
 assert_reply_contains() {
   local output_file="$1"
   local needle="$2"
-  jq -r '.payloads[]?.text // empty' "$output_file" 2>/dev/null | grep -q "$needle"
+  # -F: every caller passes a literal, and needles are now derived from platform
+  # responses (policy names, ids). An unescaped regex metacharacter in a derived
+  # value would otherwise change what is asserted — `.` matching any character
+  # is the benign end of that; a bare `*` or `[` is a grep error, which grep -q
+  # reports as no-match, i.e. a silent FAIL for the wrong reason.
+  jq -r '.payloads[]?.text // empty' "$output_file" 2>/dev/null | grep -qF -- "$needle"
 }
 
 # Returns the SMOKE_RESULT JSON text (post-prefix) from any payload.

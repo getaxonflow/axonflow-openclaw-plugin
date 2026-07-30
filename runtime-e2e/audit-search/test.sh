@@ -19,36 +19,48 @@ echo "--- Building + installing local OpenClaw plugin ---"
 openclaw_install_local_plugin || exit 1
 
 # 1. Seed marker via SQLi block.
+#
+# The marker goes in connector_type, NOT in the statement. A check-input audit
+# row records `query` as "mcp check-input: <connector_type>" and stores only
+# StatementHash for the statement itself (platform/agent/mcp_handler.go) — the
+# statement text is deliberately never persisted. A marker embedded in the
+# statement is therefore unfindable in `.query` by construction, and the
+# pre-flight below could not pass on any platform version. The statement still
+# carries the SQLi pattern, so the seed is still a real recorded block.
 MARKER="w2-runtime-e2e-audit-marker-$(date +%s)-$RANDOM"
 echo "--- Seeding audit marker: $MARKER ---"
 
 curl -s -X POST \
   -H "Authorization: Basic $(printf '%s:%s' "$AXONFLOW_CLIENT_ID" "$AXONFLOW_CLIENT_SECRET" | base64)" \
   -H "Content-Type: application/json" \
-  -d "{\"connector_type\":\"sql\",\"statement\":\"SELECT * FROM users WHERE id=1 OR 1=1; -- $MARKER\",\"operation\":\"query\"}" \
+  -d "{\"connector_type\":\"sql-$MARKER\",\"statement\":\"SELECT * FROM users WHERE id=1 OR 1=1\",\"operation\":\"query\"}" \
   "$AXONFLOW_ENDPOINT/api/v1/mcp/check-input" >/dev/null
 sleep 2
 
-# Verify the seed landed via direct curl before driving the agent.
-DIRECT_HITS=$(curl -s -X POST \
+# Verify the seed landed before driving the agent.
+#
+# The probe must send the identity the PLUGIN sends, or it measures a read scope
+# the plugin does not use. Since platform 9.10.0 the audit/decisions/overrides
+# reads are role-scoped: a shared client credential resolves to a synthetic
+# shared identity (<client>@axonflow.local) and reads ZERO rows fail-closed
+# (#2950), while a validated per-user token reads that developer's rows. A bare
+# Basic-auth curl therefore reports "nothing in the audit log" on a stack whose
+# audit log is fine and whose plugin can read it.
+set_audit_read_identity_args
+AUDIT_SEARCH_RESPONSE=$(curl -s -X POST \
   -H "Authorization: Basic $(printf '%s:%s' "$AXONFLOW_CLIENT_ID" "$AXONFLOW_CLIENT_SECRET" | base64)" \
   -H "Content-Type: application/json" \
+  "${AUDIT_READ_IDENTITY_ARGS[@]+"${AUDIT_READ_IDENTITY_ARGS[@]}"}" \
   -d '{"limit":50}' \
-  "$AXONFLOW_ENDPOINT/api/v1/audit/search" \
+  "$AXONFLOW_ENDPOINT/api/v1/audit/search")
+DIRECT_HITS=$(printf '%s' "$AUDIT_SEARCH_RESPONSE" \
   | jq --arg m "$MARKER" '[.entries[] | select((.query // "") | contains($m))] | length' 2>/dev/null)
 if [ "${DIRECT_HITS:-0}" -lt 1 ]; then
   # Previously "SKIP:" + exit 0 — success reported for precisely the condition
   # that makes the rest of this suite meaningless. If the seeded marker never
   # reaches the audit log, the agent-driven search below has nothing to find,
   # and a green result would say the audit trail works when it does not.
-  echo "FAIL: the seeded marker never landed in the audit log"
-  echo "      marker:   $MARKER"
-  echo "      endpoint: $AXONFLOW_ENDPOINT"
-  echo ""
-  echo "      The direct POST /api/v1/audit/search returned no entry containing"
-  echo "      it, so the audit write path is broken, the search path is broken,"
-  echo "      or the pattern catalogue no longer matches the seed statement."
-  echo "      Any of those is a finding; none is a reason to exit 0."
+  require_audit_read_scope "$MARKER" "$AUDIT_SEARCH_RESPONSE"
   exit 1
 fi
 
