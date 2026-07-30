@@ -114,7 +114,7 @@ run_turn() {
   ( cd "$PLUGIN_DIR" && env -u AXONFLOW_ENDPOINT AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
       openclaw plugins install --force --dangerously-force-unsafe-install . ) >/dev/null 2>&1
   env -u AXONFLOW_ENDPOINT AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
-    timeout 180 openclaw agent --local --agent main --model "$OPENCLAW_E2E_MODEL" \
+    timeout 180 openclaw agent --local --agent main --session-id "$(openclaw_fresh_session_id)" --model "$OPENCLAW_E2E_MODEL" \
       --message "$PROMPT" --json --thinking off >"$out_file" 2>"$err_file" || true
 }
 

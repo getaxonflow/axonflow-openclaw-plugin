@@ -171,6 +171,8 @@ echo "Step 1c: drive one short agent turn so plugin loads + canary fires"
 TURN_LOG=$(mktemp -t axonflow-turn.XXXXXX)
 TURN_PROMPT="Say only the literal words DONE. Do not call any tools."
 timeout 90 openclaw agent \
+  --session-id "$(openclaw_fresh_session_id)" \
+    --session-id "$(openclaw_fresh_session_id)" \
     --local \
     --agent main \
     --model "$OPENCLAW_E2E_MODEL" \
@@ -206,6 +208,8 @@ echo "Step 1d: drive a governed call so X-License-Token reaches the agent"
 GOVERNED_LOG=$(mktemp -t axonflow-governed.XXXXXX)
 GOVERNED_PROMPT="Use the axonflow_audit_search tool with limit=5 to fetch recent audit events. Output exactly the literal text RUNTIME_PROBE_DONE on success."
 timeout 120 openclaw agent \
+  --session-id "$(openclaw_fresh_session_id)" \
+    --session-id "$(openclaw_fresh_session_id)" \
     --local \
     --agent main \
     --model "$OPENCLAW_E2E_MODEL" \
