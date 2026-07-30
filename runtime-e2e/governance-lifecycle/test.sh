@@ -48,6 +48,19 @@ BASELINE_COUNT=$(curl -s -X GET \
 echo "--- Baseline override count: $BASELINE_COUNT ---"
 
 REASON_TAG="lifecycle-test-$(date +%s)-$RANDOM"
+# Window start + read identity for the independent audit-trail check below.
+# Captured BEFORE the agent turn so the window contains only this run's rows, and
+# sent with the identity the plugin itself uses so the check reads the same scope
+# the plugin gets rather than a narrower one.
+LIFECYCLE_WINDOW_START=$(python3 -c "import datetime;print((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(seconds=120)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+set_audit_read_identity_args
+LIFECYCLE_HDR_FILE=$(mktemp -t axonflow-lifecycle-hdr.XXXXXX)
+curl -s -D "$LIFECYCLE_HDR_FILE" -o /dev/null -X POST \
+  -H "$AXONFLOW_AUTH_HDR" -H "Content-Type: application/json" \
+  "${AUDIT_READ_IDENTITY_ARGS[@]+"${AUDIT_READ_IDENTITY_ARGS[@]}"}" \
+  -d '{"limit":1}' "$AXONFLOW_ENDPOINT/api/v1/audit/search"
+AUDIT_READ_SCOPE=$(tr -d '\r' < "$LIFECYCLE_HDR_FILE" \
+  | awk 'BEGIN{IGNORECASE=1} /^X-Axonflow-Read-Scope:/ {print $2}' | tail -1)
 
 PROMPT="You are running a 5-step governance lifecycle smoke test. Execute each step in order using the named tool — do not invent tools or reorder.
 
@@ -79,7 +92,7 @@ cleanup() {
         "$AXONFLOW_ENDPOINT/api/v1/overrides/$lid" >/dev/null 2>&1 || true
     done
   fi
-  rm -f "${OUTPUT_FILE:-}"
+  rm -f "${OUTPUT_FILE:-}" "${LIFECYCLE_HDR_FILE:-}"
 }
 trap cleanup EXIT
 
@@ -87,6 +100,20 @@ echo "--- Driving OpenClaw agent through the full W2 lifecycle ---"
 openclaw_agent_capture "$PROMPT" "$OUTPUT_FILE"
 
 errors=0
+
+# The lifecycle numbers below are all MODEL-REPORTED. Without this the suite
+# passes on a turn that made no tool call at all and narrated plausible counts —
+# the strongest single evidence in OpenClaw's --json output is the tool summary,
+# and no suite in this directory was consulting it.
+for _tool in axonflow_create_override axonflow_revoke_override axonflow_list_overrides; do
+  if assert_tool_in_summary "$OUTPUT_FILE" "$_tool"; then
+    echo "PASS: runtime dispatched $_tool"
+  else
+    echo "FAIL: $_tool never appears in the turn's tool summary or reply — the"
+    echo "      counts below would be model narration, not a lifecycle"
+    errors=$((errors + 1))
+  fi
+done
 
 if assert_smoke_result "$OUTPUT_FILE"; then
   echo "PASS: agent emitted SMOKE_RESULT marker"
@@ -126,7 +153,32 @@ else
     fi
   fi
 
-  if [ -n "$CID" ]; then
+  # The independent check must prove the row EXISTED and then went away.
+  # Asserting only its absence after the revoke is satisfied by any UUID that
+  # was never created, which is precisely what a hallucinating turn produces —
+  # so the previous form of this leg passed hardest on the input it exists to
+  # catch. The create is evidenced by the audit trail rather than by a live
+  # lookup, because by this point the revoke has already removed the row.
+  if [ -z "$CID" ]; then
+    echo "FAIL: SMOKE_RESULT carried no created_id, so the independent"
+    echo "      server-side check cannot run — and it is the only assertion here"
+    echo "      that does not come from the model"
+    errors=$((errors + 1))
+  else
+    CREATED_SEEN=$(curl -s -X POST \
+      -H "$AXONFLOW_AUTH_HDR" \
+      -H "Content-Type: application/json" \
+      "${AUDIT_READ_IDENTITY_ARGS[@]+"${AUDIT_READ_IDENTITY_ARGS[@]}"}" \
+      -d "{\"limit\":100,\"start_time\":\"$LIFECYCLE_WINDOW_START\"}" \
+      "$AXONFLOW_ENDPOINT/api/v1/audit/search" \
+      | jq --arg t "$REASON_TAG" '[.entries[]? | select(((.query // "") + (.policy_details.reason // "")) | contains($t))] | length' 2>/dev/null)
+    if [ "${CREATED_SEEN:-0}" -ge 1 ]; then
+      echo "PASS: the platform's own audit trail records the create for $REASON_TAG (independent of the model)"
+    else
+      echo "WARN: no audit row carries $REASON_TAG; create evidence rests on the"
+      echo "      list-count transition alone (read scope: ${AUDIT_READ_SCOPE:-<unknown>})"
+    fi
+
     SERVER_HAS_ID=$(curl -s -X GET \
       -H "$AXONFLOW_AUTH_HDR" \
       -H "X-Tenant-ID: local-dev-org" \

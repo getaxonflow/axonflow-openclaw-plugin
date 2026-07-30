@@ -381,6 +381,8 @@ drive_agent_turn() {
   # after_tool_call → proxied /api/v1/audit/tool-call (attribution plane).
   local out="$1"
   env -u AXONFLOW_USER_TOKEN timeout 180 openclaw agent \
+    --session-id "$(openclaw_fresh_session_id)" \
+    --session-id "$(openclaw_fresh_session_id)" \
     --local --agent main --model "$OPENCLAW_E2E_MODEL" \
     --message "Use the axonflow_audit_search tool with limit=5 to fetch recent audit events. Then output exactly the literal text SMOKE_RESULT: followed by {\"tool_succeeded\":true} if the tool returned audit data, or {\"tool_succeeded\":false} if the tool was blocked or errored." \
     --json --thinking off >"$out" 2>/dev/null || true
@@ -455,6 +457,8 @@ plugin_config_patch "{\"userToken\": \"$TAMPERED\"}" ""
 OUT_L5=$(mktemp -t axonflow-user-token-l5.XXXXXX)
 MARKER_L5="tamper-leg-$(date +%s)-$RANDOM"
 env -u AXONFLOW_USER_TOKEN timeout 180 openclaw agent \
+  --session-id "$(openclaw_fresh_session_id)" \
+    --session-id "$(openclaw_fresh_session_id)" \
   --local --agent main --model "$OPENCLAW_E2E_MODEL" \
   --message "Use the axonflow_audit_search tool with limit=5 to fetch recent audit events mentioning $MARKER_L5. Then output exactly the literal text SMOKE_RESULT: followed by {\"tool_succeeded\":true} if the tool returned audit data, or {\"tool_succeeded\":false} if the tool was blocked or errored." \
   --json --thinking off >"$OUT_L5" 2>/dev/null || true

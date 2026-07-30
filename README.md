@@ -368,7 +368,7 @@ We recommend the npm-spec form as our primary install path. npm is our source-of
 To pin a specific version (recommended in production / CI):
 
 ```bash
-openclaw plugins install @axonflow/openclaw@2.1.0
+openclaw plugins install @axonflow/openclaw@2.8.5
 ```
 
 The `clawhub:@axonflow/openclaw` form is also supported and pulls from the [ClawHub](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw) mirror, which we publish to alongside [npm](https://www.npmjs.com/package/@axonflow/openclaw) on each release.

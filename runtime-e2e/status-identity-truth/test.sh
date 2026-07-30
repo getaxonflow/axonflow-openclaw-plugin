@@ -276,7 +276,7 @@ mkdir -p "$RUNTIME_STATE_FILE"
 TOOL_OUT="$(mktemp -t axonflow-status-truth-tool.XXXXXX)"
 TOOL_PROMPT="Call the axonflow_get_tenant_id tool with no arguments. Then output exactly the literal text SMOKE_RESULT: followed by a single-line JSON object containing the tool's endpoint, tenant_id and mode values, like SMOKE_RESULT: {\"endpoint\":\"...\",\"tenant_id\":\"...\",\"mode\":\"...\"}."
 env -u AXONFLOW_ENDPOINT AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
-  timeout 180 openclaw agent --local --agent main --model "$OPENCLAW_E2E_MODEL" \
+  timeout 180 openclaw agent --local --agent main --session-id "$(openclaw_fresh_session_id)" --model "$OPENCLAW_E2E_MODEL" \
     --message "$TOOL_PROMPT" --json --thinking off >"$TOOL_OUT" 2>/dev/null || true
 
 TOOL_LINE=$(extract_smoke_line "$TOOL_OUT")

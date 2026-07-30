@@ -97,15 +97,32 @@ set_audit_read_identity_args() {
   fi
 }
 
-# require_audit_read_scope <marker> <audit-search-response>
+# require_audit_read_scope <marker> <audit-search-response> <read-scope-header>
 #
-# Called when a seeded marker is not visible through /api/v1/audit/search.
-# Distinguishes the two causes and prints the remediation for each, then the
-# caller exits non-zero. Never exits 0: a suite that cannot see the audit trail
-# it just wrote has found something, and "skip" reported that as success until
-# #167.
+# Called when a seeded marker is not visible through /api/v1/audit/search. Names
+# the actual cause and prints a remedy that can work, then the caller exits
+# non-zero. Never exits 0: a suite that cannot see the audit trail it just wrote
+# has found something, and "skip" reported that as success until #167.
+#
+# The read scope is READ FROM THE PLATFORM, not inferred from `entries == 0`.
+# Since 9.10.0 these routes stamp an `X-Axonflow-Read-Scope` response header
+# ("none" / "own-rows" / "tenant") whose documented purpose is exactly this:
+# distinguishing "you cannot see it" from "the data is gone". Inferring it from
+# an empty array reaches the same conclusion by guessing, and gets it wrong
+# whenever the array is empty for some other reason -- a window that excludes the
+# row, for one.
+#
+# WHY THE REMEDY IS "an admin-class token" and not "a token":
+# the rows this suite seeds come from a check-input call authenticated with the
+# SHARED client credential, so the platform attributes them to the synthetic pool
+# identity <client-id>@axonflow.local with role `service` -- not to whoever holds
+# the per-user token. A `developer`-role token therefore resolves to `own-rows`,
+# which does not include them, and no amount of re-minting a developer token can
+# ever make this suite pass. Only a role resolving to `tenant` (admin / owner /
+# policy_admin) can read them. Measured on 9.13.0: developer token ->
+# `X-Axonflow-Read-Scope: own-rows`, total 0; admin token -> `tenant`, total 95.
 require_audit_read_scope() {
-  local marker="$1" response="$2"
+  local marker="$1" response="$2" read_scope="${3:-}"
   local total entries
   total=$(printf '%s' "$response" | jq -r '.total // "?"' 2>/dev/null)
   entries=$(printf '%s' "$response" | jq -r '.entries | length' 2>/dev/null)
@@ -114,57 +131,99 @@ require_audit_read_scope() {
   echo "      marker:   $marker"
   echo "      endpoint: $AXONFLOW_ENDPOINT"
   echo "      audit/search returned total=$total entries=${entries:-?}"
+  echo "      X-Axonflow-Read-Scope: ${read_scope:-<absent>}"
   if [ -n "${AXONFLOW_USER_TOKEN:-}" ]; then
     echo "      identity sent: X-User-Token (configured)"
   else
     echo "      identity sent: shared client credential only (no per-user token)"
   fi
   echo ""
-  # Branch on what was MEASURED (an empty result set vs a populated one that
-  # lacks the marker), never on which identity happened to be configured — an
-  # empty set with a token set is a real and different finding from an empty set
-  # without one, and the previous form conflated them into a message that said
-  # "rows ARE readable (entries=0)".
-  if [ "${entries:-0}" = "0" ]; then
-    echo "      The whole result set is empty, so this is a READ-SCOPE result and"
-    echo "      not a statement about the marker. Since platform 9.10.0 the"
-    echo "      audit/decisions/overrides reads are role-scoped: a shared client"
-    echo "      credential resolves to a synthetic shared identity and reads ZERO"
-    echo "      rows fail-closed (#2950), while a validated per-user token reads"
-    echo "      that developer's own rows."
-    echo ""
-    if [ -z "${AXONFLOW_USER_TOKEN:-}" ]; then
-      echo "      No per-user token is configured, which is exactly that posture."
-      echo "      Mint one for this org and re-run:"
-      echo "        AXONFLOW_USER_TOKEN=<token>   # forwarded as X-User-Token"
+
+  # Branch on the scope the PLATFORM reported. `none` and `own-rows` are both
+  # "this credential cannot read the seeded rows" and need the same remedy;
+  # `tenant` means the read was wide enough, so the marker's absence is a real
+  # window / write / search / catalogue finding.
+  case "$read_scope" in
+    none|own-rows)
+      echo "      The platform reports this caller's read scope as '$read_scope',"
+      echo "      so this is an AUTHORIZATION result, not a statement about the"
+      echo "      marker."
+      echo ""
+      echo "      The rows this suite seeds are written under the shared client"
+      echo "      credential, so the platform attributes them to the synthetic"
+      echo "      pool identity <client-id>@axonflow.local with role 'service'."
+      echo "      A 'developer'-role token resolves to 'own-rows', which does NOT"
+      echo "      include them -- re-minting a developer token cannot fix this."
+      echo "      Provide a token whose role resolves to tenant-wide reads"
+      echo "      (admin / owner / policy_admin):"
+      echo "        AXONFLOW_USER_TOKEN=<admin-class token>   # sent as X-User-Token"
       echo "      See the AXONFLOW_USER_TOKEN entry in openclaw.plugin.json."
-    else
-      echo "      A per-user token IS configured and the set is still empty, so"
-      echo "      either the token does not resolve to an identity on this"
-      echo "      deployment (wrong org, expired, wrong signing key) or the rows"
-      echo "      this suite just wrote are attributed to a different identity"
-      echo "      than the one the token names. Both are findings."
-    fi
-  else
-    echo "      ${entries} row(s) ARE readable but none carries the marker, so the"
-    echo "      audit write path, the search path, or the pattern catalogue that"
-    echo "      makes the seed a recorded block has drifted."
-    echo "      Any of those is a finding; none is a reason to exit 0."
-  fi
+      ;;
+    tenant)
+      echo "      The read scope was 'tenant', so the search WAS wide enough and"
+      echo "      the marker is genuinely absent from what came back."
+      if [ "${entries:-0}" = "0" ]; then
+        echo "      The result set is nonetheless empty, which at tenant scope"
+        echo "      points at the search WINDOW: check the start_time this suite"
+        echo "      computed (printed with the marker above) against the"
+        echo "      platform's clock."
+      else
+        echo "      ${entries} row(s) came back without it, so the audit write"
+        echo "      path, the search path, or the pattern catalogue that makes"
+        echo "      the seed a recorded block has drifted."
+      fi
+      echo "      Either is a finding; neither is a reason to exit 0."
+      ;;
+    *)
+      echo "      The platform sent no X-Axonflow-Read-Scope header, so the read"
+      echo "      scope could not be established. Below platform 9.10.0 that is"
+      echo "      expected and the empty result is itself the finding; on 9.10.0+"
+      echo "      a missing header is the finding."
+      ;;
+  esac
+}
+
+# A FRESH session id per agent turn.
+#
+# `openclaw agent --local` with no --session-id reuses the main session channel,
+# so every suite on a machine appends to one conversation. Measured on this host
+# after a day of runs: the shared session's trajectory reached 10.5 MB, the
+# compaction safeguard began firing ("using session branch messages after
+# compaction preparation omitted real conversation content"), and turns started
+# making five model round-trips for a one-command task and returning no reply at
+# all. Every model call was HTTP 200 — this is not rate limiting and not the
+# model declining.
+#
+# The symptom is that the agent-driven legs of unrelated suites begin failing as
+# a machine accumulates history: status-identity-truth S3, failopen-notice F1-F4
+# and audit-search were all observed failing this way within one hour, each
+# reporting it as a governance failure. A fresh session makes each turn
+# independent of every previous run.
+#
+# $$ (pid) plus a counter, because two turns in one suite must not collide
+# either.
+_OPENCLAW_TURN_SEQ=0
+openclaw_fresh_session_id() {
+  _OPENCLAW_TURN_SEQ=$((_OPENCLAW_TURN_SEQ + 1))
+  printf 'axonflow-e2e-%s-%s' "$$" "$_OPENCLAW_TURN_SEQ"
 }
 
 # Run a single agent turn against the local OpenClaw runtime.
 openclaw_agent_capture() {
   local prompt="$1"
   local output_file="$2"
+  # stderr is kept, not discarded: it is where the provider transport and the
+  # compaction safeguard report themselves, and without it a degraded turn is
+  # indistinguishable from a governance failure.
   timeout 180 openclaw agent \
     --local \
     --agent main \
+    --session-id "$(openclaw_fresh_session_id)" \
     --model "$OPENCLAW_E2E_MODEL" \
     --message "$prompt" \
     --json \
     --thinking off \
-    >"$output_file" 2>/dev/null || true
+    >"$output_file" 2>"$output_file.stderr" || true
 }
 
 assert_tool_in_summary() {

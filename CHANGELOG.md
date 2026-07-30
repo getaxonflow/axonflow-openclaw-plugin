@@ -4,10 +4,19 @@
 
 Validated against a local stack built from platform tag **v9.13.0** and against
 the deployed Community SaaS (**9.12.2**, read from `/health`) — the two versions
-in service on release day. All six `runtime-e2e` suites pass on 9.13.0 (47
-executed assertions, zero skips); on 9.12.2 the three suites covering this
+in service on release day. All six `runtime-e2e` suites pass on 9.13.0 (44
+assertions, zero skips); on 9.12.2 the three suites covering this
 release's changes pass and the remaining three are limited by deployment
 posture, not by the plugin, and say so (see `### Testing`).
+
+**Versioning note, recorded after release.** This was classified and published as
+a patch. Measured against the built `dist/index.d.ts` of both tags, it adds **13**
+names to the package's public API and removes none, while every one of 2.8.1 →
+2.8.4 added **zero** — so by semver, and by this repo's own patch precedent, it
+should have been **2.9.0**. Consumers are unaffected (nothing was removed, the one
+public signature change is an optional parameter, and a `^2.8.x` range resolves it
+either way), so 2.8.5 is not being unpublished. The rule for next time: the test
+for a patch is "no public API change", not "nothing was removed".
 
 ### Fixed
 
@@ -45,9 +54,9 @@ posture, not by the plugin, and say so (see `### Testing`).
   reason it carries. No platform version is assumed: several conventional
   reason properties are probed, and an absent, non-JSON or malformed body
   degrades to the previous message byte-for-byte. Rendered reasons are
-  whitespace-collapsed, capped at 300 characters, and stripped of
-  credential-shaped content so an echoing proxy cannot leak the request's own
-  `Authorization` header into a transcript.
+  whitespace-collapsed, capped at 800 characters (`MAX_REASON_LENGTH`), and
+  stripped of credential-shaped content so an echoing proxy cannot leak the
+  request's own `Authorization` header into a transcript.
 
 - **The platform's own error message now survives rendering intact.** The
   identity-required 401 that axonflow-enterprise#3062 exists to make actionable
@@ -120,8 +129,6 @@ posture, not by the plugin, and say so (see `### Testing`).
 - `buildAgentTools(clientRef, pluginConfig?)` and
   `buildGetTenantIdTool(pluginConfig?)` accept the live plugin config. Called
   without it, the tool falls back to the persisted record.
-
-
 
 - **`runtime-e2e` override tests fail instead of skipping when the deployment
   posture is wrong.** (#3062) `governance-lifecycle`, `list-overrides` and
