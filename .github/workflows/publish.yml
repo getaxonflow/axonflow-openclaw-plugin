@@ -258,7 +258,7 @@ jobs:
       # changed this from --owner saurabhjain1592 (the prior workaround
       # for openclaw/clawhub#2001) after package ownership was
       # transferred to the @axonflow org via `clawhub package transfer`.
-      # See engineering/RUNBOOK_OPENCLAW_PUBLISHING.md Part 4 for the
+      # See engineering/runbooks/RUNBOOK_OPENCLAW_PUBLISHING.md Part 4 for the
       # full --owner flag history. If publish-clawhub fails on owner
       # grounds, read the error verbatim and consult the runbook before
       # changing this flag — direction has flipped twice in 6 days.
