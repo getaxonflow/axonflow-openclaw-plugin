@@ -80,9 +80,15 @@ if [ -z "$TENANT" ] || [ -z "$SECRET" ]; then
     -H 'Content-Type: application/json' \
     -d "{\"label\":\"v1-pro-proxy-tools-e2e\",\"email\":\"e2e+openclaw-proxy-${EMAIL_TAG}@getaxonflow.com\"}" 2>/dev/null) || REG_HTTP="000"
   if [ "$REG_HTTP" != "200" ] && [ "$REG_HTTP" != "201" ]; then
-    echo "SKIP: tenant registration HTTP=$REG_HTTP (per-IP rate limit / per-email cap / connectivity). Pass TENANT=... SECRET=... env to reuse an existing tenant."
+    # #172: the /health gate above already proved the agent reachable, so a
+    # failed registration here (rate limit, per-email cap, 5xx) is a failure
+    # with a named cause, not an environment gap. The old SKIP reported
+    # green on ANY non-2xx, including a server error.
+    echo "FAIL: tenant registration HTTP=$REG_HTTP (per-IP rate limit / per-email cap / server error)."
+    echo "  The agent's /health already answered, so this is not a connectivity gap."
+    echo "  Pass TENANT=... SECRET=... env to reuse an existing tenant and bypass the register step."
     cat "$RAW_REG_BODY" 2>/dev/null
-    exit 0
+    exit 1
   fi
   TENANT=$(jq -r '.tenant_id' "$RAW_REG_BODY")
   SECRET=$(jq -r '.secret' "$RAW_REG_BODY")

@@ -476,6 +476,37 @@ describe("formatStatusReport", () => {
     expect(out).toContain("axonflow-openclaw-recover");
     expect(out).toContain("/tmp/x/try-registration.json");
   });
+
+  it("strips control characters from the endpoint, identity and last-load endpoint lines (#171)", () => {
+    // The identity is persisted from the register RESPONSE and the runtime-
+    // state record can be foreign or hand-edited, so these are remote-
+    // influenced strings landing on the operator's terminal. Same class as
+    // the fail-open notice's endpoint argument; \u escapes keep the payload
+    // visible here.
+    const out = formatStatusReport({
+      client_id: "cs_t9\u001b[2J",
+      tenant_id: "cs_t9\u001b[2J",
+      endpoint: "https://evil.example.com\u001b[2J\u001b[1;1H governance ACTIVE\u0007",
+      tier: "free",
+      license_token_preview: null,
+      expires_at: null,
+      expires_in_days: null,
+      upgrade_url: "https://getaxonflow.com/pricing/",
+      registration_file: "/tmp/x/try-registration.json",
+      registration_present: true,
+      mode: "community-saas",
+      identity_source: "community-saas-registration",
+      config_recorded_at: null,
+      config_recorded_source: null,
+      runtime_endpoint_at_last_load: "https://other.example.com\u001b[3J",
+    });
+    expect(out).not.toContain("\u001b");
+    expect(out).not.toContain("\u0007");
+    // The visible remainder still names the real values.
+    expect(out).toContain("client_id:  cs_t9[2J");
+    expect(out).toContain("endpoint:   https://evil.example.com[2J[1;1H governance ACTIVE  (mode=community-saas)");
+    expect(out).toContain("plugin resolved https://other.example.com[3J at its last load");
+  });
 });
 
 describe("parseLicenseTokenExpiry", () => {

@@ -48,6 +48,21 @@ import {
   persistRecoveredCredentials,
   RECOVERY_DEFAULT_ENDPOINT,
 } from "../dist/recover.js";
+import { stripControlCharacters } from "../dist/sanitize-text.js";
+
+/**
+ * #171 class: every string below that came out of a RESPONSE (the verify
+ * result's endpoint/email/note fields, the request step's server message,
+ * and error messages that embed the response body's own `error` text) is
+ * remote-influenced and lands on the operator's terminal. Trim/interpolation
+ * alone leaves ESC/BEL intact, which is a terminal-spoofing surface. Strip
+ * control characters at render, same as the plugin's other render sinks.
+ * The stdout JSON paths need no equivalent: JSON.stringify escapes control
+ * characters.
+ */
+function clean(value) {
+  return stripControlCharacters(String(value ?? ""));
+}
 
 function usage() {
   process.stderr.write(
@@ -141,11 +156,11 @@ async function main() {
   try {
     req = await requestRecovery(email, { endpoint, timeoutMs });
   } catch (err) {
-    process.stderr.write(`✗ Recovery request failed: ${err.message}\n`);
+    process.stderr.write(`✗ Recovery request failed: ${clean(err.message)}\n`);
     process.exit(2);
   }
   process.stderr.write(`✓ Request accepted (HTTP ${req.status})\n`);
-  process.stderr.write(`  Server says: ${req.message}\n\n`);
+  process.stderr.write(`  Server says: ${clean(req.message)}\n\n`);
   process.stderr.write(
     "  Check your inbox for a magic link (subject usually mentions AxonFlow).\n" +
       "  When you have it, paste the FULL link OR just the token portion\n" +
@@ -183,21 +198,21 @@ async function runVerify(token, endpoint, timeoutMs) {
   try {
     result = await verifyRecovery(token, { endpoint, timeoutMs });
   } catch (err) {
-    process.stderr.write(`✗ Verify failed: ${err.message}\n`);
+    process.stderr.write(`✗ Verify failed: ${clean(err.message)}\n`);
     process.exit(3);
   }
 
-  process.stderr.write(`✓ Verify succeeded — credentials issued for ${result.email}\n`);
-  process.stderr.write(`  tenant_id:  ${result.tenant_id}\n`);
+  process.stderr.write(`✓ Verify succeeded — credentials issued for ${clean(result.email)}\n`);
+  process.stderr.write(`  tenant_id:  ${clean(result.tenant_id)}\n`);
   if (result.secret_prefix) {
     process.stderr.write(`  secret:     ${result.secret_prefix}… (full value will be persisted)\n`);
   } else {
     process.stderr.write(`  secret:     ${result.secret.slice(0, 8)}… (full value will be persisted)\n`);
   }
-  process.stderr.write(`  endpoint:   ${result.endpoint}\n`);
-  process.stderr.write(`  expires_at: ${result.expires_at}\n`);
+  process.stderr.write(`  endpoint:   ${clean(result.endpoint)}\n`);
+  process.stderr.write(`  expires_at: ${clean(result.expires_at)}\n`);
   if (result.note) {
-    process.stderr.write(`  note:       ${result.note}\n`);
+    process.stderr.write(`  note:       ${clean(result.note)}\n`);
   }
 
   let savedAt;

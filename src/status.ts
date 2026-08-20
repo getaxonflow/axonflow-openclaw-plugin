@@ -44,6 +44,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { axonflowConfigDir } from "./cache-dir.js";
+import { stripControlCharacters } from "./sanitize-text.js";
 import {
   COMMUNITY_SAAS_DEFAULT_ENDPOINT,
   deploymentTargetFor,
@@ -692,13 +693,30 @@ export function resolveStatusInputs(
  * tenant identity their traffic actually authenticates with and no Stripe
  * copy (there is nothing to buy against a self-hosted tenant); Community-SaaS
  * installs keep the checkout guidance they had.
+ *
+ * #171: the endpoint and identity values are routed through
+ * `stripControlCharacters` before they hit stdout. The identity comes from
+ * the on-disk registration file, which persists what the register RESPONSE
+ * said, and the runtime-state record can be foreign or hand-edited — remote-
+ * influenced text on a terminal is exactly the surface the notice fix closed,
+ * and this line was the sweep the issue named. The `--json` path needs no
+ * equivalent: `JSON.stringify` escapes control characters, so they cannot
+ * command a terminal from that output.
  */
 export function formatStatusReport(report: StatusReport): string {
+  // Sanitised copies of the remote-influenced fields, applied at render so
+  // the structured report keeps the raw values for programmatic consumers.
+  const clientId = report.client_id === null ? null : stripControlCharacters(report.client_id);
+  const endpoint = stripControlCharacters(report.endpoint);
+  const runtimeEndpointAtLastLoad =
+    report.runtime_endpoint_at_last_load === null
+      ? null
+      : stripControlCharacters(report.runtime_endpoint_at_last_load);
   const lines: string[] = [];
   lines.push("AxonFlow OpenClaw plugin status");
   lines.push("");
   if (report.mode === "self-hosted") {
-    lines.push(`  client_id:  ${report.client_id}  (formerly tenant_id)`);
+    lines.push(`  client_id:  ${clientId}  (formerly tenant_id)`);
     if (report.identity_source === "self-hosted-default") {
       lines.push("              (default identity — no clientId configured; set pluginConfig.clientId");
       lines.push("              to your deployment's tenant identity)");
@@ -711,7 +729,7 @@ export function formatStatusReport(report: StatusReport): string {
       lines.push(`              (recorded by the plugin load at ${report.config_recorded_at})`);
     }
   } else if (report.client_id) {
-    lines.push(`  client_id:  ${report.client_id}  (formerly tenant_id)`);
+    lines.push(`  client_id:  ${clientId}  (formerly tenant_id)`);
     lines.push("              (paste this into the Stripe checkout custom field when buying Pro —");
     lines.push("              the form's field label is still 'AxonFlow tenant ID' for now)");
   } else {
@@ -720,7 +738,7 @@ export function formatStatusReport(report: StatusReport): string {
     lines.push("              The plugin auto-registers with Community SaaS on first init.");
     lines.push("              Lost your registration? Run `axonflow-openclaw-recover <email>`");
   }
-  lines.push(`  endpoint:   ${report.endpoint}  (mode=${report.mode})`);
+  lines.push(`  endpoint:   ${endpoint}  (mode=${report.mode})`);
   // Provenance belongs on the endpoint line only when the RECORDED endpoint
   // is what produced it. `config_recorded_source` is set exactly then; when
   // only the recorded identity contributed, `config_recorded_at` is populated
@@ -737,7 +755,7 @@ export function formatStatusReport(report: StatusReport): string {
   }
   if (report.runtime_endpoint_at_last_load !== null) {
     lines.push("              NOTE: this answer reflects THIS shell's environment. The running");
-    lines.push(`              plugin resolved ${report.runtime_endpoint_at_last_load} at its last load and`);
+    lines.push(`              plugin resolved ${runtimeEndpointAtLastLoad} at its last load and`);
     lines.push("              is still governing against that until it reloads.");
   }
 

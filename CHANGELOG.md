@@ -1,5 +1,58 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **The fail-open notice sanitises its endpoint argument, and so does every
+  other surface that renders an endpoint.** (#171) `noteUngovernedFailOpen`
+  stripped control characters from the error it renders but only trimmed the
+  endpoint, and in community-saas mode that endpoint is adopted verbatim from
+  the `POST /api/v1/register` response, so a hostile registrar could embed
+  ANSI screen-clear sequences and rewrite the "governance is OFF" warning
+  into a fabricated "governance active" line. The endpoint now goes through
+  `stripControlCharacters` like the cause already did. The same class was
+  swept across every sink that renders an endpoint or another
+  remote-influenced identity string on a terminal: the status CLI's
+  `endpoint:`, `client_id:` and last-load endpoint lines, and the recovery
+  CLI's rendering of the verify response (endpoint, email, tenant_id,
+  expires_at, note, server message, and error text that embeds the response
+  body's own reason). JSON outputs need no change: `JSON.stringify` escapes
+  control characters.
+
+- **A 403 under `onError: "allow"` no longer runs governed tools with zero
+  signal.** (#170) The auth-error branch was excluded from the #167
+  ungoverned-fail-open notice wholesale, on the grounds that the auth path
+  carries its own notice. That is true only for a status-401
+  (`markAuthFailed` fires at the fetch chokepoint on `response.status ===
+  401`); a thrown 403, or a message-classified auth error exposing no
+  status, proceeded under `onError: "allow"` with no policy evaluation and
+  no signal of any kind. The notice now announces the OUTCOME: any
+  before_tool_call that proceeds without a policy decision because the check
+  failed emits the one-shot ungoverned notice, except the status-401 shape
+  the client already announces. The fail-open/fail-closed POLICY is
+  unchanged: 401/403 still respect `onError` (default block), network errors
+  still always fail open. The notice wording no longer presumes the endpoint
+  was unreachable, since a 403 means it answered. The V1 free-tier throttle
+  short-circuits named in #170 for review are unchanged and deliberate:
+  they are announced by the once-per-day upgrade prompt when the throttle
+  is stamped.
+
+- **Two more runtime-e2e suites no longer report green on assertion-worthy
+  conditions, and two skip-shaped passes became failures with named
+  causes.** (#172) `status-identity-truth` exited 0 with "SKIP: could not
+  start local listener" although python3 presence is asserted earlier, so
+  the branch is a harness malfunction, not an environment gate; it now
+  fails, matching the sibling `failopen-notice` suite. `v1_paid_tier`
+  self-declared "PARTIAL PASS" on ANY non-2xx register response, a 500
+  included, so a server error reported as a pass; `v1_pro_proxy_tools`
+  exited 0 on any failed registration after its own /health gate had
+  already proven the agent reachable; `user-token` exited 0 when the
+  platform failed to reject a garbage X-User-Token, which is the exact
+  condition the suite exists to catch. All four now exit 1 naming the
+  cause. (The duplicate `### Changed` heading #172 also flagged was
+  resolved when the Unreleased section became 2.8.5.)
+
 ## [2.8.5] - 2026-07-30: status/identity truth, an announced fail-open, and the platform's own error reason
 
 Validated against a local stack built from platform tag **v9.13.0** and against

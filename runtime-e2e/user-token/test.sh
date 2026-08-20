@@ -313,10 +313,16 @@ PROBE_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
   -H "X-User-Token: e2e-garbage-token-probe" \
   -d '{"jsonrpc":"2.0","id":"probe","method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"probe","version":"0"}}}')
 if [ "$PROBE_CODE" != "401" ]; then
-  echo "SKIP: platform at $AXONFLOW_ENDPOINT does not validate X-User-Token (probe HTTP $PROBE_CODE; needs enterprise#2929+) — legs L4-L5 skipped."
-  if [ "$errors" -ne 0 ]; then echo "FAILED: $errors error(s)"; exit 1; fi
-  echo "user-token runtime E2E: loader legs passed (token legs skipped: platform pre-#2929)"
-  exit 0
+  # #172: reporting green here meant a platform that stopped validating
+  # X-User-Token (or a probe that hit a 5xx / a misrouted endpoint) still
+  # passed the suite whose entire point is that validation. The condition is
+  # a failure with a named cause: every platform this plugin release is
+  # validated against carries enterprise#2929+.
+  echo "FAIL: platform at $AXONFLOW_ENDPOINT did not reject a garbage X-User-Token (probe HTTP $PROBE_CODE, expected 401)."
+  echo "  Either the platform pre-dates enterprise#2929 (point the suite at a current stack) or"
+  echo "  token validation is broken/misrouted — both are conditions this suite exists to catch."
+  if [ "$errors" -ne 0 ]; then echo "FAILED: $errors additional error(s)"; fi
+  exit 1
 fi
 echo "--- Platform validates X-User-Token (probe HTTP 401) — running token legs ---"
 
