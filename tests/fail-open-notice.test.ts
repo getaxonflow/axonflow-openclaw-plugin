@@ -93,6 +93,29 @@ describe("noteUngovernedFailOpen", () => {
     noteUngovernedFailOpen(ENDPOINT, new Error(""));
     expect(String(warnSpy.mock.calls[0]?.[0])).toContain("no error detail available");
   });
+
+  it("strips control characters from the ENDPOINT, not only the cause (#171)", () => {
+    // In community-saas mode the endpoint argument is adopted verbatim from
+    // the `POST /api/v1/register` RESPONSE, so it is remote-influenced text.
+    // A hostile registrar naming an endpoint with an ANSI screen-clear could
+    // erase this warning and print a fabricated "governance active" line, on
+    // the surface whose entire job is to say governance is OFF.
+    // \u escapes rather than literal bytes, so the payload is visible here.
+    const hostile =
+      "https://evil.example.com\u001b[2J\u001b[1;1H  AxonFlow: governance ACTIVE, 0 violations\u0007";
+    noteUngovernedFailOpen(hostile, new Error("fetch failed"));
+    const msg = String(warnSpy.mock.calls[0]?.[0]);
+    expect(msg).not.toContain("\u001b");
+    expect(msg).not.toContain("\u0007");
+    // The payload is inert once its introducer is gone, and the real host
+    // is still named.
+    expect(msg).toContain("https://evil.example.com");
+  });
+
+  it("treats a control-characters-only endpoint as no endpoint at all", () => {
+    noteUngovernedFailOpen("\u001b\u0008\u0007 ", new Error("fetch failed"));
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("(no endpoint configured)");
+  });
 });
 
 describe("a server-supplied reason must not steer the fail-open decision", () => {
@@ -167,7 +190,7 @@ describe("before_tool_call network fail-open", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("does NOT warn on an auth error — that path has its own notice", async () => {
+  it("does NOT warn on an auth error under onError=block — the call is BLOCKED, not ungoverned", async () => {
     const handler = createBeforeToolCallHandler(
       throwingClientRef(new AxonFlowHttpError(401, "Unauthorized", {}, "check-input")),
       baseConfig({ onError: "block" }),
@@ -178,24 +201,67 @@ describe("before_tool_call network fail-open", () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it("does NOT warn on an auth error that is configured to fail open", async () => {
-    // Pinning the SCOPED behaviour, not an endorsement. This notice is
-    // defined as the network-fail-open announcement (#167 DoD: "NOT on auth
-    // errors"), so the auth branch is excluded regardless of onError.
-    //
-    // For a 401 that is harmless — the client's own one-shot auth warning
-    // fires from markAuthFailed(). For a 403 it is a real gap: markAuthFailed
-    // is called only on status 401, so a 403 under onError=allow proceeds
-    // ungoverned and emits nothing at all. Tracked in #170; deliberately NOT
-    // widened here because doing so would contradict this change's accepted
-    // scope. This test exists so the gap stays visible rather than becoming
-    // folklore.
+  it("does NOT warn on a 403 under onError=block either — a blocked call needs no ungoverned notice", async () => {
+    const handler = createBeforeToolCallHandler(
+      throwingClientRef(new AxonFlowHttpError(403, "Forbidden", {}, "check-input")),
+      baseConfig({ onError: "block" }),
+    );
+    const result = await handler({ toolName: "bash", params: {} });
+
+    expect(result?.block).toBe(true);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  // #170: the notice announces the OUTCOME (a governed call proceeded with
+  // no policy decision), not the error class. Through v2.8.5 the auth branch
+  // was excluded wholesale, which was correct for a status-401 (the client's
+  // own one-shot notice fires from markAuthFailed) and silently wrong for
+  // everything else: a thrown 403 under onError=allow ran ungoverned with
+  // zero signal. These tests invert the pin that used to hold the gap open.
+  it("WARNS on a 403 under onError=allow — the call proceeds ungoverned and nothing else says so (#170)", async () => {
     const handler = createBeforeToolCallHandler(
       throwingClientRef(new AxonFlowHttpError(403, "Forbidden", {}, "check-input")),
       baseConfig({ onError: "allow" }),
     );
     await expect(handler({ toolName: "bash", params: {} })).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const msg = String(warnSpy.mock.calls[0]?.[0]);
+    expect(msg).toContain("UNGOVERNED");
+    expect(msg).toContain(ENDPOINT);
+  });
+
+  it("WARNS on a message-classified auth error under onError=allow — markAuthFailed never saw it (#170)", async () => {
+    // No .status on the error: the classifier matched the message. The
+    // client's 401 breaker keys on response.status, so it never fired.
+    const handler = createBeforeToolCallHandler(
+      throwingClientRef(new Error("HTTP 403 Forbidden")),
+      baseConfig({ onError: "allow" }),
+    );
+    await expect(handler({ toolName: "bash", params: {} })).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("UNGOVERNED");
+  });
+
+  it("stays QUIET on a status-401 under onError=allow — the client's own auth notice covers it (401 semantics unchanged)", async () => {
+    const handler = createBeforeToolCallHandler(
+      throwingClientRef(new AxonFlowHttpError(401, "Unauthorized", {}, "check-input")),
+      baseConfig({ onError: "allow" }),
+    );
+    await expect(handler({ toolName: "bash", params: {} })).resolves.toBeUndefined();
+    // No SECOND warning from this layer: markAuthFailed at the fetch
+    // chokepoint is the announced channel for the status-401 state. (The
+    // mock client here never fetched, so no warn at all is expected.)
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("emits the #170 auth-allow notice at most once per process, shared with the network latch", async () => {
+    const handler = createBeforeToolCallHandler(
+      throwingClientRef(new AxonFlowHttpError(403, "Forbidden", {}, "check-input")),
+      baseConfig({ onError: "allow" }),
+    );
+    await handler({ toolName: "bash", params: {} });
+    await handler({ toolName: "bash", params: {} });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
   it("does not warn when the tool is excluded from governance", async () => {

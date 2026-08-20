@@ -21,8 +21,12 @@
  * channel the auth notice uses, so the message reaches the user's session
  * and not only a plugin log file.
  *
- * Auth failures do NOT come through here — those already respect
- * `config.onError` and carry their own one-shot notice.
+ * A status-401 auth failure does NOT come through here: the client's own
+ * one-shot auth notice (`markAuthFailed` in src/axonflow-client.ts) already
+ * announces that state. Every OTHER path where a governed tool call proceeds
+ * without a policy decision does (#167 network class, #170 auth class under
+ * `onError: "allow"`): the invariant is that no governed call ever proceeds
+ * ungoverned without a signal.
  */
 
 import { stripControlCharacters } from "./sanitize-text.js";
@@ -47,10 +51,12 @@ function describeCause(err: unknown): string {
 
 /**
  * Announce, once per process, that a governed tool call proceeded without
- * policy evaluation because the governance check failed for a non-auth
- * reason — the endpoint was unreachable, timed out, or answered 5xx. The
- * wording says "failed" rather than "could not reach" because a 5xx WAS
- * reached; the user-visible fact is that nothing was governed.
+ * policy evaluation because the governance check failed — the endpoint was
+ * unreachable, timed out, answered 5xx, or (#170) rejected the call with an
+ * auth-class error under `onError: "allow"` without the client's own 401
+ * notice covering it. The wording says "failed" rather than "could not
+ * reach" because a 5xx or a 403 WAS reached; the user-visible fact is that
+ * nothing was governed.
  *
  * Returns true when this call emitted the notice, false when a previous
  * call already did — so callers can assert the one-shot contract.
@@ -58,7 +64,16 @@ function describeCause(err: unknown): string {
 export function noteUngovernedFailOpen(endpoint: string, err: unknown): boolean {
   if (noticeEmitted) return false;
   noticeEmitted = true;
-  const target = endpoint && endpoint.trim() !== "" ? endpoint.trim() : "(no endpoint configured)";
+  // #171: the endpoint is remote-influenced text on the same footing as the
+  // error body. In community-saas mode `resolveRegisteredEndpoint` adopts the
+  // endpoint the `POST /api/v1/register` RESPONSE named, and that string is
+  // exactly what the caller passes in here. Trim alone leaves ESC/BEL intact,
+  // so a hostile registrar could clear the screen and replace this warning
+  // with a fabricated "governance active" line - the one surface whose entire
+  // job is to say governance is OFF. Strip control characters first, same as
+  // `describeCause` does for the error.
+  const cleaned = stripControlCharacters(endpoint ?? "").trim();
+  const target = cleaned !== "" ? cleaned : "(no endpoint configured)";
   // The caller is inside the catch block whose entire job is to let the tool
   // call through. A host that replaces console.warn with something that
   // throws must not turn this notice into a rejected before_tool_call hook —
@@ -68,7 +83,8 @@ export function noteUngovernedFailOpen(endpoint: string, err: unknown): boolean 
       `[AxonFlow] Governance check against ${target} failed (${describeCause(err)}). ` +
         "This tool call ran UNGOVERNED — no policy was evaluated, nothing was blocked, " +
         "and no decision was recorded. Tool calls continue to run ungoverned until the " +
-        "endpoint answers again; restore it to resume enforcement. " +
+        "governance check succeeds again; restore the endpoint (or fix the credentials " +
+        "it rejected) to resume enforcement. " +
         "Shown once per process.",
     );
   } catch {

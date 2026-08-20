@@ -147,6 +147,30 @@ export function isAxonFlowAuthError(err: unknown): boolean {
 }
 
 /**
+ * Does this error already carry its own operator-visible notice?
+ *
+ * `AxonFlowClient.markAuthFailed()` — the ONE place the client emits its
+ * one-shot auth warning — fires from the `fetchWithTimeout` chokepoint on
+ * `response.status === 401` only, and the circuit-breaker short-circuit
+ * rethrows a synthetic error that also carries `status: 401`. So exactly the
+ * status-401 shape is guaranteed to have been announced.
+ *
+ * Everything else in the auth class — a thrown 403, or a message-classified
+ * error that exposes no status at all — never trips `markAuthFailed`. Under
+ * `onError: "allow"` those paths used to proceed ungoverned with NO signal
+ * (#170); the before_tool_call handler now announces the ungoverned outcome
+ * for them via `noteUngovernedFailOpen`, keeping the 401 path's semantics
+ * (client notice only, no second warning) unchanged.
+ */
+export function carriesOwnAuthNotice(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const maybeStatus =
+    (err as { status?: number; statusCode?: number }).status ??
+    (err as { status?: number; statusCode?: number }).statusCode;
+  return maybeStatus === 401;
+}
+
+/**
  * Create the before_tool_call hook handler.
  *
  * Decision logic:
@@ -208,23 +232,22 @@ export function createBeforeToolCallHandler(
       // workflows. Auth errors (401/403) respect config.onError, defaulting
       // to fail-closed because they indicate a misconfiguration the
       // operator can and should fix.
+      // The endpoint is read off the CLIENT, not off `config`: in
+      // community-saas mode registerAxonFlowGovernance swaps in a client
+      // built on the endpoint the register response named, so `config`
+      // can name a host the failing request never touched. Optional call
+      // so test doubles without the accessor degrade to the config value.
+      const failedEndpoint =
+        (typeof clientRef.current.getEndpoint === "function"
+          ? clientRef.current.getEndpoint()
+          : "") || config.endpoint;
+
       const isAuthError = isAxonFlowAuthError(err);
       if (!isAuthError) {
         // #167: the fail-open POLICY above is unchanged; the silence is what
         // changes. Announce once per process that governed calls are running
         // without policy evaluation, so a session cannot go ungoverned
-        // without the user being told. Auth errors are excluded — they take
-        // the config.onError path below and carry their own notice.
-        //
-        // The endpoint is read off the CLIENT, not off `config`: in
-        // community-saas mode registerAxonFlowGovernance swaps in a client
-        // built on the endpoint the register response named, so `config`
-        // can name a host the failing request never touched. Optional call
-        // so test doubles without the accessor degrade to the config value.
-        const failedEndpoint =
-          (typeof clientRef.current.getEndpoint === "function"
-            ? clientRef.current.getEndpoint()
-            : "") || config.endpoint;
+        // without the user being told.
         noteUngovernedFailOpen(failedEndpoint, err);
         recordToolCallAllowed();
         return undefined; // Fail-open: transient network issue
@@ -232,6 +255,17 @@ export function createBeforeToolCallHandler(
 
       // Auth error — respect config.onError (which defaults to "block").
       if (config.onError === "allow") {
+        // #170: proceeding IS the ungoverned outcome, whatever the error's
+        // class. A status-401 stays quiet here because the client's own
+        // one-shot notice (markAuthFailed at the fetch chokepoint) already
+        // announced that governance is disabled for the session. Every other
+        // auth-classified error — a thrown 403, or a message-classified
+        // error exposing no status — previously proceeded with no signal at
+        // all: zero policy evaluation, zero warning. The fail-open POLICY is
+        // unchanged; only the silence is.
+        if (!carriesOwnAuthNotice(err)) {
+          noteUngovernedFailOpen(failedEndpoint, err);
+        }
         recordToolCallAllowed();
         return undefined;
       }

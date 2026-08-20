@@ -126,8 +126,12 @@ for _ in $(seq 1 20); do
 done
 SENTINEL_PORT="$(cat "$SENTINEL_PORT_FILE")"; rm -f "$SENTINEL_PORT_FILE"
 if [ -z "$SENTINEL_PORT" ]; then
-  echo "SKIP: could not start local listener"
-  exit 0
+  # #172: this is NOT an environment gate — python3 presence was already
+  # asserted above, so reaching this branch means the harness itself
+  # malfunctioned. Reporting green here would mean the suite asserted
+  # nothing. Same shape as failopen-notice's control-listener failure.
+  echo "FAIL: could not start the local sentinel listener — harness malfunction (python3 is present), not an environment gap"
+  exit 1
 fi
 SENTINEL_URL="http://127.0.0.1:$SENTINEL_PORT"
 echo "--- sentinel=$SENTINEL_URL state_dir=$AXONFLOW_STATE_DIR ---"

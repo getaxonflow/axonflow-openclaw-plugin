@@ -307,14 +307,18 @@ if [ "$REG_CODE" != "201" ] && [ "$REG_CODE" != "200" ]; then
         echo "    RUNTIME_E2E_XFF=10.x.y.z to pick a fresh bucket."
         exit 1
     fi
-    echo "  ⚠ SKIP: /api/v1/register returned HTTP $REG_CODE — agent not in community-saas mode?"
+    # #172: a non-2xx register response is a FAILURE with a named cause, not
+    # a "partial pass" — the old branch reported green on ANY non-2xx,
+    # including a 500, so a server error counted as a pass. Feature 1
+    # (X-License-Token) did pass above, but this suite's published claim
+    # covers Feature 2 (recovery) too, and Feature 2 could not run.
+    echo "  ✗ FAIL: /api/v1/register returned HTTP $REG_CODE — Feature 2 (recovery) requires the"
+    echo "    community-saas register endpoint and could not run. Feature 1 (X-License-Token)"
+    echo "    passed above, but this suite asserts BOTH features."
     echo "    body: $REG_BODY"
-    echo ""
-    echo "  → Skipping Feature 2 (recovery requires community-saas register endpoint)"
-    echo "    Feature 1 (X-License-Token) already PASSED above."
-    echo ""
-    echo "=== runtime-e2e PARTIAL PASS — Feature 1 verified, Feature 2 skipped ==="
-    exit 0
+    echo "    If the agent is deliberately not in community-saas mode, point AXONFLOW_ENDPOINT"
+    echo "    at a community-saas stack — this suite's recovery legs are defined against it."
+    exit 1
 fi
 ORIGINAL_TENANT_ID=$(echo "$REG_BODY" | jq -r '.tenant_id')
 if [ -z "$ORIGINAL_TENANT_ID" ] || [ "$ORIGINAL_TENANT_ID" = "null" ]; then
@@ -467,7 +471,11 @@ if [ "$PERSISTED_TENANT" != "$NEW_TENANT_ID" ] || \
     cat "$SAVED_AT" | sed 's/^/      /'
     exit 1
 fi
-if [ "$(uname -s)" != "MINGW"* ] && [ "$(uname -s)" != "CYGWIN"* ]; then
+# case-glob rather than [ != "MINGW"* ]: single brackets never glob-match
+# (SC2081), so the old guard compared against the LITERAL string "MINGW*"
+# and ran the permission check on Windows shells too.
+case "$(uname -s)" in MINGW*|CYGWIN*) UNAME_IS_WINDOWS=1 ;; *) UNAME_IS_WINDOWS=0 ;; esac
+if [ "$UNAME_IS_WINDOWS" -eq 0 ]; then
     PERMS=$(stat -f '%OLp' "$SAVED_AT" 2>/dev/null || stat -c '%a' "$SAVED_AT" 2>/dev/null)
     if [ "$PERMS" != "600" ]; then
         echo "  ✗ FAIL: persisted file mode is $PERMS, expected 600"
