@@ -12,4 +12,4 @@
  * `X-Axonflow-Client` and to the plugin-version check.
  */
 
-export const VERSION = "2.8.5";
+export const VERSION = "2.8.6";
