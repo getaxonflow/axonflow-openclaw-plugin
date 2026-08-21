@@ -14,9 +14,9 @@
 >
 > Choose the path that fits:
 > - **Self-serve:** free 90-day [plugin evaluation license](https://getaxonflow.com/plugins/evaluation-license/?utm_source=readme_plugin_openclaw_eval)
-> - **Hands-on:** [Design Partner Program](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw) with either **6 months of self-hosted / in-VPC Enterprise** at no cost or **3 months of AxonFlow-managed Enterprise SaaS** with SLO-backed support, up to **50,000 write requests / 1,000,000 total requests per month**
+> - **Paid production program:** [Design Partner or Confidential Pilot](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw)  -  one scoped workflow over 60 or 75 days, founder-led rollout support, upfront conversion pricing, and a fixed decision date; public track from $2,000 or confidential track from $4,000
 >
-> Priority support, architecture review, incident-readiness review, and roadmap input are included for selected partners. We reply within 48 hours.
+> The paid program requires a dated forcing event, written controls, an executive sponsor, and a technical owner. Prices are subject to eligibility and a signed agreement.
 
 ---
 
@@ -299,13 +299,13 @@ Six months later, a regulator asks: *"For this interaction on March 14, which to
 
 ---
 
-## Try AxonFlow on a real plugin rollout
+## Take a governed plugin rollout into production
 
-We're opening limited **Plugin Design Partner** slots.
+Solo developers and self-serve teams can use the free 90-day [Plugin Evaluation License](https://getaxonflow.com/plugins/evaluation-license?utm_source=readme_plugin_openclaw_eval) to validate hook behavior, policy packs, and override workflows.
 
-30-minute hook lifecycle review, policy pack scoping, override workflow design, and IDE/CLI rollout pattern walkthrough — for solo developers and small teams putting governance on OpenClaw.
+Organizations with a dated production requirement, written controls, an executive sponsor, and a technical owner can use AxonFlow's paid [Production Program](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw). It takes one scoped workflow into production over 60 or 75 days with Enterprise access, founder-led rollout support, upfront conversion pricing, and a fixed decision date.
 
-[Apply here](https://getaxonflow.com/plugins/design-partner?utm_source=readme_plugin_openclaw) or email [design-partners@getaxonflow.com](mailto:design-partners@getaxonflow.com). Personal email is fine — solo developers welcome.
+Public Design Partner pricing starts at $2,000; the Confidential Paid Pilot starts at $4,000. Prices are subject to eligibility and a signed agreement.
 
 ### See AxonFlow in Action
 
