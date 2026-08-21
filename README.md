@@ -309,10 +309,10 @@ Public Design Partner pricing starts at $2,000; the Confidential Paid Pilot star
 
 ### See AxonFlow in Action
 
-Three short videos covering different angles of the platform:
+Videos covering different angles of the platform:
 
 - **[Product demos: Platform + Fraud & Risk](https://getaxonflow.com/demo/?utm_source=github&utm_medium=readme&utm_campaign=product_demo&utm_content=axonflow-openclaw-plugin)** - runtime enforcement, HITL approvals, audit evidence, cost visibility, and agentic payment controls
-- **[Community Quickstart walkthrough (2.5 min)](https://youtu.be/BSqU1z0xxCo)** - governed calls, PII blocking, Gateway Mode with LangChain/CrewAI, and MAP from YAML
+- **[Community Quickstart walkthrough (2 min)](https://youtu.be/BSqU1z0xxCo)** - governed calls, PII blocking, Gateway Mode with LangChain/CrewAI, and MAP from YAML
 - **[Architecture deep dive (12 min)](https://youtu.be/Q2CZ1qnquhg)** - how the control plane works, policy enforcement flow, and multi-agent planning
 
 ### Plugin Evaluation Tier (Free 90-day License)
