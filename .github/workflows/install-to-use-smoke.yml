@@ -74,10 +74,16 @@ jobs:
       - name: Checkout plugin
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Setup Node.js 20
+      # Node 22, not 20, for the same reason as install-smoke.yml: this job
+      # also does `npm install <tarball>` in a clean consumer dir, npm 7+
+      # auto-installs the `openclaw` peerDependency, and current OpenClaw
+      # releases ship a preinstall guard that hard-fails on Node 20
+      # ("requires Node >=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0").
+      # The floor is OpenClaw's, not ours.
+      - name: Setup Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install plugin build deps
