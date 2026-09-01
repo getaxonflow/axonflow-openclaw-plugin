@@ -67,7 +67,16 @@ def make_handler(work_dir):
 
         def do_GET(self):
             if self.path == "/health":
-                self._json(200, {"status": "healthy", "version": "7.5.0-fake"})
+                # `tier` mirrors the agent's readiness-aware /health handler,
+                # which reports the licence tier the platform resolved for
+                # itself. The heartbeat relays it as license_tier. A value
+                # outside the canonical set is used deliberately so the
+                # assertion cannot pass by coincidence against a default.
+                self._json(200, {
+                    "status": "healthy",
+                    "version": "7.5.0-fake",
+                    "tier": "Professional",
+                })
                 return
             self._json(404, {"error": "not found"})
 

@@ -47,3 +47,11 @@ jobs:
 
       - name: Test with coverage
         run: npm run test:coverage
+
+      # #3619. The suite above asserts the license_tier behaviour; this asserts
+      # that suite can actually go red. A green suite alone would not
+      # distinguish "the field works" from "nothing is being read off the wire".
+      # The gate mutates src/telemetry.ts in place and restores it, then checks
+      # the file hashes identical to how it started.
+      - name: "license_tier mutation gate (the suite must be able to fail, #3619)"
+        run: bash tests/telemetry-license-tier-mutation-gate.sh

@@ -2,7 +2,8 @@
 # Runtime proof for the v1 telemetry-schema heartbeat payload (#2008).
 #
 # The plugin's heartbeat now carries five v1-schema fields (post-#2277):
-# telemetry_type, deployment_mode, endpoint_type, profile, org_id. The
+# telemetry_type, deployment_mode, endpoint_type, profile, org_id - plus
+# license_tier, the platform's self-reported licence tier (#3619). The
 # canonical wire-shape proof for these lives at
 # tests/heartbeat-real-stack/run_real_stack.mjs — that harness drives
 # the public registerAxonFlowGovernance entry point against a Python
@@ -14,7 +15,7 @@
 # proof for this PR. It runs the same harness — no mocks, no stubs.
 #
 # Exit codes:
-#   0   PASS — all 15 cold-start + warm-cache assertions pass
+#   0   PASS — all 18 cold-start + warm-cache assertions pass
 #   1   FAIL — any assertion failed
 #   0   SKIP — required tools missing (node 20+, python3)
 

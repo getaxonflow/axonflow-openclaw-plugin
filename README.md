@@ -608,7 +608,9 @@ The [policies directory](./policies) ships research-backed starter policies addr
 
 ## Telemetry
 
-The plugin sends a usage heartbeat once every 7 days so AxonFlow can understand adoption and environment shape. Includes plugin version, OS/arch, Node.js version, AxonFlow platform version, deployment mode, endpoint type, org_id, and hook configuration summary. Also includes a persistent per-machine instance ID (UUID v4). **Never** includes message contents, tool arguments, or policy data.
+The plugin sends a usage heartbeat once every 7 days so AxonFlow can understand adoption and environment shape. Includes plugin version, OS/arch, Node.js version, AxonFlow platform version, the licence tier that platform reports about itself, deployment mode, endpoint type, org_id, and hook configuration summary. Also includes a persistent per-machine instance ID (UUID v4). **Never** includes message contents, tool arguments, or policy data.
+
+The licence tier is a coarse bucket only — `Community`, `Evaluation`, `Professional`, `Enterprise` or `Plus`. **No licence key, no expiry date, no seat count, and no customer or organisation name** is read or sent. It is read from the `tier` field of the same `/health` response the heartbeat already fetches to detect the platform version, so it costs no additional request, and it is omitted entirely whenever that probe does not answer with one.
 
 Opt out: set `AXONFLOW_TELEMETRY=off` in the environment OpenClaw runs in.
 
@@ -623,8 +625,8 @@ Opt out: set `AXONFLOW_TELEMETRY=off` in the environment OpenClaw runs in.
 | Governance check | Every governed tool call / outbound message | Tool name + arguments, message body | Core functionality |
 | Audit log | After each tool execution / LLM call | Tool name, result summary (truncated), prompt summary (first 500 chars), token usage, latency | Core functionality |
 | Health check | On plugin init | Nothing (GET request) | Fire-and-forget |
-| Usage heartbeat | Once per 7 days | Plugin version, OS, arch, Node version, platform version, deployment mode, endpoint type, org_id, hook config summary, persistent instance ID | `AXONFLOW_TELEMETRY=off` (also accepts `0`, `false`, `no`) |
-| Platform version probe | During heartbeat (if not opted out) | Nothing (GET to /health) | Disabled when `AXONFLOW_TELEMETRY=off` |
+| Usage heartbeat | Once per 7 days | Plugin version, OS, arch, Node version, platform version, platform licence tier, deployment mode, endpoint type, org_id, hook config summary, persistent instance ID | `AXONFLOW_TELEMETRY=off` (also accepts `0`, `false`, `no`) |
+| Platform version + licence tier probe | During heartbeat (if not opted out) | Nothing (one GET to /health; both fields are read from the same response) | Disabled when `AXONFLOW_TELEMETRY=off` |
 | Version compatibility check | On plugin init | Plugin version | Fire-and-forget |
 | Community SaaS registration | First run (community-saas mode only) | Machine label (plugin version + OS) | `AXONFLOW_COMMUNITY_SAAS=0` or self-hosted endpoint |
 | Credential recovery | Only when you run `axonflow-openclaw-recover` | The email address you pass on the command line, then the magic-link token you paste back | Don't run the CLI — it never fires from the plugin runtime |
