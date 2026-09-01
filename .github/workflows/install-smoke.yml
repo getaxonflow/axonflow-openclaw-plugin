@@ -60,12 +60,27 @@ jobs:
     timeout-minutes: 6
     strategy:
       fail-fast: false
-      # PR runs only Node 20 (the lower bound). Push, dispatch, and merge
-      # validate both versions to keep the "tarball-installs-everywhere"
-      # invariant. The 20-only PR run still catches breakage on the lower
-      # bound, which is where most install regressions surface.
+      # PR runs only the lower bound. Push, dispatch, and merge validate both
+      # versions to keep the "tarball-installs-everywhere" invariant. The
+      # lower-bound-only PR run still catches breakage where most install
+      # regressions surface.
+      #
+      # The lower bound is 22, not 20, and it is NOT ours to choose. This
+      # package declares `openclaw` as a peerDependency, npm 7+ installs peers
+      # automatically, and current OpenClaw releases ship a preinstall guard
+      # that HARD-FAILS the install:
+      #
+      #   [openclaw] error: this OpenClaw release requires Node
+      #   >=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0.
+      #
+      # so `npm install <tarball>` exits 1 on Node 20 regardless of anything in
+      # this repo. Verified against origin/main's own tarball: fails on node:20,
+      # installs clean on node:22 (22.23.2) and node:24 (24.20.0). Pinning 20
+      # here asserted a configuration a user cannot actually be in — OpenClaw
+      # itself will not run on Node 20, so an OpenClaw plugin cannot be
+      # exercised there either.
       matrix:
-        node-version: ${{ fromJson(github.event_name == 'pull_request' && '[20]' || '[20, 22]') }}
+        node-version: ${{ fromJson(github.event_name == 'pull_request' && '[22]' || '[22, 24]') }}
     env:
       AXONFLOW_TELEMETRY: 'off'
 
