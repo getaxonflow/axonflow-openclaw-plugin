@@ -384,10 +384,15 @@ describe("sendTelemetryPing", () => {
       // license_tier rides the probe that already existed. A second round
       // trip would make it a new data collection rather than a new field.
       expect(healthCalls).toHaveLength(1);
-      return JSON.parse((checkpointCall![1] as RequestInit).body as string) as Record<
+      const parsed = JSON.parse((checkpointCall![1] as RequestInit).body as string) as Record<
         string,
         unknown
       >;
+      // platform_version is read from the same body and must ALWAYS be present
+      // (null when unknown), so a regression that omitted the key instead of
+      // nulling it is caught on every case rather than only where asserted.
+      expect(parsed).toHaveProperty("platform_version");
+      return parsed;
     }
 
     const healthWith = (tier: unknown, version: unknown = "10.3.0") => ({
