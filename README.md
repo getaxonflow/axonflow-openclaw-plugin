@@ -610,7 +610,7 @@ The [policies directory](./policies) ships research-backed starter policies addr
 
 The plugin sends a usage heartbeat once every 7 days so AxonFlow can understand adoption and environment shape. Includes plugin version, OS/arch, Node.js version, AxonFlow platform version, the licence tier that platform reports about itself, deployment mode, endpoint type, org_id, and hook configuration summary. Also includes a persistent per-machine instance ID (UUID v4). **Never** includes message contents, tool arguments, or policy data.
 
-The licence tier is a coarse bucket only — `Community`, `Evaluation`, `Professional`, `Enterprise` or `Plus`. **No licence key, no expiry date, no seat count, and no customer or organisation name** is read or sent. It is read from the `tier` field of the same `/health` response the heartbeat already fetches to detect the platform version, so it costs no additional request, and it is omitted entirely whenever that probe does not answer with one.
+The licence tier sent is whatever the platform reported about itself, relayed verbatim. The plugin does not normalise, map, or restrict the value, so a transient state such as `starting`, or a tier name introduced after this plugin shipped, reaches the wire unchanged rather than being flattened into a fixed list. What is never read or sent: **no licence key, no expiry date, no seat count, and no customer or organisation name**. It is read from the `tier` field of the same `/health` response the heartbeat already fetches to detect the platform version, so it costs no additional request, and it is omitted entirely whenever that probe does not answer with one.
 
 Opt out: set `AXONFLOW_TELEMETRY=off` in the environment OpenClaw runs in.
 
