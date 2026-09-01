@@ -4,8 +4,11 @@
  * Sends a POST to checkpoint.getaxonflow.com on plugin initialization,
  * at most once every 7 days per machine. Payload includes: plugin
  * version, OS/arch, Node version, deployment mode, org_id, a persistent
- * per-machine instance_id, and hook configuration summary. Does not
- * include message contents, tool arguments, or policy data.
+ * per-machine instance_id, hook configuration summary, and the licence
+ * tier the platform reports about itself (a coarse bucket such as
+ * Community or Enterprise — no licence key, no expiry, no seat count, no
+ * customer name). Does not include message contents, tool arguments, or
+ * policy data.
  *
  * Opt out: set AXONFLOW_TELEMETRY=off (also accepts 0, false, no).
  *
@@ -63,6 +66,37 @@ export interface TelemetryPayload {
    * `"local-dev-org"` sentinel. Always emitted.
    */
   org_id: string;
+  /**
+   * The licence tier the PLATFORM reports about ITSELF (#3619), read from
+   * the `tier` key of the `/health` response this heartbeat already fetches
+   * for `platform_version`. Server-asserted: the plugin relays it and never
+   * derives, corrects, or normalizes it.
+   *
+   * THREE DIMENSIONS THAT SOUND ALIKE AND ARE NOT. They disagree routinely
+   * and none may be derived from another:
+   *   - `license_tier` — what licence the platform says it runs under. A
+   *     `self_hosted` endpoint is routinely Enterprise-licensed.
+   *   - `deployment_mode` — where this plugin is POINTED, classified locally
+   *     from the endpoint host. `community_saas` is a hosting topology, not
+   *     the `Community` tier.
+   *   - `endpoint_type` — that endpoint's network reachability.
+   *
+   * Values are the platform's, not a closed set this build owns: the
+   * canonical tiers (`Community` / `Evaluation` / `Professional` /
+   * `Enterprise` / `Plus`), the lowercase `community` a community-mode build
+   * defaults to, and `starting` — the transient pre-initialisation answer,
+   * which is a real reported state rather than an error. A tier issued after
+   * this plugin shipped is relayed intact so the receiver, which owns the
+   * canonical mapping, can bucket it correctly.
+   *
+   * OPTIONAL, and OMITTED rather than sent as `"unknown"` whenever the probe
+   * could not establish it: unreachable endpoint, non-2xx, malformed or
+   * non-object body, and a `tier` that is absent, blank, or not a string.
+   * Omission is the wire's existing "this client did not report" signal (the
+   * field is `omitempty` server-side); sending `"unknown"` would instead
+   * assert that the platform answered and said it did not know.
+   */
+  license_tier?: string;
 }
 
 // telemetryOrgID() + ORG_ID_LOCAL_DEV_SENTINEL live in
@@ -147,19 +181,44 @@ function generateInstanceId(): string {
 }
 
 /**
+ * Longest tier the platform can legitimately report is `EnterprisePlus` at 14
+ * characters. Anything past 64 is not a tier — a hostile or broken endpoint
+ * controls this string — so it is dropped whole rather than shipped or
+ * truncated. Truncating would invent a tier the platform never reported.
+ */
+const MAX_LICENSE_TIER_LENGTH = 64;
+
+/**
+ * What a single `/health` probe yielded. Both fields are independently
+ * nullable: an older platform answers with a `version` and no `tier`, and
+ * that must cost us the tier only.
+ */
+interface PlatformInfo {
+  version: string | null;
+  licenseTier: string | null;
+}
+
+const NO_PLATFORM_INFO: PlatformInfo = { version: null, licenseTier: null };
+
+/**
  * Best-effort enrichment for the usage heartbeat: read the configured
- * AxonFlow platform's version so the heartbeat can record which platform
- * build the plugin is talking to.
+ * AxonFlow platform's version, and the licence tier it reports about itself,
+ * so the heartbeat can record which platform build the plugin is talking to
+ * and under which edition it is running.
  *
  * This is part of the heartbeat, not a separate feature: it only runs after
  * `sendInner` has already passed the `AXONFLOW_TELEMETRY` opt-out check, so
  * setting `AXONFLOW_TELEMETRY=off` suppresses this probe along with the
  * heartbeat itself. It is a single unauthenticated GET to the same endpoint
- * the plugin already calls for policy enforcement, sends no request body,
- * reads only the `version` field from the `/health` response, and swallows
- * any error (returns null) so it can never block or fail the heartbeat.
+ * the plugin already calls for policy enforcement, sends no request body, and
+ * swallows any error (returns nulls) so it can never block or fail the
+ * heartbeat.
+ *
+ * ONE request, both fields. `license_tier` rides the probe that already
+ * existed; a second round trip would make it a new data collection rather
+ * than a new field on an existing one.
  */
-async function detectPlatformVersion(endpoint: string): Promise<string | null> {
+async function detectPlatformInfo(endpoint: string): Promise<PlatformInfo> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 2000);
   try {
@@ -168,12 +227,37 @@ async function detectPlatformVersion(endpoint: string): Promise<string | null> {
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
-    if (!resp.ok) return null;
-    const body = (await resp.json()) as Record<string, unknown>;
-    return typeof body.version === "string" && body.version ? body.version : null;
+    // A non-2xx body is not an answer: it contributes neither field rather
+    // than having its error body parsed for one.
+    if (!resp.ok) return NO_PLATFORM_INFO;
+    // No size cap on the body, deliberately: a real /health is ~6 KB and is
+    // dominated by a `capabilities` map that grows every release, so any cap
+    // we picked would eventually start silently dropping BOTH fields with no
+    // diagnostic. The endpoint is the user's own configured agent, and the
+    // only part that reaches the wire is the tier string, which IS
+    // length-capped below.
+    const body = (await resp.json()) as Record<string, unknown> | null;
+    // Defence in depth, and deliberately NOT load-bearing: `typeof null ===
+    // "object"` and an array is an object too, but indexing any of these for
+    // `.version` / `.tier` already yields undefined (or, for null, throws into
+    // the catch below), so removing this guard changes no observable outcome
+    // today. It is here to make the non-object case explicit rather than
+    // accidental — a later narrowing of the catch would otherwise regress the
+    // null-body path silently. The mutation gate plants its removal as a
+    // must-SURVIVE control, so if this ever becomes load-bearing the gate says so.
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return NO_PLATFORM_INFO;
+    }
+    const version = typeof body.version === "string" && body.version ? body.version : null;
+    // A required string arriving as a number, boolean, object or null is
+    // invisible to any decoder that coerces. The type is checked, not assumed.
+    const rawTier = typeof body.tier === "string" ? body.tier : "";
+    const licenseTier =
+      rawTier && rawTier.length <= MAX_LICENSE_TIER_LENGTH ? rawTier : null;
+    return { version, licenseTier };
   } catch {
     clearTimeout(timeoutId);
-    return null;
+    return NO_PLATFORM_INFO;
   }
 }
 
@@ -236,14 +320,18 @@ async function sendInner(options: SendOptions): Promise<void> {
       ? priorInstanceId
       : generateInstanceId();
 
-  // 4. Detect platform version (best-effort).
+  // 4. Detect platform version + licence tier from ONE /health probe
+  // (best-effort). detectPlatformInfo already swallows its own errors; this
+  // catch is the belt to that braces, so an unforeseen throw still leaves the
+  // heartbeat itself intact rather than taking it down with the enrichment.
   const probeEndpoint = resolveProbeEndpoint(options.endpoint);
-  let platformVersion: string | null = null;
+  let platformInfo: PlatformInfo = NO_PLATFORM_INFO;
   try {
-    platformVersion = await detectPlatformVersion(probeEndpoint);
+    platformInfo = await detectPlatformInfo(probeEndpoint);
   } catch {
-    platformVersion = null;
+    platformInfo = NO_PLATFORM_INFO;
   }
+  const platformVersion = platformInfo.version;
 
   const runtime = captureRuntimeInfo();
 
@@ -273,6 +361,12 @@ async function sendInner(options: SendOptions): Promise<void> {
     ],
     instance_id: instanceId,
     org_id: telemetryOrgID(),
+    // Spread, not `license_tier: platformInfo.licenseTier ?? undefined`: an
+    // explicit `undefined` property still exists on the object, and while
+    // JSON.stringify happens to drop it today, the distinction the receiver
+    // reads is key-present vs key-absent. Building the key only when there is
+    // a value to put in it makes the absence structural rather than incidental.
+    ...(platformInfo.licenseTier ? { license_tier: platformInfo.licenseTier } : {}),
   };
 
   // 5. Fire the heartbeat.

@@ -274,6 +274,28 @@ async function main() {
     } else {
       fail(`ping sdk mismatch: ${pings[0]?.sdk}`);
     }
+    // #3619: license_tier is the licence tier the PLATFORM reports about
+    // itself, read from the `tier` key of the /health response the heartbeat
+    // already fetches. The fake answers "Professional" - deliberately not a
+    // value any client-side default would produce - so this cannot pass by
+    // coincidence. Relayed verbatim: the receiver owns the canonical mapping.
+    if (pings.length > 0 && pings[0].license_tier === "Professional") {
+      pass("ping license_tier=Professional (relayed verbatim from /health tier)");
+    } else {
+      fail(
+        `ping license_tier=${"license_tier" in (pings[0] ?? {}) ? pings[0].license_tier : "__ABSENT__"} (expected Professional from the /health tier key)`,
+      );
+    }
+    // license_tier must not be conflated with deployment_mode: this run reports
+    // a Professional-licensed platform reached over a remote community_saas
+    // host. Two different dimensions, two different values.
+    if (pings.length > 0 && pings[0].license_tier !== pings[0].deployment_mode) {
+      pass(
+        `license_tier (${pings[0].license_tier}) and deployment_mode (${pings[0].deployment_mode}) are independent dimensions`,
+      );
+    } else {
+      fail("license_tier and deployment_mode read the same value - the two dimensions are being conflated");
+    }
     // v9.1 (#2277): plugin telemetry includes org_id, sourced from the
     // registration file's tenant_id (or sentinel). With a fresh cs_<uuid>
     // registration above, org_id MUST match the cs_<uuid> tenant_id.

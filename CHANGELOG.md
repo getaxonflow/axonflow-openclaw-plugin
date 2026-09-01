@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The usage heartbeat now reports the licence tier the platform states about itself, as `license_tier`** (axonflow-enterprise#3619). Telemetry could not previously attribute a ping to an edition or licence state: `sdk`, `sdk_version` and `platform_version` say which client and which build, and `deployment_mode` says which topology, but nothing said whether the platform behind it was running Community, Evaluation, Professional, Enterprise or Plus. The receiver has accepted `license_tier` since the v8 train (`omitempty`, normalised server-side) — only the clients never populated it.
+- **Read from the `/health` probe that already runs, so no new request is made.** `detectPlatformVersion` became `detectPlatformInfo`: the one response body it already fetched for `platform_version` now yields both fields. The probe is unchanged in count and timeout, and every test asserts exactly one `GET /health` per heartbeat.
+- **Relayed verbatim, never interpreted.** The plugin does not normalise, case-fold, or map the value. The receiver owns the canonical mapping, so a tier issued after this plugin shipped still buckets correctly server-side instead of being flattened by a client that predates it. The lowercase `community` a community-mode build defaults to, and the transient `starting` an agent reports before initialisation completes, are both real answers and are relayed as such.
+- **Three dimensions that sound alike are kept apart.** `license_tier` is what the platform says its licence is; `deployment_mode` is where this plugin is pointed, classified locally from the endpoint host; `endpoint_type` is that endpoint's network reachability. A `self_hosted` endpoint is routinely Enterprise-licensed and `community_saas` is a hosting topology rather than the Community tier, so none of the three may be derived from another. A test pins all three to different values in one payload.
+
+### Security
+
+- **Fails open in every direction, and the field is omitted rather than guessed.** An unreachable endpoint, a non-2xx, an unparseable body, a body that is null / an array / a string / a number, and a `tier` that is absent, blank or not a string all leave the heartbeat delivered and the key **absent** — not `"unknown"`, not `null`, not `""`. The key is built by a conditional spread rather than assigned `undefined`, so its absence is structural rather than an artefact of how `JSON.stringify` happens to treat undefined properties. Omission is the wire's existing "this client did not report" signal; sending `"unknown"` would instead assert that the platform answered and said it did not know.
+- An endpoint-supplied `tier` longer than 64 characters is dropped whole rather than truncated — the longest canonical value is 14 characters, and a truncated value would be a tier the platform never reported.
+- Tests: the `license_tier` block in `tests/telemetry.test.ts` (round-trip and fail-open matrix through the real `sendTelemetryPing`), `tests/telemetry-license-tier-mutation-gate.sh` (seven planted defects that must each turn the suite red, plus two behaviour-preserving controls that must survive — one of them pinning the source's own claim that the non-object body guard is defence in depth rather than load-bearing), `runtime-e2e/license_tier_telemetry/`, and a new leg in `tests/heartbeat-real-stack/` so the pre-existing public-entry-point E2E covers the field too.
+
+### Changed
+
+- Telemetry disclosure in `README.md` now names the licence tier in the prose, the usage-heartbeat row, and the probe row of the network-calls table, and states explicitly that no licence key, expiry, seat count, or customer name is read or sent.
+
 ## [2.8.6] - 2026-08-20: sanitised render sinks, an announced 403 fail-open, and suites that fail loud
 
 ### Fixed

@@ -342,4 +342,206 @@ describe("sendTelemetryPing", () => {
       expect(telemetryOrgID()).toBe("local-dev-org");
     });
   });
+
+  // ---- license_tier (#3619) ----
+  //
+  // Two halves. The round-trip half proves the value the platform reports
+  // reaches the wire unchanged. The fail-open half is the load-bearing one:
+  // every way the probe can fail must leave the heartbeat delivered and the
+  // key ABSENT — not "unknown", not null, not "". The receiver reads
+  // key-absent as "this client did not report"; sending "unknown" would
+  // instead assert that the platform answered and said it did not know.
+  describe("license_tier (#3619)", () => {
+    // Drives the real sendTelemetryPing against a /health that answers
+    // however the case needs, and returns the captured heartbeat body.
+    async function pingWithHealth(
+      health: { ok?: boolean; json?: () => Promise<unknown> },
+      options: Partial<typeof baseOptions> = {},
+    ): Promise<Record<string, unknown>> {
+      const fetchImpl = jest.fn().mockImplementation((url: string) => {
+        if (typeof url === "string" && url.endsWith("/health")) {
+          return Promise.resolve({
+            ok: health.ok ?? true,
+            json: health.json ?? (() => Promise.resolve({})),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+      global.fetch = fetchImpl as unknown as typeof fetch;
+      _resetTelemetryInFlightForTests();
+
+      await sendTelemetryPing({ ...baseOptions, ...options });
+
+      const checkpointCall = fetchImpl.mock.calls.find(
+        (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+      );
+      // Asserted on EVERY case: enrichment must never be able to suppress the
+      // heartbeat it rides on.
+      expect(checkpointCall).toBeDefined();
+      const healthCalls = fetchImpl.mock.calls.filter((call: unknown[]) =>
+        (call[0] as string).endsWith("/health"),
+      );
+      // license_tier rides the probe that already existed. A second round
+      // trip would make it a new data collection rather than a new field.
+      expect(healthCalls).toHaveLength(1);
+      const parsed = JSON.parse((checkpointCall![1] as RequestInit).body as string) as Record<
+        string,
+        unknown
+      >;
+      // platform_version is read from the same body and must ALWAYS be present
+      // (null when unknown), so a regression that omitted the key instead of
+      // nulling it is caught on every case rather than only where asserted.
+      expect(parsed).toHaveProperty("platform_version");
+      return parsed;
+    }
+
+    const healthWith = (tier: unknown, version: unknown = "10.3.0") => ({
+      json: () => Promise.resolve({ status: "healthy", version, tier }),
+    });
+
+    // ---- round-trip: relayed verbatim, never interpreted ----
+
+    it.each([
+      ["Community"],
+      ["community"], // community-mode builds default to the lowercase form
+      ["Evaluation"],
+      ["Professional"],
+      ["Enterprise"],
+      ["Plus"], // the csaas health endpoint serializes EnterprisePlus this way
+      ["EnterprisePlus"],
+      ["starting"], // transient pre-init state: a real answer, not an error
+    ])("relays tier %s verbatim", async (tier) => {
+      const body = await pingWithHealth(healthWith(tier));
+      expect(body.license_tier).toBe(tier);
+    });
+
+    it("relays a tier this build has never heard of, rather than flattening it", async () => {
+      // The receiver owns the canonical mapping. A client that collapsed an
+      // unrecognised tier to "unknown" would make every tier issued after it
+      // shipped indistinguishable from a broken one.
+      const body = await pingWithHealth(healthWith("SovereignCloud"));
+      expect(body.license_tier).toBe("SovereignCloud");
+    });
+
+    it("relays a tier at exactly the 64-character cap", async () => {
+      const tier = "E".repeat(64);
+      const body = await pingWithHealth(healthWith(tier));
+      expect(body.license_tier).toBe(tier);
+    });
+
+    it("keeps license_tier, deployment_mode and endpoint_type as three distinct dimensions", async () => {
+      // An Enterprise-licensed platform, reached over an arbitrary remote
+      // host, classified self_hosted. Conflating any pair would collapse two
+      // of these three values into one.
+      const body = await pingWithHealth(healthWith("Enterprise"));
+      expect(body.license_tier).toBe("Enterprise");
+      expect(body.deployment_mode).toBe("self_hosted");
+      expect(body.endpoint_type).toBe("remote");
+    });
+
+    it("does not disturb platform_version, which is read from the same body", async () => {
+      const body = await pingWithHealth(healthWith("Enterprise", "9.16.0"));
+      expect(body.platform_version).toBe("9.16.0");
+      expect(body.license_tier).toBe("Enterprise");
+    });
+
+    // ---- fail open: the key is absent, and the heartbeat still ships ----
+
+    it("omits the key when /health answers non-2xx, even if the error body carries a tier", async () => {
+      const body = await pingWithHealth({ ok: false, ...healthWith("Enterprise") });
+      expect(body).not.toHaveProperty("license_tier");
+    });
+
+    it("omits the key when the endpoint is unreachable", async () => {
+      const fetchImpl = jest.fn().mockImplementation((url: string) => {
+        if (typeof url === "string" && url.endsWith("/health")) {
+          return Promise.reject(new Error("ECONNREFUSED"));
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+      global.fetch = fetchImpl as unknown as typeof fetch;
+      _resetTelemetryInFlightForTests();
+
+      await sendTelemetryPing(baseOptions);
+
+      const checkpointCall = fetchImpl.mock.calls.find(
+        (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+      );
+      expect(checkpointCall).toBeDefined();
+      const body = JSON.parse((checkpointCall![1] as RequestInit).body as string);
+      expect(body).not.toHaveProperty("license_tier");
+      expect(body.platform_version).toBeNull();
+    });
+
+    it("omits the key when the body is not valid JSON", async () => {
+      const body = await pingWithHealth({
+        json: () => Promise.reject(new SyntaxError("Unexpected token")),
+      });
+      expect(body).not.toHaveProperty("license_tier");
+    });
+
+    it("omits the key when /health returns no tier at all (older platform)", async () => {
+      const body = await pingWithHealth({
+        json: () => Promise.resolve({ status: "healthy", version: "9.16.0" }),
+      });
+      expect(body).not.toHaveProperty("license_tier");
+      // The two fields are independent: losing the tier must not lose the
+      // version signal the plugin already had.
+      expect(body.platform_version).toBe("9.16.0");
+    });
+
+    // A required string arriving as another JSON type is invisible to any
+    // decoder that coerces, so every wrong type is covered explicitly.
+    it.each([
+      ["null", null],
+      ["a number", 42],
+      ["a boolean", true],
+      ["an object", { name: "Enterprise" }],
+      ["an array", ["Enterprise"]],
+      ["an empty string", ""],
+    ])("omits the key when tier is %s", async (_label, tier) => {
+      const body = await pingWithHealth(healthWith(tier));
+      expect(body).not.toHaveProperty("license_tier");
+    });
+
+    // `typeof null === "object"` and an array is an object too; indexing
+    // either yields undefined silently rather than failing.
+    it.each([
+      ["null", null],
+      ["an array", [{ tier: "Enterprise" }]],
+      ["a bare string", "Enterprise"],
+      ["a number", 7],
+    ])("omits the key when the whole body is %s", async (_label, payload) => {
+      const body = await pingWithHealth({ json: () => Promise.resolve(payload) });
+      expect(body).not.toHaveProperty("license_tier");
+    });
+
+    it("drops a tier one character past the cap whole, rather than truncating it", async () => {
+      // A truncated value would be a tier the platform never reported.
+      const body = await pingWithHealth(healthWith("E".repeat(65)));
+      expect(body).not.toHaveProperty("license_tier");
+    });
+
+    it("serialises the absent case as a missing key, not null and not \"unknown\"", async () => {
+      // The distinction survives JSON.stringify, which is the only form the
+      // receiver ever sees.
+      const fetchImpl = jest.fn().mockImplementation((url: string) => {
+        if (typeof url === "string" && url.endsWith("/health")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ version: "10.3.0" }) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+      global.fetch = fetchImpl as unknown as typeof fetch;
+      _resetTelemetryInFlightForTests();
+
+      await sendTelemetryPing(baseOptions);
+
+      const checkpointCall = fetchImpl.mock.calls.find(
+        (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+      );
+      const raw = (checkpointCall![1] as RequestInit).body as string;
+      expect(raw).not.toContain("license_tier");
+      expect(Object.keys(JSON.parse(raw))).not.toContain("license_tier");
+    });
+  });
 });
