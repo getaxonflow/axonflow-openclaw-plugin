@@ -544,4 +544,165 @@ describe("sendTelemetryPing", () => {
       expect(Object.keys(JSON.parse(raw))).not.toContain("license_tier");
     });
   });
+
+  describe("edition + platform_deployment_mode, and redirect refusal (#3672)", () => {
+    // Returns both the captured heartbeat and every fetch call, because two of
+    // the properties under test are about the REQUEST (redirect handling and
+    // request count), not the payload.
+    async function ping(
+      health: { ok?: boolean; json?: () => Promise<unknown>; throws?: boolean },
+      checkpoint: { ok?: boolean; throws?: boolean } = {},
+    ): Promise<{ payload: Record<string, unknown> | null; calls: unknown[][]; stamped: boolean }> {
+      const fetchImpl = jest.fn().mockImplementation((url: string) => {
+        if (typeof url === "string" && url.endsWith("/health")) {
+          if (health.throws) return Promise.reject(new TypeError("redirect not allowed"));
+          return Promise.resolve({
+            ok: health.ok ?? true,
+            json: health.json ?? (() => Promise.resolve({})),
+          });
+        }
+        if (checkpoint.throws) return Promise.reject(new TypeError("redirect not allowed"));
+        return Promise.resolve({ ok: checkpoint.ok ?? true, json: () => Promise.resolve({}) });
+      });
+      global.fetch = fetchImpl as unknown as typeof fetch;
+      _resetTelemetryInFlightForTests();
+
+      await sendTelemetryPing(baseOptions);
+
+      const checkpointCall = fetchImpl.mock.calls.find(
+        (call: unknown[]) => !(call[0] as string).endsWith("/health"),
+      );
+      const payload = checkpointCall
+        ? (JSON.parse((checkpointCall[1] as RequestInit).body as string) as Record<string, unknown>)
+        : null;
+      // The stamp is the observable that matters for a non-delivery: it is
+      // what would silence this machine for seven days.
+      // AXONFLOW_CACHE_DIR is itself the axonflow cache dir (cache-dir.ts
+      // returns the override verbatim), so the stamp sits directly inside it.
+      const stampFile = path.join(
+        process.env.AXONFLOW_CACHE_DIR as string,
+        "openclaw-plugin-telemetry-sent",
+      );
+      const stamped = fs.existsSync(stampFile);
+      return { payload, calls: fetchImpl.mock.calls, stamped };
+    }
+
+    const healthBody = (extra: Record<string, unknown>) => ({
+      json: () => Promise.resolve({ status: "healthy", version: "10.4.0", tier: "Enterprise", ...extra }),
+    });
+
+    it("relays edition and deployment_mode verbatim, onto their own fields", async () => {
+      const { payload } = await ping(
+        // The platform reports community_saas about ITSELF while this plugin
+        // is pointed at a self_hosted endpoint. A fixture where the two agree
+        // cannot tell a correct relay from one that overwrote the local
+        // classification - and that mistake corrupts every existing
+        // deployment-mode figure rather than losing a dimension.
+        healthBody({ edition: "enterprise", deployment_mode: "community_saas" }),
+      );
+      expect(payload).toMatchObject({
+        edition: "enterprise",
+        platform_deployment_mode: "community_saas",
+        deployment_mode: "self_hosted",
+        license_tier: "Enterprise",
+      });
+      expect(payload!.deployment_mode).not.toBe(payload!.platform_deployment_mode);
+    });
+
+    it("forwards a transient value unchanged, like the tier", async () => {
+      const { payload } = await ping(healthBody({ edition: "starting" }));
+      expect(payload).toMatchObject({ edition: "starting" });
+    });
+
+    it("omits both keys against a platform that predates them", async () => {
+      const { payload } = await ping({
+        json: () => Promise.resolve({ status: "healthy", version: "10.3.0", tier: "Enterprise" }),
+      });
+      expect(payload).not.toHaveProperty("edition");
+      expect(payload).not.toHaveProperty("platform_deployment_mode");
+      // ...without costing the field that did answer.
+      expect(payload).toMatchObject({ license_tier: "Enterprise" });
+    });
+
+    it.each([[null], [42], [true], [{ a: 1 }], [["x"]], [""]])(
+      "omits the keys when the value is %p rather than a string",
+      async (bad) => {
+        const { payload } = await ping(healthBody({ edition: bad, deployment_mode: bad }));
+        expect(payload).not.toHaveProperty("edition");
+        expect(payload).not.toHaveProperty("platform_deployment_mode");
+        expect(payload).toMatchObject({ license_tier: "Enterprise" });
+      },
+    );
+
+    it("drops an over-long value whole and keeps the ping small", async () => {
+      const { payload } = await ping(
+        healthBody({ edition: "E".repeat(65), deployment_mode: "T".repeat(10240) }),
+      );
+      expect(payload).not.toHaveProperty("edition");
+      expect(payload).not.toHaveProperty("platform_deployment_mode");
+      expect(payload).toMatchObject({ license_tier: "Enterprise" });
+      // Uncapped, that 10 KB value would push the ping toward the receiver's
+      // 64 KiB body limit and cost every other dimension with it.
+      expect(JSON.stringify(payload).length).toBeLessThan(64 * 1024);
+    });
+
+    it("keeps a value exactly at the cap", async () => {
+      const at = "E".repeat(64);
+      const { payload } = await ping(healthBody({ edition: at }));
+      expect(payload).toMatchObject({ edition: at });
+    });
+
+    it("escapes a hostile but valid value rather than splicing it", async () => {
+      const hostile = 'ent"erp\\rise\n{"org_id":"pwned"}';
+      const { payload } = await ping(healthBody({ edition: hostile }));
+      expect(payload).toMatchObject({ edition: hostile });
+      // The injected key must not have become a real one.
+      expect(payload!.org_id).not.toBe("pwned");
+    });
+
+    it("promotes each member independently", async () => {
+      // A badly-typed tier must not cost version or edition - fields that
+      // worked before the tier existed.
+      const { payload } = await ping({
+        json: () =>
+          Promise.resolve({ status: "healthy", version: "10.4.0", tier: 42, edition: "community" }),
+      });
+      expect(payload).toMatchObject({ platform_version: "10.4.0", edition: "community" });
+      expect(payload).not.toHaveProperty("license_tier");
+    });
+
+    it("asks fetch to refuse redirects on both legs", async () => {
+      const { calls } = await ping(healthBody({ edition: "enterprise" }));
+      expect(calls).toHaveLength(2);
+      for (const [, init] of calls as [string, RequestInit][]) {
+        // fetch follows redirects by DEFAULT. On the probe that would relay
+        // values read from a host the caller never configured; on the POST it
+        // is worse, because a redirected POST is re-issued as a bodyless GET
+        // whose ok response reads as a delivery.
+        expect(init.redirect).toBe("error");
+      }
+    });
+
+    it("learns nothing when the probe is refused for redirecting", async () => {
+      const { payload } = await ping({ throws: true });
+      expect(payload).not.toHaveProperty("edition");
+      expect(payload).not.toHaveProperty("platform_deployment_mode");
+      expect(payload).not.toHaveProperty("license_tier");
+      // The heartbeat itself still goes out: enrichment must never suppress it.
+      expect(payload).toMatchObject({ sdk: "openclaw-plugin" });
+    });
+
+    it("does not advance the stamp when the checkpoint POST is refused", async () => {
+      const { stamped } = await ping(healthBody({}), { throws: true });
+      expect(stamped).toBe(false);
+    });
+
+    it("does advance the stamp on an ordinary delivery (control)", async () => {
+      // Without this the assertion above would also pass for a plugin that
+      // never stamped at all.
+      const { stamped } = await ping(healthBody({}));
+      expect(stamped).toBe(true);
+    });
+  });
+
 });

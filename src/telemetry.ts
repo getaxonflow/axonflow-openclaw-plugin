@@ -97,6 +97,21 @@ export interface TelemetryPayload {
    * assert that the platform answered and said it did not know.
    */
   license_tier?: string;
+
+  /**
+   * The platform's edition, as it reported it on `/health`. Absent means NOT
+   * LEARNED - the probe did not answer, or answered without the member, which
+   * is the case for every platform released before enterprise#3662.
+   */
+  edition?: string;
+
+  /**
+   * The deployment mode the PLATFORM reports about ITSELF. Deliberately
+   * distinct from `deployment_mode` above, which is this plugin's own
+   * classification of the endpoint it was pointed at: the two share a
+   * vocabulary, answer different questions, and routinely disagree.
+   */
+  platform_deployment_mode?: string;
 }
 
 // telemetryOrgID() + ORG_ID_LOCAL_DEV_SENTINEL live in
@@ -186,7 +201,7 @@ function generateInstanceId(): string {
  * controls this string — so it is dropped whole rather than shipped or
  * truncated. Truncating would invent a tier the platform never reported.
  */
-const MAX_LICENSE_TIER_LENGTH = 64;
+const MAX_RELAYED_VALUE_LENGTH = 64;
 
 /**
  * What a single `/health` probe yielded. Both fields are independently
@@ -196,9 +211,49 @@ const MAX_LICENSE_TIER_LENGTH = 64;
 interface PlatformInfo {
   version: string | null;
   licenseTier: string | null;
+  /** `/health` -> `edition`, added platform-side by axonflow-enterprise#3662. */
+  edition: string | null;
+  /**
+   * `/health` -> `deployment_mode`: the PLATFORM'S OWN deployment mode.
+   *
+   * Relayed as `platform_deployment_mode` and never onto the payload's
+   * `deployment_mode`, which is this plugin's local classification of the
+   * endpoint it was pointed at. The two share a vocabulary and answer
+   * different questions; writing one over the other would corrupt every
+   * existing deployment-mode figure rather than merely losing a dimension.
+   */
+  platformDeploymentMode: string | null;
 }
 
-const NO_PLATFORM_INFO: PlatformInfo = { version: null, licenseTier: null };
+const NO_PLATFORM_INFO: PlatformInfo = {
+  version: null,
+  licenseTier: null,
+  edition: null,
+  platformDeploymentMode: null,
+};
+
+/**
+ * Read ONE member out of a `/health` body and decide whether it was LEARNED.
+ *
+ * Every relayed dimension goes through this, so all of them obey the same rule
+ * and a new one cannot arrive with weaker checks: present, a JSON string,
+ * non-empty, and at most `MAX_RELAYED_VALUE_LENGTH` bytes. Anything else is
+ * NOT LEARNED and the caller omits the field rather than asserting something
+ * the platform did not say.
+ *
+ * The length cap is not tidiness. A hostile or broken endpoint controls these
+ * strings and the checkpoint service rejects a request body over 64 KiB, so an
+ * uncapped relay lets a `/health` response that SUCCEEDS destroy the ping it
+ * was meant to enrich, taking every other dimension with it. Over-long values
+ * are dropped WHOLE, never truncated: a truncated string is a value the
+ * platform never reported.
+ */
+function relayedValue(body: Record<string, unknown>, key: string): string | null {
+  const raw = body[key];
+  if (typeof raw !== "string" || !raw) return null;
+  if (raw.length > MAX_RELAYED_VALUE_LENGTH) return null;
+  return raw;
+}
 
 /**
  * Best-effort enrichment for the usage heartbeat: read the configured
@@ -225,6 +280,13 @@ async function detectPlatformInfo(endpoint: string): Promise<PlatformInfo> {
     const resp = await fetch(`${endpoint}/health`, {
       method: "GET",
       signal: controller.signal,
+      // `fetch` FOLLOWS redirects by default. Without this a /health that
+      // redirects would have the plugin relay values read from whatever host
+      // the configured endpoint pointed at - breaking the disclosure that they
+      // are what YOUR platform reported, with the endpoint's operator choosing
+      // who supplies them. "error" makes a redirect throw into the catch below,
+      // which is the same fail-open path as any other probe failure.
+      redirect: "error",
     });
     clearTimeout(timeoutId);
     // A non-2xx body is not an answer: it contributes neither field rather
@@ -248,13 +310,16 @@ async function detectPlatformInfo(endpoint: string): Promise<PlatformInfo> {
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
       return NO_PLATFORM_INFO;
     }
-    const version = typeof body.version === "string" && body.version ? body.version : null;
     // A required string arriving as a number, boolean, object or null is
-    // invisible to any decoder that coerces. The type is checked, not assumed.
-    const rawTier = typeof body.tier === "string" ? body.tier : "";
-    const licenseTier =
-      rawTier && rawTier.length <= MAX_LICENSE_TIER_LENGTH ? rawTier : null;
-    return { version, licenseTier };
+    // invisible to any decoder that coerces. The type is checked, not assumed,
+    // and every member is promoted INDEPENDENTLY: a badly-typed `tier` must
+    // not be able to cost `version`, a field that worked before the tier
+    // existed.
+    const version = relayedValue(body, "version");
+    const licenseTier = relayedValue(body, "tier");
+    const edition = relayedValue(body, "edition");
+    const platformDeploymentMode = relayedValue(body, "deployment_mode");
+    return { version, licenseTier, edition, platformDeploymentMode };
   } catch {
     clearTimeout(timeoutId);
     return NO_PLATFORM_INFO;
@@ -367,6 +432,10 @@ async function sendInner(options: SendOptions): Promise<void> {
     // reads is key-present vs key-absent. Building the key only when there is
     // a value to put in it makes the absence structural rather than incidental.
     ...(platformInfo.licenseTier ? { license_tier: platformInfo.licenseTier } : {}),
+    ...(platformInfo.edition ? { edition: platformInfo.edition } : {}),
+    ...(platformInfo.platformDeploymentMode
+      ? { platform_deployment_mode: platformInfo.platformDeploymentMode }
+      : {}),
   };
 
   // 5. Fire the heartbeat.
@@ -379,6 +448,13 @@ async function sendInner(options: SendOptions): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       signal: controller.signal,
+      // A redirected POST is NOT a delivery, and following one is worse than
+      // failing: `fetch` re-issues a redirected POST as a bodyless GET, so a
+      // checkpoint URL answering 302 would return an `ok` response carrying
+      // nothing, `delivered` would be true, and the 7-day stamp would advance
+      // on a ping the receiver never saw - taking this machine dark for a
+      // week (sdk-rust#89). "error" throws instead, and the stamp stays put.
+      redirect: "error",
     });
     delivered = resp.ok;
   } catch {
