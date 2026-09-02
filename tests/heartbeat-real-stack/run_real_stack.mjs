@@ -296,7 +296,45 @@ async function main() {
     } else {
       fail("license_tier and deployment_mode read the same value - the two dimensions are being conflated");
     }
-    // v9.1 (#2277): plugin telemetry includes org_id, sourced from the
+
+
+    // #3672: edition and platform_deployment_mode ride the SAME /health
+    // response, relayed verbatim and omitted when not learned.
+    if (pings.length > 0 && pings[0].edition === "enterprise") {
+      pass("ping edition=enterprise (relayed verbatim from /health edition)");
+    } else {
+      fail(
+        `ping edition=${"edition" in (pings[0] ?? {}) ? pings[0].edition : "__ABSENT__"} (expected enterprise)`,
+      );
+    }
+
+    // THE assertion that makes the relay meaningful. The fake platform reports
+    // "kubernetes" about ITSELF while this plugin classifies the endpoint it
+    // was pointed at as community_saas. A relay that wrote one over the other
+    // would corrupt every existing deployment-mode figure, and only a fixture
+    // where the two DISAGREE can catch it.
+    if (pings.length > 0 && pings[0].platform_deployment_mode === "kubernetes") {
+      pass("ping platform_deployment_mode=kubernetes (the platform's own mode)");
+    } else {
+      fail(
+        `ping platform_deployment_mode=${
+          "platform_deployment_mode" in (pings[0] ?? {})
+            ? pings[0].platform_deployment_mode
+            : "__ABSENT__"
+        } (expected kubernetes)`,
+      );
+    }
+    if (
+      pings.length > 0 &&
+      pings[0].deployment_mode === "community_saas" &&
+      pings[0].platform_deployment_mode !== pings[0].deployment_mode
+    ) {
+      pass(
+        `deployment_mode (${pings[0].deployment_mode}, this plugin's own classification) survived the relay of platform_deployment_mode (${pings[0].platform_deployment_mode})`,
+      );
+    } else {
+      fail("the platform's deployment mode was written over this plugin's own classification");
+    }    // v9.1 (#2277): plugin telemetry includes org_id, sourced from the
     // registration file's tenant_id (or sentinel). With a fresh cs_<uuid>
     // registration above, org_id MUST match the cs_<uuid> tenant_id.
     if (pings.length > 0) {

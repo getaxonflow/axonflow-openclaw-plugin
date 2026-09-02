@@ -76,6 +76,14 @@ def make_handler(work_dir):
                     "status": "healthy",
                     "version": "7.5.0-fake",
                     "tier": "Professional",
+                    # The two members enterprise#3662 adds. `deployment_mode`
+                    # is deliberately NOT what the plugin derives for this
+                    # endpoint (community_saas): the platform's own mode and
+                    # the plugin's endpoint classification answer different
+                    # questions, and a fixture where they agree cannot tell a
+                    # correct relay from one that overwrote the plugin's field.
+                    "edition": "enterprise",
+                    "deployment_mode": "kubernetes",
                 })
                 return
             self._json(404, {"error": "not found"})
