@@ -38,7 +38,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # OS matrix by event (2026-09-03, CI-cost round 3): a macOS minute
+        # counts TEN times and a Windows minute twice against the organisation's
+        # Actions allowance, and this matrix ran all three on every PR push.
+        # PRs now run the Linux leg; the full three-OS matrix runs on every
+        # merge to main (push) and on workflow_dispatch, so cross-OS coverage
+        # still lands on every merged commit rather than on every iteration.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "windows-latest", "macos-latest"]') }}
         node: ["20"]
     env:
       AXONFLOW_TELEMETRY: "off"
