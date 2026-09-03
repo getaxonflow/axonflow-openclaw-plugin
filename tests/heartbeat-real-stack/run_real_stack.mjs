@@ -297,7 +297,6 @@ async function main() {
       fail("license_tier and deployment_mode read the same value - the two dimensions are being conflated");
     }
 
-
     // #3672: edition and platform_deployment_mode ride the SAME /health
     // response, relayed verbatim and omitted when not learned.
     if (pings.length > 0 && pings[0].edition === "enterprise") {

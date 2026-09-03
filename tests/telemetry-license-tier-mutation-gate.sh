@@ -83,7 +83,11 @@ expect_mutant() {
   fi
 
   local out rc
-  out=$(cd "$PLUGIN_DIR" && npx jest "$SUITE" 2>&1)
+  # `tr -d '\0'` because one mutant deliberately lets a NUL through, and jest
+  # echoes the failing value: a raw NUL in captured output makes bash warn and
+  # can truncate the capture, so the gate's own diagnostics would degrade on
+  # exactly the mutant it is there to catch.
+  out=$(cd "$PLUGIN_DIR" && npx jest "$SUITE" 2>&1 | tr -d '\0')
   rc=$?
   restore
 
