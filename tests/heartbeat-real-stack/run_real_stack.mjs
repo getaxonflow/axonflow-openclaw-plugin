@@ -387,6 +387,73 @@ async function main() {
     } else {
       fail(`telemetry counter went ${counterBefore} → ${counterAfter} (expected delta 0)`);
     }
+    // -----------------------------------------------------------------
+    // Redirects, through REAL fetch against a REAL server.
+    //
+    // The unit tests assert `init.redirect === "error"` on a jest mock, which
+    // pins the option but never exercises fetch's behaviour. These two arms
+    // drive the actual runtime: the server answers 302 with a full /health
+    // document and records any hit on the redirect target, so "the target was
+    // never contacted" is an observation rather than an inference.
+    // -----------------------------------------------------------------
+    for (const leg of ["health", "ping"]) {
+      const legSandbox = fs.mkdtempSync(path.join(os.tmpdir(), `axonflow-redirect-${leg}-`));
+      const legCache = path.join(legSandbox, "cache");
+      const legConfig = path.join(legSandbox, "config");
+      fs.mkdirSync(legCache, { recursive: true });
+      fs.mkdirSync(legConfig, { recursive: true });
+      const hitsFile = path.join(workDir, "redirect_target_hits");
+      fs.rmSync(hitsFile, { force: true });
+      const pingsBefore = readPings(workDir).length;
+
+      // Written to a file the server reads per request. Setting an env var
+      // here would never reach it: the server process was spawned before this
+      // loop, so the arm would pass against a server that never redirected.
+      fs.writeFileSync(path.join(workDir, "_redirect_mode"), leg);
+      try {
+        await loadPluginAndRegister({
+          endpoint,
+          configDir: legConfig,
+          cacheDir: legCache,
+          checkpointUrl,
+        });
+        // The heartbeat is fire-and-forget; give it room to land (or not).
+        await new Promise((r) => setTimeout(r, 400));
+
+        const hits = fs.existsSync(hitsFile) ? fs.readFileSync(hitsFile, "utf8").trim() : "";
+        if (hits === "") {
+          pass(`${leg} leg: the redirect target was never contacted`);
+        } else {
+          fail(`${leg} leg: the redirect was FOLLOWED — target saw: ${hits.replace(/\n/g, "; ")}`);
+        }
+
+        if (leg === "health") {
+          const after = readPings(workDir).slice(pingsBefore);
+          const relayed = after.find(
+            (p) =>
+              p.license_tier === "LeakedFromRedirect" ||
+              p.edition === "leaked" ||
+              p.platform_deployment_mode === "leaked" ||
+              p.platform_version === "6.6.6-leaked",
+          );
+          if (!relayed) {
+            pass("health leg: no value from the 302's body reached the wire");
+          } else {
+            fail(`health leg: relayed from the redirect body: ${JSON.stringify(relayed)}`);
+          }
+        } else {
+          const legStamp = path.join(legCache, "openclaw-plugin-telemetry-sent");
+          if (!fs.existsSync(legStamp)) {
+            pass("ping leg: a redirected checkpoint POST did NOT advance the 7-day stamp");
+          } else {
+            fail("ping leg: the stamp advanced on a ping the receiver never processed");
+          }
+        }
+      } finally {
+        fs.writeFileSync(path.join(workDir, "_redirect_mode"), "");
+        fs.rmSync(legSandbox, { recursive: true, force: true });
+      }
+    }
   } finally {
     if (serverProc) serverProc.kill();
     fs.rmSync(workDir, { recursive: true, force: true });

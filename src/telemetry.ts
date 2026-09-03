@@ -251,7 +251,15 @@ const NO_PLATFORM_INFO: PlatformInfo = {
 function relayedValue(body: Record<string, unknown>, key: string): string | null {
   const raw = body[key];
   if (typeof raw !== "string" || !raw) return null;
-  if (raw.length > MAX_RELAYED_VALUE_LENGTH) return null;
+  // BYTES, not `raw.length`. `String.length` counts UTF-16 code units, so 64
+  // "€" is 64 by that measure and 192 on the wire - past a cap whose entire
+  // reason is the receiver's byte-measured body limit. The bash siblings use
+  // jq's utf8bytelength for the same reason.
+  if (Buffer.byteLength(raw, "utf8") > MAX_RELAYED_VALUE_LENGTH) return null;
+  // A NUL cannot round-trip through the shell-based siblings and has no place
+  // in a coarse enum here either; dropped whole so the relay stays
+  // verbatim-or-nothing rather than silently sanitised.
+  if (raw.includes("\u0000")) return null;
   return raw;
 }
 

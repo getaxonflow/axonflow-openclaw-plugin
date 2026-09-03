@@ -37,6 +37,16 @@ print("server modules imported", flush=True)
 
 
 def make_handler(work_dir):
+    # "" | "health" | "ping" - which leg answers 302 on the next request.
+    redirect_mode_path = os.path.join(work_dir, "_redirect_mode")
+
+    def _redirect_mode():
+        try:
+            with open(redirect_mode_path) as fh:
+                return fh.read().strip()
+        except OSError:
+            return ""
+
     counter_path = os.path.join(work_dir, "_counter")
     pings_path = os.path.join(work_dir, "_pings.jsonl")
     register_path = os.path.join(work_dir, "_registrations.jsonl")
@@ -65,7 +75,52 @@ def make_handler(work_dir):
             self.end_headers()
             self.wfile.write(payload)
 
+        def _redirect(self, location):
+            self.send_response(302)
+            self.send_header("Location", location)
+            # A redirect CARRYING a body is the case that matters: a client
+            # that follows it, or that reads a non-2xx body, relays values from
+            # a response the platform never meant as an answer.
+            body = json.dumps({
+                "status": "healthy",
+                "version": "6.6.6-leaked",
+                "tier": "LeakedFromRedirect",
+                "edition": "leaked",
+                "deployment_mode": "leaked",
+            }).encode("utf-8")
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
+            # Where a followed redirect would land. Reaching it at all is the
+            # failure: it is recorded so the assertion can say "the target was
+            # contacted", which is a different and stronger statement than
+            # "no value was relayed".
+            if self.path == "/elsewhere":
+                with open(os.path.join(work_dir, "redirect_target_hits"), "a") as fh:
+                    fh.write("GET /elsewhere\n")
+                self._json(200, {
+                    "status": "healthy",
+                    "version": "6.6.6-leaked",
+                    "tier": "LeakedFromRedirect",
+                    "edition": "leaked",
+                    "deployment_mode": "leaked",
+                })
+                return
+            if self.path == "/sink":
+                with open(os.path.join(work_dir, "redirect_target_hits"), "a") as fh:
+                    fh.write("GET /sink\n")
+                self._json(200, {"ok": True})
+                return
+            # Read at REQUEST time from a file, not from the environment: this
+            # server is spawned once, before any arm runs, so an env var the
+            # driver sets later never reaches it - and the arm would then pass
+            # vacuously against a server that was never redirecting.
+            if self.path == "/health" and _redirect_mode() == "health":
+                self._redirect(f"http://127.0.0.1:{self.server.server_port}/elsewhere")
+                return
             if self.path == "/health":
                 # `tier` mirrors the agent's readiness-aware /health handler,
                 # which reports the licence tier the platform resolved for
@@ -108,6 +163,19 @@ def make_handler(work_dir):
                 with open(register_path, "a") as fh:
                     fh.write(json.dumps({"label": payload.get("label"), "tenant_id": tenant_id}) + "\n")
                 self._json(201, response)
+                return
+
+            if self.path == "/sink":
+                with open(os.path.join(work_dir, "redirect_target_hits"), "a") as fh:
+                    fh.write("POST /sink len=%d\n" % len(body))
+                self._json(200, {"ok": True})
+                return
+
+            if self.path == "/v1/ping" and _redirect_mode() == "ping":
+                # Recorded NOWHERE, deliberately: a redirected POST is not a
+                # delivery, so the pings file must stay empty and the stamp
+                # must not advance.
+                self._redirect(f"http://127.0.0.1:{self.server.server_port}/sink")
                 return
 
             if self.path == "/v1/ping":

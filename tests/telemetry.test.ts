@@ -646,6 +646,39 @@ describe("sendTelemetryPing", () => {
       expect(JSON.stringify(payload).length).toBeLessThan(64 * 1024);
     });
 
+    it("measures the cap in BYTES, not UTF-16 code units", async () => {
+      // 22 euro signs are 22 code units and 66 bytes. A `String.length` cap of
+      // 64 lets this through at 66 bytes on the wire; a byte cap does not.
+      const over = "\u20ac".repeat(22);
+      expect(over.length).toBeLessThanOrEqual(64);
+      expect(Buffer.byteLength(over, "utf8")).toBe(66);
+      const { payload } = await ping(healthBody({ edition: over }));
+      expect(payload).not.toHaveProperty("edition");
+      expect(payload).toMatchObject({ license_tier: "Enterprise" });
+    });
+
+    it("keeps a multi-byte value that fits in bytes", async () => {
+      const at = "\u20ac".repeat(21); // 63 bytes
+      expect(Buffer.byteLength(at, "utf8")).toBe(63);
+      const { payload } = await ping(healthBody({ edition: at }));
+      expect(payload).toMatchObject({ edition: at });
+    });
+
+    it("drops a value containing a NUL whole", async () => {
+      const { payload } = await ping(healthBody({ edition: "ent\u0000erprise" }));
+      expect(payload).not.toHaveProperty("edition");
+      // ...without costing the value beside it.
+      expect(payload).toMatchObject({ license_tier: "Enterprise" });
+    });
+
+    it("does not advance the stamp when the checkpoint REJECTS the ping", async () => {
+      // The other side of the delivery boundary from the redirect case: `ok`
+      // is 200-299, and a mutant hard-coding `delivered = true` survives every
+      // test that only checks the payload.
+      const { stamped } = await ping(healthBody({}), { ok: false });
+      expect(stamped).toBe(false);
+    });
+
     it("keeps a value exactly at the cap", async () => {
       const at = "E".repeat(64);
       const { payload } = await ping(healthBody({ edition: at }));

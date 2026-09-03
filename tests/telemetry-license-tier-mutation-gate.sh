@@ -120,15 +120,9 @@ expect_mutant killed "omission replaced by a literal unknown" \
 # M3 — the string-type check removed, so a numeric / boolean / structured tier
 # is coerced onto the wire as though the platform had reported it.
 expect_mutant killed "string-type check replaced by coercion" \
-  '  const raw = body[key];
-  if (typeof raw !== "string" || !raw) return null;
-  if (raw.length > MAX_RELAYED_VALUE_LENGTH) return null;
-  return raw;' \
-  '  const raw = body[key];
-  if (raw === undefined || raw === null || raw === "") return null;
-  const coerced = String(raw);
-  if (coerced.length > MAX_RELAYED_VALUE_LENGTH) return null;
-  return coerced;'
+  '  if (typeof raw !== "string" || !raw) return null;' \
+  '  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw !== "string") return String(raw);'
 
 # M4 — the non-2xx guard neutered, so an error body is parsed for a tier.
 expect_mutant killed "non-2xx guard neutered" \
@@ -139,6 +133,23 @@ expect_mutant killed "non-2xx guard neutered" \
 expect_mutant killed "length cap raised out of reach" \
   'const MAX_RELAYED_VALUE_LENGTH = 64;' \
   'const MAX_RELAYED_VALUE_LENGTH = 100000;'
+
+# The cap must be measured in BYTES. `String.length` counts UTF-16 code units,
+# so a character cap lets a 64-code-unit value reach the wire at up to 192
+# bytes, against a receiver limit measured in bytes.
+expect_mutant killed "cap measured in code units instead of bytes" \
+  '  if (Buffer.byteLength(raw, "utf8") > MAX_RELAYED_VALUE_LENGTH) return null;' \
+  '  if (raw.length > MAX_RELAYED_VALUE_LENGTH) return null;'
+
+expect_mutant killed "NUL guard removed" \
+  '  if (raw.includes("\u0000")) return null;' \
+  ''
+
+# The delivery boundary. `resp.ok` is 200-299; hard-coding it survives every
+# test that only inspects the payload, which is why the stamp is the assertion.
+expect_mutant killed "every response counts as a delivery" \
+  '    delivered = resp.ok;' \
+  '    delivered = true;'
 
 # M6 — client-side normalization. The plugin must relay, not interpret.
 expect_mutant killed "client-side normalization introduced" \
