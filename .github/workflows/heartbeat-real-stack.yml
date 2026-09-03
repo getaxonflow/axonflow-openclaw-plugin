@@ -8,6 +8,8 @@ name: Heartbeat Real-Stack E2E
 # registration, telemetry suppressed by the stamp gate.
 
 on:
+  # Full three-OS matrix on demand (see the matrix comment below).
+  workflow_dispatch:
   pull_request:
     paths:
       - "src/**"
