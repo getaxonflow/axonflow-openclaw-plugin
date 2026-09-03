@@ -172,9 +172,13 @@ def make_handler(work_dir):
                 return
 
             if self.path == "/v1/ping" and _redirect_mode() == "ping":
-                # Recorded NOWHERE, deliberately: a redirected POST is not a
-                # delivery, so the pings file must stay empty and the stamp
-                # must not advance.
+                # Recorded in a SEPARATE file, not in _pings.jsonl. Two facts
+                # have to be distinguishable here: the POST was made (so the
+                # arm is not passing because nothing ran) and it was not
+                # DELIVERED (so the stamp must not advance). Writing it to the
+                # pings file would conflate them.
+                with open(os.path.join(work_dir, "redirected_posts"), "a") as fh:
+                    fh.write("POST /v1/ping len=%d\n" % len(body))
                 self._redirect(f"http://127.0.0.1:{self.server.server_port}/sink")
                 return
 

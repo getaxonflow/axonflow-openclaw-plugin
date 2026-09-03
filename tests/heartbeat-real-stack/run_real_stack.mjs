@@ -334,7 +334,9 @@ async function main() {
       );
     } else {
       fail("the platform's deployment mode was written over this plugin's own classification");
-    }    // v9.1 (#2277): plugin telemetry includes org_id, sourced from the
+    }
+
+    // v9.1 (#2277): plugin telemetry includes org_id, sourced from the
     // registration file's tenant_id (or sentinel). With a fresh cs_<uuid>
     // registration above, org_id MUST match the cs_<uuid> tenant_id.
     if (pings.length > 0) {
@@ -403,7 +405,9 @@ async function main() {
       fs.mkdirSync(legCache, { recursive: true });
       fs.mkdirSync(legConfig, { recursive: true });
       const hitsFile = path.join(workDir, "redirect_target_hits");
+      const redirectedFile = path.join(workDir, "redirected_posts");
       fs.rmSync(hitsFile, { force: true });
+      fs.rmSync(redirectedFile, { force: true });
       const pingsBefore = readPings(workDir).length;
 
       // Written to a file the server reads per request. Setting an env var
@@ -427,8 +431,24 @@ async function main() {
           fail(`${leg} leg: the redirect was FOLLOWED — target saw: ${hits.replace(/\n/g, "; ")}`);
         }
 
+        // POSITIVE CONTROL, per arm. Every assertion below this point is an
+        // ABSENCE - target not contacted, nothing leaked, stamp not written -
+        // and all three are equally true of a plugin that sent nothing at all.
+        // Without a control that the run HAPPENED, disabling the heartbeat
+        // entirely would leave this arm green.
         if (leg === "health") {
           const after = readPings(workDir).slice(pingsBefore);
+          if (after.length === 1) {
+            pass("health leg: the heartbeat DID run (exactly one ping received)");
+          } else {
+            fail(`health leg: expected exactly one ping, saw ${after.length} — the absence assertions below prove nothing`);
+          }
+          const legStampOk = path.join(legCache, "openclaw-plugin-telemetry-sent");
+          if (fs.existsSync(legStampOk)) {
+            pass("health leg: the good POST still stamped (only the probe was redirected)");
+          } else {
+            fail("health leg: no stamp — the POST did not succeed, so this arm is not testing the probe");
+          }
           const relayed = after.find(
             (p) =>
               p.license_tier === "LeakedFromRedirect" ||
@@ -442,6 +462,14 @@ async function main() {
             fail(`health leg: relayed from the redirect body: ${JSON.stringify(relayed)}`);
           }
         } else {
+          const redirected = fs.existsSync(redirectedFile)
+            ? fs.readFileSync(redirectedFile, "utf8").trim()
+            : "";
+          if (redirected !== "") {
+            pass(`ping leg: the POST WAS made and redirected (${redirected.replace(/\n/g, "; ")})`);
+          } else {
+            fail("ping leg: no POST reached /v1/ping — the stamp assertion below would pass for a plugin that sends nothing");
+          }
           const legStamp = path.join(legCache, "openclaw-plugin-telemetry-sent");
           if (!fs.existsSync(legStamp)) {
             pass("ping leg: a redirected checkpoint POST did NOT advance the 7-day stamp");

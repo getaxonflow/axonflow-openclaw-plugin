@@ -551,7 +551,7 @@ describe("sendTelemetryPing", () => {
     // request count), not the payload.
     async function ping(
       health: { ok?: boolean; json?: () => Promise<unknown>; throws?: boolean },
-      checkpoint: { ok?: boolean; throws?: boolean } = {},
+      checkpoint: { ok?: boolean; status?: number; throws?: boolean } = {},
     ): Promise<{ payload: Record<string, unknown> | null; calls: unknown[][]; stamped: boolean }> {
       const fetchImpl = jest.fn().mockImplementation((url: string) => {
         if (typeof url === "string" && url.endsWith("/health")) {
@@ -562,7 +562,12 @@ describe("sendTelemetryPing", () => {
           });
         }
         if (checkpoint.throws) return Promise.reject(new TypeError("redirect not allowed"));
-        return Promise.resolve({ ok: checkpoint.ok ?? true, json: () => Promise.resolve({}) });
+        const status = checkpoint.status ?? (checkpoint.ok === false ? 500 : 200);
+        return Promise.resolve({
+          ok: checkpoint.ok ?? (status >= 200 && status < 300),
+          status,
+          json: () => Promise.resolve({}),
+        });
       });
       global.fetch = fetchImpl as unknown as typeof fetch;
       _resetTelemetryInFlightForTests();
@@ -671,12 +676,21 @@ describe("sendTelemetryPing", () => {
       expect(payload).toMatchObject({ license_tier: "Enterprise" });
     });
 
-    it("does not advance the stamp when the checkpoint REJECTS the ping", async () => {
-      // The other side of the delivery boundary from the redirect case: `ok`
-      // is 200-299, and a mutant hard-coding `delivered = true` survives every
-      // test that only checks the payload.
-      const { stamped } = await ping(healthBody({}), { ok: false });
-      expect(stamped).toBe(false);
+    it.each([[500], [404], [401], [301]])(
+      "does not advance the stamp when the checkpoint answers %i",
+      async (status) => {
+        // The other side of the delivery boundary from the redirect case: `ok`
+        // is 200-299, and a mutant hard-coding `delivered = true` survives
+        // every test that only checks the payload. Each status is its own case
+        // - a mock carrying no status would make them all one.
+        const { stamped } = await ping(healthBody({}), { status });
+        expect(stamped).toBe(false);
+      },
+    );
+
+    it("does advance the stamp on a 200 (control for the statuses above)", async () => {
+      const { stamped } = await ping(healthBody({}), { status: 200 });
+      expect(stamped).toBe(true);
     });
 
     it("keeps a value exactly at the cap", async () => {
