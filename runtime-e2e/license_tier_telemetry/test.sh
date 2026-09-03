@@ -4,9 +4,9 @@
 # Three stages, all driving the plugin's ACTUAL shipped code — no
 # reimplementation of the payload, no reimplementation of the probe.
 #
-#   Stage 1a — the behaviour suite (`tests/telemetry.test.ts`, the license_tier
-#   block). Every tier value round-trips verbatim; every probe failure omits the
-#   key and leaves the heartbeat intact.
+#   Stage 1a — the behaviour suite (`tests/telemetry.test.ts`, in full). Every
+#   relayed value round-trips verbatim; every probe failure omits the key and
+#   leaves the heartbeat intact; redirects are refused on both legs.
 #
 #   Stage 1b — the mutation gate. Plants a defect in src/telemetry.ts for each
 #   property that suite claims to protect and requires the suite to go red, then
@@ -41,8 +41,13 @@ fi
 
 RC=0
 
-echo "==> Stage 1a: license_tier behaviour suite"
-if ( cd "$PLUGIN_DIR" && npx jest tests/telemetry.test.ts -t "license_tier" ); then
+echo "==> Stage 1a: telemetry behaviour suite (full)"
+# The whole telemetry suite, NOT `-t "license_tier"`. That filter silently
+# skipped every block whose name did not contain the phrase - including the
+# relay and redirect blocks - so the stage reported green while covering none
+# of them. A name-matched filter is a coverage decision disguised as a speed
+# one; the suite runs in under a second.
+if ( cd "$PLUGIN_DIR" && npx jest tests/telemetry.test.ts ); then
   echo "PASS: behaviour suite green"
 else
   echo "FAIL: behaviour suite reported failures" >&2

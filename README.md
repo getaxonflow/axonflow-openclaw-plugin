@@ -608,9 +608,13 @@ The [policies directory](./policies) ships research-backed starter policies addr
 
 ## Telemetry
 
-The plugin sends a usage heartbeat once every 7 days so AxonFlow can understand adoption and environment shape. Includes plugin version, OS/arch, Node.js version, AxonFlow platform version, the licence tier that platform reports about itself, deployment mode, endpoint type, org_id, and hook configuration summary. Also includes a persistent per-machine instance ID (UUID v4). **Never** includes message contents, tool arguments, or policy data.
+The plugin sends a usage heartbeat once every 7 days so AxonFlow can understand adoption and environment shape. Includes plugin version, OS/arch, Node.js version, AxonFlow platform version, the licence tier, edition and deployment mode that platform reports about itself, this plugin's own deployment-mode and endpoint-type classification, org_id, and hook configuration summary. Also includes a persistent per-machine instance ID (UUID v4). **Never** includes message contents, tool arguments, or policy data.
 
 The licence tier sent is whatever the platform reported about itself, relayed verbatim. The plugin does not normalise, map, or restrict the value, so a transient state such as `starting`, or a tier name introduced after this plugin shipped, reaches the wire unchanged rather than being flattened into a fixed list. What is never read or sent: **no licence key, no expiry date, no seat count, and no customer or organisation name**. It is read from the `tier` field of the same `/health` response the heartbeat already fetches to detect the platform version, so it costs no additional request, and it is omitted entirely whenever that probe does not answer with one.
+
+Two further values are relayed on the same terms, from the same response: the platform's **edition** and the deployment mode the **platform reports about itself**. The second is deliberately separate from the `deployment_mode` above, which is this plugin's own classification of the endpoint it was pointed at — they answer different questions and routinely differ, so neither is written over the other. Both are omitted entirely whenever the platform does not report them — whether the member is missing or present as `null`, both of which mean not-learned — which is the case for every platform released before they existed. Any relayed value longer than 64 bytes is dropped whole rather than truncated, since a truncated value would be something the platform never said.
+
+The heartbeat refuses HTTP redirects on both legs. A redirected `/health` teaches the plugin nothing rather than reading values from a host you did not configure, and a redirected checkpoint POST is not treated as a delivery — `fetch` would otherwise re-issue it as a bodyless GET whose success advanced the 7-day stamp on a ping that was never received, silencing this machine for a week.
 
 Opt out: set `AXONFLOW_TELEMETRY=off` in the environment OpenClaw runs in.
 
@@ -625,8 +629,8 @@ Opt out: set `AXONFLOW_TELEMETRY=off` in the environment OpenClaw runs in.
 | Governance check | Every governed tool call / outbound message | Tool name + arguments, message body | Core functionality |
 | Audit log | After each tool execution / LLM call | Tool name, result summary (truncated), prompt summary (first 500 chars), token usage, latency | Core functionality |
 | Health check | On plugin init | Nothing (GET request) | Fire-and-forget |
-| Usage heartbeat | Once per 7 days | Plugin version, OS, arch, Node version, platform version, platform licence tier, deployment mode, endpoint type, org_id, hook config summary, persistent instance ID | `AXONFLOW_TELEMETRY=off` (also accepts `0`, `false`, `no`) |
-| Platform version + licence tier probe | During heartbeat (if not opted out) | Nothing (one GET to /health; both fields are read from the same response) | Disabled when `AXONFLOW_TELEMETRY=off` |
+| Usage heartbeat | Once per 7 days | Plugin version, OS, arch, Node version, platform version, the platform's licence tier, edition and own deployment mode, this plugin's deployment-mode and endpoint-type classification, org_id, hook config summary, persistent instance ID | `AXONFLOW_TELEMETRY=off` (also accepts `0`, `false`, `no`) |
+| Platform version, licence tier, edition + platform deployment mode probe | During heartbeat (if not opted out) | Nothing (one GET to /health; all four fields are read from the same response, and redirects are refused) | Disabled when `AXONFLOW_TELEMETRY=off` |
 | Version compatibility check | On plugin init | Plugin version | Fire-and-forget |
 | Community SaaS registration | First run (community-saas mode only) | Machine label (plugin version + OS) | `AXONFLOW_COMMUNITY_SAAS=0` or self-hosted endpoint |
 | Credential recovery | Only when you run `axonflow-openclaw-recover` | The email address you pass on the command line, then the magic-link token you paste back | Don't run the CLI — it never fires from the plugin runtime |

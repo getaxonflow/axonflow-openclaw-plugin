@@ -296,6 +296,45 @@ async function main() {
     } else {
       fail("license_tier and deployment_mode read the same value - the two dimensions are being conflated");
     }
+
+    // #3672: edition and platform_deployment_mode ride the SAME /health
+    // response, relayed verbatim and omitted when not learned.
+    if (pings.length > 0 && pings[0].edition === "enterprise") {
+      pass("ping edition=enterprise (relayed verbatim from /health edition)");
+    } else {
+      fail(
+        `ping edition=${"edition" in (pings[0] ?? {}) ? pings[0].edition : "__ABSENT__"} (expected enterprise)`,
+      );
+    }
+
+    // THE assertion that makes the relay meaningful. The fake platform reports
+    // "kubernetes" about ITSELF while this plugin classifies the endpoint it
+    // was pointed at as community_saas. A relay that wrote one over the other
+    // would corrupt every existing deployment-mode figure, and only a fixture
+    // where the two DISAGREE can catch it.
+    if (pings.length > 0 && pings[0].platform_deployment_mode === "kubernetes") {
+      pass("ping platform_deployment_mode=kubernetes (the platform's own mode)");
+    } else {
+      fail(
+        `ping platform_deployment_mode=${
+          "platform_deployment_mode" in (pings[0] ?? {})
+            ? pings[0].platform_deployment_mode
+            : "__ABSENT__"
+        } (expected kubernetes)`,
+      );
+    }
+    if (
+      pings.length > 0 &&
+      pings[0].deployment_mode === "community_saas" &&
+      pings[0].platform_deployment_mode !== pings[0].deployment_mode
+    ) {
+      pass(
+        `deployment_mode (${pings[0].deployment_mode}, this plugin's own classification) survived the relay of platform_deployment_mode (${pings[0].platform_deployment_mode})`,
+      );
+    } else {
+      fail("the platform's deployment mode was written over this plugin's own classification");
+    }
+
     // v9.1 (#2277): plugin telemetry includes org_id, sourced from the
     // registration file's tenant_id (or sentinel). With a fresh cs_<uuid>
     // registration above, org_id MUST match the cs_<uuid> tenant_id.
@@ -348,6 +387,99 @@ async function main() {
       pass("telemetry suppressed by stamp gate (delta=0)");
     } else {
       fail(`telemetry counter went ${counterBefore} → ${counterAfter} (expected delta 0)`);
+    }
+    // -----------------------------------------------------------------
+    // Redirects, through REAL fetch against a REAL server.
+    //
+    // The unit tests assert `init.redirect === "error"` on a jest mock, which
+    // pins the option but never exercises fetch's behaviour. These two arms
+    // drive the actual runtime: the server answers 302 with a full /health
+    // document and records any hit on the redirect target, so "the target was
+    // never contacted" is an observation rather than an inference.
+    // -----------------------------------------------------------------
+    for (const leg of ["health", "ping"]) {
+      const legSandbox = fs.mkdtempSync(path.join(os.tmpdir(), `axonflow-redirect-${leg}-`));
+      const legCache = path.join(legSandbox, "cache");
+      const legConfig = path.join(legSandbox, "config");
+      fs.mkdirSync(legCache, { recursive: true });
+      fs.mkdirSync(legConfig, { recursive: true });
+      const hitsFile = path.join(workDir, "redirect_target_hits");
+      const redirectedFile = path.join(workDir, "redirected_posts");
+      fs.rmSync(hitsFile, { force: true });
+      fs.rmSync(redirectedFile, { force: true });
+      const pingsBefore = readPings(workDir).length;
+
+      // Written to a file the server reads per request. Setting an env var
+      // here would never reach it: the server process was spawned before this
+      // loop, so the arm would pass against a server that never redirected.
+      fs.writeFileSync(path.join(workDir, "_redirect_mode"), leg);
+      try {
+        await loadPluginAndRegister({
+          endpoint,
+          configDir: legConfig,
+          cacheDir: legCache,
+          checkpointUrl,
+        });
+        // The heartbeat is fire-and-forget; give it room to land (or not).
+        await new Promise((r) => setTimeout(r, 400));
+
+        const hits = fs.existsSync(hitsFile) ? fs.readFileSync(hitsFile, "utf8").trim() : "";
+        if (hits === "") {
+          pass(`${leg} leg: the redirect target was never contacted`);
+        } else {
+          fail(`${leg} leg: the redirect was FOLLOWED — target saw: ${hits.replace(/\n/g, "; ")}`);
+        }
+
+        // POSITIVE CONTROL, per arm. Every assertion below this point is an
+        // ABSENCE - target not contacted, nothing leaked, stamp not written -
+        // and all three are equally true of a plugin that sent nothing at all.
+        // Without a control that the run HAPPENED, disabling the heartbeat
+        // entirely would leave this arm green.
+        if (leg === "health") {
+          const after = readPings(workDir).slice(pingsBefore);
+          if (after.length === 1) {
+            pass("health leg: the heartbeat DID run (exactly one ping received)");
+          } else {
+            fail(`health leg: expected exactly one ping, saw ${after.length} — the absence assertions below prove nothing`);
+          }
+          const legStampOk = path.join(legCache, "openclaw-plugin-telemetry-sent");
+          if (fs.existsSync(legStampOk)) {
+            pass("health leg: the good POST still stamped (only the probe was redirected)");
+          } else {
+            fail("health leg: no stamp — the POST did not succeed, so this arm is not testing the probe");
+          }
+          const relayed = after.find(
+            (p) =>
+              p.license_tier === "LeakedFromRedirect" ||
+              p.edition === "leaked" ||
+              p.platform_deployment_mode === "leaked" ||
+              p.platform_version === "6.6.6-leaked",
+          );
+          if (!relayed) {
+            pass("health leg: no value from the 302's body reached the wire");
+          } else {
+            fail(`health leg: relayed from the redirect body: ${JSON.stringify(relayed)}`);
+          }
+        } else {
+          const redirected = fs.existsSync(redirectedFile)
+            ? fs.readFileSync(redirectedFile, "utf8").trim()
+            : "";
+          if (redirected !== "") {
+            pass(`ping leg: the POST WAS made and redirected (${redirected.replace(/\n/g, "; ")})`);
+          } else {
+            fail("ping leg: no POST reached /v1/ping — the stamp assertion below would pass for a plugin that sends nothing");
+          }
+          const legStamp = path.join(legCache, "openclaw-plugin-telemetry-sent");
+          if (!fs.existsSync(legStamp)) {
+            pass("ping leg: a redirected checkpoint POST did NOT advance the 7-day stamp");
+          } else {
+            fail("ping leg: the stamp advanced on a ping the receiver never processed");
+          }
+        }
+      } finally {
+        fs.writeFileSync(path.join(workDir, "_redirect_mode"), "");
+        fs.rmSync(legSandbox, { recursive: true, force: true });
+      }
     }
   } finally {
     if (serverProc) serverProc.kill();

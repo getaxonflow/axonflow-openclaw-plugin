@@ -83,7 +83,11 @@ expect_mutant() {
   fi
 
   local out rc
-  out=$(cd "$PLUGIN_DIR" && npx jest "$SUITE" 2>&1)
+  # `tr -d '\0'` because one mutant deliberately lets a NUL through, and jest
+  # echoes the failing value: a raw NUL in captured output makes bash warn and
+  # can truncate the capture, so the gate's own diagnostics would degrade on
+  # exactly the mutant it is there to catch.
+  out=$(cd "$PLUGIN_DIR" && npx jest "$SUITE" 2>&1 | tr -d '\0')
   rc=$?
   restore
 
@@ -120,8 +124,9 @@ expect_mutant killed "omission replaced by a literal unknown" \
 # M3 — the string-type check removed, so a numeric / boolean / structured tier
 # is coerced onto the wire as though the platform had reported it.
 expect_mutant killed "string-type check replaced by coercion" \
-  'const rawTier = typeof body.tier === "string" ? body.tier : "";' \
-  'const rawTier = body.tier ? String(body.tier) : "";'
+  '  if (typeof raw !== "string" || !raw) return null;' \
+  '  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw !== "string") return String(raw);'
 
 # M4 — the non-2xx guard neutered, so an error body is parsed for a tier.
 expect_mutant killed "non-2xx guard neutered" \
@@ -130,13 +135,30 @@ expect_mutant killed "non-2xx guard neutered" \
 
 # M5 — the length cap raised out of reach.
 expect_mutant killed "length cap raised out of reach" \
-  'const MAX_LICENSE_TIER_LENGTH = 64;' \
-  'const MAX_LICENSE_TIER_LENGTH = 100000;'
+  'const MAX_RELAYED_VALUE_LENGTH = 64;' \
+  'const MAX_RELAYED_VALUE_LENGTH = 100000;'
+
+# The cap must be measured in BYTES. `String.length` counts UTF-16 code units,
+# so a character cap lets a 64-code-unit value reach the wire at up to 192
+# bytes, against a receiver limit measured in bytes.
+expect_mutant killed "cap measured in code units instead of bytes" \
+  '  if (Buffer.byteLength(raw, "utf8") > MAX_RELAYED_VALUE_LENGTH) return null;' \
+  '  if (raw.length > MAX_RELAYED_VALUE_LENGTH) return null;'
+
+expect_mutant killed "NUL guard removed" \
+  '  if (raw.includes("\u0000")) return null;' \
+  ''
+
+# The delivery boundary. `resp.ok` is 200-299; hard-coding it survives every
+# test that only inspects the payload, which is why the stamp is the assertion.
+expect_mutant killed "every response counts as a delivery" \
+  '    delivered = resp.ok;' \
+  '    delivered = true;'
 
 # M6 — client-side normalization. The plugin must relay, not interpret.
 expect_mutant killed "client-side normalization introduced" \
-  'return { version, licenseTier };' \
-  'return { version, licenseTier: licenseTier ? licenseTier.toLowerCase() : licenseTier };'
+  '  return raw;' \
+  '  return raw.toLowerCase();'
 
 # M7 — a second /health request, which would make this a new data collection
 # rather than a new field on an existing probe.
@@ -167,6 +189,40 @@ expect_mutant survives "non-object body guard removed (documented as defence in 
       return NO_PLATFORM_INFO;
     }'
 
+# ---------------------------------------------------------------------------
+# The relays added for enterprise#3662, and the two redirect properties.
+# ---------------------------------------------------------------------------
+
+expect_mutant killed "edition never sent" \
+  '    ...(platformInfo.edition ? { edition: platformInfo.edition } : {}),' \
+  ''
+
+expect_mutant killed "platform_deployment_mode never sent" \
+  '    ...(platformInfo.platformDeploymentMode
+      ? { platform_deployment_mode: platformInfo.platformDeploymentMode }
+      : {}),' \
+  ''
+
+# THE dangerous one: the platform'"'"'s own mode written over this plugin'"'"'s local
+# classification. The wire stays valid and the value looks plausible; what
+# breaks is every existing deployment_mode figure. Only a fixture where the two
+# DISAGREE can catch it.
+expect_mutant killed "platform mode written over the local classification" \
+  '    deployment_mode: deploymentMode,' \
+  '    deployment_mode: platformInfo.platformDeploymentMode ?? deploymentMode,'
+
+# Redirect following restored, one leg at a time. fetch follows by DEFAULT, so
+# removing the option is the real-world regression rather than an exotic one.
+expect_mutant killed "redirect following restored on the /health probe" \
+  '      // which is the same fail-open path as any other probe failure.
+      redirect: "error",' \
+  '      redirect: "follow",'
+
+expect_mutant killed "redirect following restored on the checkpoint POST" \
+  '      // week (sdk-rust#89). "error" throws instead, and the stamp stays put.
+      redirect: "error",' \
+  '      redirect: "follow",'
+
 echo ""
 echo "--- Source integrity ---"
 FINAL_HASH=$(shasum -a 256 "$TARGET" | awk '{print $1}')
@@ -178,7 +234,7 @@ fi
 
 echo ""
 echo "========================================"
-echo " license_tier mutation gate (openclaw)"
+echo " telemetry relay mutation gate (openclaw)"
 echo "========================================"
 echo "Passed: $PASSED"
 echo "Failed: $FAILED"
