@@ -18,18 +18,21 @@
  *   - The RESPONSE path can discharge a redaction. `MCPCheckOutputResponse`
  *     carries `redacted_data` and `message-guard.ts` substitutes it for the
  *     original content before the model ever sees it.
- *   - The REQUEST path CANNOT, yet. `MCPCheckInputResponse` declares no
- *     `redacted_statement` member, so that path has nothing to receive the
- *     platform's masked text through. ADR-056 forbids the plugin from
- *     redacting for itself, so substitution is the only sanctioned discharge
- *     and this path is not yet able to perform it. Consuming the field there is
- *     tracked as issue #192.
+ *   - The REQUEST path also discharges one, since #192. `mcpCheckInput` reads
+ *     `redacted_statement` and the `before_tool_call` handler SUBSTITUTES the
+ *     masked text for the caller's parameters before the tool runs, blocking
+ *     rather than proceeding if the substitution cannot be applied.
  *
- * A declaration must describe what a path CAN do, not what it should do.
- * Declaring `field_redact` on the request path would tell the platform to ALLOW
- * the call on the strength of a substitution that path cannot yet perform.
- * Declaring the empty set makes the platform DENY instead, which is the outcome
- * ADR-065 invariant 8 requires while #192 is open.
+ * Both therefore declare `field_redact@1` today. They remain two documents with
+ * two names rather than one shared document, because the capability sets are
+ * independent facts about two paths that can diverge again: a future obligation
+ * type discharged on one and not the other would otherwise be silently credited
+ * to both, and the platform composes a separate identifier for each so an
+ * operator can see which path a refusal came from.
+ *
+ * A declaration must describe what a path CAN do rather than what it should do.
+ * The request path's declaration was the EMPTY set until #192 landed, precisely
+ * because it could not then perform the substitution.
  *
  * So the two paths present two documents with two names. The platform composes
  * the enforcement point identifier as `client:<credential>:<pep_id>`, so the
@@ -194,10 +197,11 @@ export function buildPepHandshakes(audience: string | undefined): PepHandshakes 
     return undefined;
   }
   return {
-    // The request path declares NOTHING: it has no member through which to
-    // receive a masked statement, so it cannot yet perform the substitution
-    // that discharges the obligation. See the file comment and issue #192.
-    request: encodeHandshake(PEP_ID_REQUEST, audience, []),
+    // Since #192 this path receives redacted_statement and substitutes it
+    // before the tool runs, so it can discharge the obligation.
+    request: encodeHandshake(PEP_ID_REQUEST, audience, [
+      { type: CAP_FIELD_REDACT, version: CAP_SCHEMA_V1 },
+    ]),
     // The response path substitutes redacted_data in message-guard.ts, so it
     // does discharge the obligation.
     response: encodeHandshake(PEP_ID_RESPONSE, audience, [

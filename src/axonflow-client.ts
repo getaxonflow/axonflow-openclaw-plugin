@@ -248,6 +248,27 @@ export interface MCPCheckInputResponse {
   allowed: boolean;
   block_reason?: string;
   policies_evaluated: number;
+  /**
+   * The engine-masked statement, when an allowed statement carried PII under a
+   * redact-not-block policy (ADR-056 / platform #2563).
+   *
+   * ADR-056 forbids a client from redacting for itself, so substituting this
+   * text for the original is the ONLY sanctioned way to discharge a
+   * field_redact obligation. It is consumed in governance.ts's
+   * before_tool_call handler; see #192.
+   */
+  redacted_statement?: string;
+  /**
+   * Whether the redaction detector actually RAN, regardless of whether it
+   * masked anything.
+   *
+   * Load bearing and NOT the same as `redacted_statement === undefined`. The
+   * platform's contract (#2563 B1) is that a consumer MUST fail closed when
+   * this is false or absent, because "no masked text" is then indistinguishable
+   * from "the redactor never looked" - and treating the second as the first is
+   * how unmasked content proceeds under the belief that it was checked.
+   */
+  redaction_evaluated?: boolean;
   // Plugin Batch 1 (ADR-042 + ADR-043): richer approval context surfaced
   // when the platform is v7.1.0+. All fields are optional — older
   // platforms return undefined and callers treat the absence as
@@ -862,6 +883,14 @@ export class AxonFlowClient {
           ? data["block_reason"]
           : undefined,
       policies_evaluated: extractPoliciesEvaluated(data),
+      // #192: the request-phase masked statement and the flag saying the
+      // redactor ran. Both are carried so governance.ts can substitute the
+      // masked text and fail closed when the platform did not evaluate.
+      redacted_statement:
+        typeof data["redacted_statement"] === "string"
+          ? (data["redacted_statement"] as string)
+          : undefined,
+      redaction_evaluated: data["redaction_evaluated"] === true,
       ...extractRicherContext(data),
     };
   }
