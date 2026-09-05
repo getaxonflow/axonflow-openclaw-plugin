@@ -1,3 +1,4 @@
+import { AxonFlowClient } from "../src/axonflow-client";
 import {
   PEP_HANDSHAKE_HEADER,
   PEP_ID_REQUEST,
@@ -131,7 +132,7 @@ describe("the PEP capability handshake", () => {
  */
 describe("the handshake on the wire", () => {
   const mockFetch = jest.fn();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   (global as any).fetch = mockFetch;
 
   function jsonResponse(body: Record<string, unknown>) {
@@ -145,8 +146,6 @@ describe("the handshake on the wire", () => {
   }
 
   function makeClient(pepAudience?: string) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { AxonFlowClient } = require("../src/axonflow-client.js");
     return new AxonFlowClient({
       endpoint: "http://localhost:8080",
       clientId: "test-client",
