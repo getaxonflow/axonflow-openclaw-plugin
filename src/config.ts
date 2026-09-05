@@ -83,6 +83,26 @@ export interface AxonFlowPluginConfig {
   userToken?: string;
 
   /**
+   * ADR-065 capability handshake audience (axonflow-enterprise#3763).
+   *
+   * SET AS `AXONFLOW_PEP_AUDIENCE`. Both names matter: the environment
+   * variable is what an operator sets and this field is what a reader of the
+   * code finds.
+   *
+   * UNSET IS THE DEFAULT AND SENDS NO HEADER, leaving the plugin behaving byte
+   * for byte as it did before. Opt-in because on an Enterprise platform the
+   * transition it gates on the REQUEST path is ALLOW -> DENY: that path cannot
+   * yet substitute a masked statement (issue #192), so it declares nothing and
+   * the platform refuses rather than allowing the call on the strength of a
+   * substitution that path cannot perform. On a Community platform nothing is
+   * denied either way; the declaration is recorded and counted so the
+   * capability gap is visible to an operator.
+   *
+   * Same variable name and semantics as every other AxonFlow client's knob.
+   */
+  pepAudience?: string;
+
+  /**
    * Which source `userToken` resolved from ("pluginConfig" | "env" |
    * "file") — surfaced in the init canary so fleet operators can tell the
    * provisioning channels apart. Set by `resolveConfig`; undefined when no
@@ -242,12 +262,24 @@ export function resolveConfig(
   // surface them through the host logger (this module has no logger).
   const userTokenResolution = resolveUserToken(safe["userToken"]);
 
+  // ADR-065 capability handshake audience. env > pluginConfig > unset, the same
+  // precedence every other credential-shaped value on this surface uses.
+  // Unset presents no header and changes nothing.
+  const envAudience = typeof process.env["AXONFLOW_PEP_AUDIENCE"] === "string"
+    ? (process.env["AXONFLOW_PEP_AUDIENCE"] as string).trim()
+    : "";
+  const cfgAudience = typeof safe["pepAudience"] === "string"
+    ? (safe["pepAudience"] as string).trim()
+    : "";
+  const pepAudience = envAudience || cfgAudience || undefined;
+
   return {
     endpoint,
     clientId,
     clientSecret,
     mode,
     licenseToken,
+    pepAudience,
     userToken: userTokenResolution.token,
     userTokenSource: userTokenResolution.source,
     userTokenWarnings: userTokenResolution.warnings.length > 0
