@@ -11,7 +11,10 @@
   ],
   "per_type_drift": {
     "MCPCheckInputResponse": {
-      "sdk_only": [],
+      "sdk_only": [
+        "redacted_statement",
+        "redaction_evaluated"
+      ],
       "spec_only": [
         "policy_info"
       ]
