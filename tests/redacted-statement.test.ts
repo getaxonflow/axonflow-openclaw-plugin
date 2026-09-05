@@ -23,7 +23,7 @@ function handlerFor(response: Record<string, unknown>) {
     current: {
       mcpCheckInput: jest.fn().mockResolvedValue(response),
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
   } as any;
   return createBeforeToolCallHandler(clientRef, CONFIG);
 }
