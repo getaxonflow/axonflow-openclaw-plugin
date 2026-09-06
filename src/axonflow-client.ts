@@ -269,6 +269,14 @@ export interface MCPCheckInputResponse {
    * how unmasked content proceeds under the belief that it was checked.
    */
   redaction_evaluated?: boolean;
+  /**
+   * Whether the engine masked any PII in the request statement (spec:
+   * MCPCheckInputResponse.redacted, platform 8.6.0+). Omitted when nothing
+   * was redacted. Declared so the wire type matches the v10.4.0 agent spec;
+   * governance.ts keys on `redacted_statement` + `redaction_evaluated`, not on
+   * this flag.
+   */
+  redacted?: boolean;
   // Plugin Batch 1 (ADR-042 + ADR-043): richer approval context surfaced
   // when the platform is v7.1.0+. All fields are optional — older
   // platforms return undefined and callers treat the absence as
@@ -284,9 +292,19 @@ export interface MCPCheckOutputResponse {
   allowed: boolean;
   block_reason?: string;
   redacted_data?: unknown;
+  /**
+   * Whether the response redactor RAN (spec: MCPCheckOutputResponse.
+   * redaction_evaluated). Absent-or-false means "never looked", which is not
+   * "found nothing" (#2563 B1) - the same rule governance.ts applies on the
+   * request path.
+   */
+  redaction_evaluated?: boolean;
   policies_evaluated: number;
   decision_id?: string;
-  policy_matches?: ExplainPolicy[];
+  // `policy_matches` was declared here against the April 2026 spec; the REST
+  // check-output response no longer carries it (v10.4.0 agent spec) and this
+  // plugin only ever read it from check-input (governance.ts
+  // formatRicherContext takes an MCPCheckInputResponse).
 }
 
 // ADR-043: Explainability payload shape (frozen).

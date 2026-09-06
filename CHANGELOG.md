@@ -12,6 +12,13 @@
 
 ### Changed
 
+- **The wire-bound response types match the v10.4.0 agent spec.** `MCPCheckInputResponse`
+  declares `redacted`; `MCPCheckOutputResponse` declares `redaction_evaluated` and no
+  longer declares `policy_matches`, which the REST check-output response stopped
+  carrying and which this plugin only ever read from check-input. The wire-shape
+  baseline records the three as drift against the still-pinned April spec until the
+  pin moves to the public v10.4.0 commit.
+
 - **The request path now applies the platform's engine-masked statement to the tool call** (#192). `mcpCheckInput` reads `redacted_statement` and `redaction_evaluated`, and the `before_tool_call` handler substitutes the masked parameters for the caller's originals before the tool runs. Previously those fields were not read, so a masked statement had no effect on the request path; the response path was already correct. **Every failure to apply the substitution BLOCKS rather than proceeding**: the redactor not reporting that it ran (the platform's `#2563 B1` contract, where "found nothing" is otherwise indistinguishable from "never looked"), masked text that does not parse, and masked text that is not a parameter object. Once the platform says a redaction applies there is no path that runs the tool on unmasked input.
 
 
