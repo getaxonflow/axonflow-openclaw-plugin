@@ -9,21 +9,6 @@
 - **The plugin now declares what it can enforce, and the platform refuses to hand it an obligation it has said it cannot discharge** (ADR-065 capability handshake; axonflow-enterprise#3763). On every governed call the plugin presents `X-Axonflow-PEP-Handshake`, a short document naming this enforcement point and the exact obligation types and schema versions it can carry out. A platform running v10.4.0 or later that would attach a mandatory obligation this plugin has declared it cannot discharge **denies** the request instead of handing the content over and trusting the plugin to cope.
 - **OPT-IN, and off by default.** Set `AXONFLOW_PEP_AUDIENCE` (or `pepAudience` in the plugin config) to the audience your decision proofs are bound to. Leave it unset and no header is sent and nothing changes: the plugin behaves byte for byte as 2.8.6 against every platform version. Older platforms ignore the header entirely.
 - **This plugin is TWO enforcement points and declares itself as two.** Both paths discharge a request-phase or response-phase redaction and both declare `field_redact@1`, under separate names, so the platform composes a separate identifier for each and an operator can see which path a refusal came from. They stay two documents rather than one because their capability sets are independent facts that can diverge again.
-
-### Changed
-
-- **The wire-bound response types match the v10.4.0 agent spec.** `MCPCheckInputResponse`
-  declares `redacted`; `MCPCheckOutputResponse` declares `redaction_evaluated` and no
-  longer declares `policy_matches`, which the REST check-output response stopped
-  carrying and which this plugin only ever read from check-input. The wire-shape
-  baseline records the three as drift against the still-pinned April spec until the
-  pin moves to the public v10.4.0 commit.
-
-- **The request path now applies the platform's engine-masked statement to the tool call** (#192). `mcpCheckInput` reads `redacted_statement` and `redaction_evaluated`, and the `before_tool_call` handler substitutes the masked parameters for the caller's originals before the tool runs. Previously those fields were not read, so a masked statement had no effect on the request path; the response path was already correct. **Every failure to apply the substitution BLOCKS rather than proceeding**: the redactor not reporting that it ran (the platform's `#2563 B1` contract, where "found nothing" is otherwise indistinguishable from "never looked"), masked text that does not parse, and masked text that is not a parameter object. Once the platform says a redaction applies there is no path that runs the tool on unmasked input.
-
-
-### Added
-
 - **The usage heartbeat now reports the licence tier the platform states about itself, as `license_tier`** (axonflow-enterprise#3619). Telemetry could not previously attribute a ping to an edition or licence state: `sdk`, `sdk_version` and `platform_version` say which client and which build, and `deployment_mode` says which topology, but nothing said whether the platform behind it was running Community, Evaluation, Professional, Enterprise or Plus. The receiver has accepted `license_tier` since the v8 train (`omitempty`, normalised server-side) — only the clients never populated it.
 - **Read from the `/health` probe that already runs, so no new request is made.** `detectPlatformVersion` became `detectPlatformInfo`: the one response body it already fetched for `platform_version` now yields both fields. The probe is unchanged in count and timeout, and every test asserts exactly one `GET /health` per heartbeat.
 - **Relayed verbatim, never interpreted.** The plugin does not normalise, case-fold, or map the value. The receiver owns the canonical mapping, so a tier issued after this plugin shipped still buckets correctly server-side instead of being flattened by a client that predates it. The lowercase `community` a community-mode build defaults to, and the transient `starting` an agent reports before initialisation completes, are both real answers and are relayed as such.
@@ -37,6 +22,14 @@
 
 ### Changed
 
+- **The wire-bound response types match the v10.4.0 agent spec.** `MCPCheckInputResponse`
+  declares `redacted`; `MCPCheckOutputResponse` declares `redaction_evaluated` and no
+  longer declares `policy_matches`, which the REST check-output response stopped
+  carrying and which this plugin only ever read from check-input. The wire-shape
+  baseline records the three as drift against the still-pinned April spec until the
+  pin moves to the public v10.4.0 commit.
+
+- **The request path now applies the platform's engine-masked statement to the tool call** (#192). `mcpCheckInput` reads `redacted_statement` and `redaction_evaluated`, and the `before_tool_call` handler substitutes the masked parameters for the caller's originals before the tool runs. Previously those fields were not read, so a masked statement had no effect on the request path; the response path was already correct. **Every failure to apply the substitution BLOCKS rather than proceeding**: the redactor not reporting that it ran (the platform's `#2563 B1` contract, where "found nothing" is otherwise indistinguishable from "never looked"), masked text that does not parse, and masked text that is not a parameter object. Once the platform says a redaction applies there is no path that runs the tool on unmasked input.
 - Telemetry disclosure in `README.md` now names the licence tier in the prose, the usage-heartbeat row, and the probe row of the network-calls table, and states explicitly that no licence key, expiry, seat count, or customer name is read or sent.
 
 ## [2.8.6] - 2026-08-20: sanitised render sinks, an announced 403 fail-open, and suites that fail loud
