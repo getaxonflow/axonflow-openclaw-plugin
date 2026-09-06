@@ -12,6 +12,11 @@ import {
   type UpgradePromptLogger,
   type V1RateLimitEnvelope,
 } from "./upgrade-prompt.js";
+import {
+  PEP_HANDSHAKE_HEADER,
+  buildPepHandshakes,
+  type PepHandshakes,
+} from "./pep-handshake.js";
 import { stripControlCharacters } from "./sanitize-text.js";
 import { VERSION } from "./version.js";
 
@@ -442,6 +447,17 @@ export class AxonFlowClient {
   private readonly licenseToken: string | undefined;
   private readonly userToken: string | undefined;
   private readonly clientHeader: string;
+  /**
+   * The ADR-065 capability declarations, rendered ONCE at construction, or
+   * undefined when no audience is configured (the default, which sends no
+   * header and changes nothing).
+   *
+   * Two documents rather than one because this plugin is two enforcement
+   * points with different capabilities; see src/pep-handshake.ts for why
+   * declaring one set for both would be a false declaration on the request
+   * path.
+   */
+  private readonly pepHandshakes: PepHandshakes | undefined;
   // V1 Plugin Pro upgrade-prompt sink — populated via setUpgradePromptLogger.
   // When set, V1 envelope detections on 429 / 403 surface the locked
   // wording + buy URL via this logger and stamp a throttle deadline so
@@ -519,6 +535,9 @@ export class AxonFlowClient {
     // sourced from config or env (the consumer doesn't get to spoof its
     // own client identity to the agent).
     this.clientHeader = `openclaw/${VERSION}`;
+    // Built at construction so a malformed audience fails here rather than
+    // 400-ing every governed call in production.
+    this.pepHandshakes = buildPepHandshakes(config.pepAudience);
   }
 
   /**
@@ -646,7 +665,14 @@ export class AxonFlowClient {
     }
   }
 
-  private baseHeaders(): Record<string, string> {
+  /**
+   * @param handshake - the ADR-065 capability declaration for THIS call path,
+   *   or undefined. Passed per call site rather than read from a field because
+   *   this plugin is TWO enforcement points: the response path can substitute a
+   *   masked statement and the request path cannot, so they declare different
+   *   capability sets under different names. See src/pep-handshake.ts.
+   */
+  private baseHeaders(handshake?: string): Record<string, string> {
     // Tenant is derived from Basic auth credentials on the server side (RFC 6749).
     // X-Tenant-ID header is no longer sent — server knows tenant from auth.
     //
@@ -680,6 +706,12 @@ export class AxonFlowClient {
     // recovery CLI) are pre-auth or non-governed and never carry identity.
     if (this.userToken) {
       h["X-User-Token"] = this.userToken;
+    }
+    // ADR-065 capability handshake (axonflow-enterprise#3763). Omitted
+    // entirely when unconfigured: a PRESENT-but-empty value is MALFORMED to
+    // the platform and refuses the request, which an absent header does not.
+    if (handshake) {
+      h[PEP_HANDSHAKE_HEADER] = handshake;
     }
     return h;
   }
@@ -749,7 +781,7 @@ export class AxonFlowClient {
     const url = `${this.endpoint}/api/v1/mcp/check-input`;
     const response = await this.fetchWithTimeout(url, {
       method: "POST",
-      headers: this.baseHeaders(),
+      headers: this.baseHeaders(this.pepHandshakes?.request),
       body: JSON.stringify({
         connector_type: connectorType,
         statement,
@@ -854,7 +886,7 @@ export class AxonFlowClient {
     const url = `${this.endpoint}/api/v1/mcp/check-output`;
     const response = await this.fetchWithTimeout(url, {
       method: "POST",
-      headers: this.baseHeaders(),
+      headers: this.baseHeaders(this.pepHandshakes?.response),
       body: JSON.stringify({
         connector_type: connectorType,
         message,

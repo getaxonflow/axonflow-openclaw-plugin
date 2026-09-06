@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-09-05
+
+### Added
+
+- **The plugin now declares what it can enforce, and the platform refuses to hand it an obligation it has said it cannot discharge** (ADR-065 capability handshake; axonflow-enterprise#3763). On every governed call the plugin presents `X-Axonflow-PEP-Handshake`, a short document naming this enforcement point and the exact obligation types and schema versions it can carry out. A platform running v10.4.0 or later that would attach a mandatory obligation this plugin has declared it cannot discharge **denies** the request instead of handing the content over and trusting the plugin to cope.
+- **OPT-IN, and off by default.** Set `AXONFLOW_PEP_AUDIENCE` (or `pepAudience` in the plugin config) to the audience your decision proofs are bound to. Leave it unset and no header is sent and nothing changes: the plugin behaves byte for byte as 2.8.6 against every platform version. Older platforms ignore the header entirely.
+- **This plugin is TWO enforcement points and declares itself as two.** The response path discharges a redaction: `mcpCheckOutput` returns `redacted_data` and `message-guard.ts` substitutes it for the original content before the model sees it, so that path declares `field_redact@1`. The request path declares **nothing**, under its own name, because `MCPCheckInputResponse` has no `redacted_statement` member and so cannot yet receive the platform's masked text; ADR-056 forbids the plugin from redacting for itself, so substitution is the only sanctioned discharge. Consuming that field is tracked as #192. The two names keep the paths distinguishable in every platform log line, metric and refusal.
+- **What that means if you enable it.** With an audience set, on an Enterprise platform, a governed **tool call** carrying a mandatory redaction obligation is **denied** rather than allowed, until #192 lands and the request path can discharge it. A declaration must describe what a path can do rather than what it should do: declaring `field_redact` there would tell the platform to allow the call on the strength of a substitution that path cannot yet perform. Response-phase governance is unaffected. On a Community platform nothing is denied either way; the declaration is recorded and counted so the capability gap is visible to an operator.
+
+
 ### Added
 
 - **The usage heartbeat now reports the licence tier the platform states about itself, as `license_tier`** (axonflow-enterprise#3619). Telemetry could not previously attribute a ping to an edition or licence state: `sdk`, `sdk_version` and `platform_version` say which client and which build, and `deployment_mode` says which topology, but nothing said whether the platform behind it was running Community, Evaluation, Professional, Enterprise or Plus. The receiver has accepted `license_tier` since the v8 train (`omitempty`, normalised server-side) — only the clients never populated it.

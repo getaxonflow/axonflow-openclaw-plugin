@@ -30,7 +30,7 @@
     },
     "AXONFLOW_COMMUNITY_SAAS": {
       "required": false,
-      "description": "Set to '0', 'false', 'off', or 'no' to disable auto-registration with try.getaxonflow.com Community SaaS. When opted out, configure pluginConfig.endpoint to point at a self-hosted AxonFlow instance — otherwise the plugin loads but cannot enforce policy.",
+      "description": "Set to '0', 'false', 'off', or 'no' to disable auto-registration with try.getaxonflow.com Community SaaS. When opted out, configure pluginConfig.endpoint to point at a self-hosted AxonFlow instance \u2014 otherwise the plugin loads but cannot enforce policy.",
       "values": [
         "0",
         "false",
@@ -48,7 +48,7 @@
     },
     "AXONFLOW_LICENSE_TOKEN": {
       "required": false,
-      "description": "AxonFlow Pro plugin-claim license token (begins with 'AXON-'). When set, the plugin forwards this token on every governed request via the X-License-Token header so the agent applies Pro-tier entitlements (extended audit retention, higher quotas, license-gated capabilities). Wins over pluginConfig.licenseToken when both are set. Get one from getaxonflow.com/plugins/pro — the token is emailed to the address used at Stripe Checkout."
+      "description": "AxonFlow Pro plugin-claim license token (begins with 'AXON-'). When set, the plugin forwards this token on every governed request via the X-License-Token header so the agent applies Pro-tier entitlements (extended audit retention, higher quotas, license-gated capabilities). Wins over pluginConfig.licenseToken when both are set. Get one from getaxonflow.com/plugins/pro \u2014 the token is emailed to the address used at Stripe Checkout."
     },
     "AXONFLOW_USER_TOKEN": {
       "required": false,
@@ -72,6 +72,9 @@
       "values": [
         "1"
       ]
+    },
+    "AXONFLOW_PEP_AUDIENCE": {
+      "help": "The audience your AxonFlow decision proofs are bound to. Set it and this plugin declares what it can enforce on every governed call (the ADR-065 PEP capability handshake, X-Axonflow-PEP-Handshake), so a platform running v10.4.0 or later refuses to hand it a mandatory obligation it has declared it cannot discharge, instead of assuming it will. The plugin presents TWO declarations under separate names, because its request and response paths discharge different obligations. Optional - when unset no header is sent and requests are unchanged."
     }
   },
   "runtimeBehavior": {
@@ -106,7 +109,7 @@
         {
           "path": "$AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json",
           "mode": "0o600",
-          "purpose": "Rewritten on every plugin load with the endpoint override the governance runtime resolved — from either the AXONFLOW_ENDPOINT environment variable or pluginConfig.endpoint — plus which of those channels supplied it and the configured clientId. Lets the axonflow-openclaw-status CLI, a separate process that can see neither channel, report the endpoint and identity your traffic actually uses instead of the Community-SaaS default. Contains no credentials: clientSecret, licenseToken and userToken are never written."
+          "purpose": "Rewritten on every plugin load with the endpoint override the governance runtime resolved \u2014 from either the AXONFLOW_ENDPOINT environment variable or pluginConfig.endpoint \u2014 plus which of those channels supplied it and the configured clientId. Lets the axonflow-openclaw-status CLI, a separate process that can see neither channel, report the endpoint and identity your traffic actually uses instead of the Community-SaaS default. Contains no credentials: clientSecret, licenseToken and userToken are never written."
         },
         {
           "path": "$AXONFLOW_CACHE_DIR/openclaw-plugin-telemetry-sent",
@@ -157,7 +160,7 @@
       "label": "Per-User Token",
       "sensitive": true,
       "placeholder": "(minted by your org admin)",
-      "help": "Per-user authorization token forwarded as the X-User-Token header on every governed request. Minted by an org admin via the AxonFlow user-token mint API and delivered through managed settings/MDM. Gives this developer a validated identity and role on the platform's fleet plane, so role-scoped reads return their own rows and audit attribution keys on the token's canonical email — beating the forgeable userEmail label — on the header-consuming planes (MCP tools + audit/decisions/overrides REST; the check-input/check-output hook plane keeps client-scoped attribution on current platforms). Resolution order: this value, then AXONFLOW_USER_TOKEN env, then ~/.config/axonflow/user-token.json (mode 0600). Optional — when unset, requests are unchanged."
+      "help": "Per-user authorization token forwarded as the X-User-Token header on every governed request. Minted by an org admin via the AxonFlow user-token mint API and delivered through managed settings/MDM. Gives this developer a validated identity and role on the platform's fleet plane, so role-scoped reads return their own rows and audit attribution keys on the token's canonical email \u2014 beating the forgeable userEmail label \u2014 on the header-consuming planes (MCP tools + audit/decisions/overrides REST; the check-input/check-output hook plane keeps client-scoped attribution on current platforms). Resolution order: this value, then AXONFLOW_USER_TOKEN env, then ~/.config/axonflow/user-token.json (mode 0600). Optional \u2014 when unset, requests are unchanged."
     },
     "licenseToken": {
       "label": "Pro License Token",
