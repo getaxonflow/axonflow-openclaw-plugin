@@ -285,6 +285,66 @@ export function createBeforeToolCallHandler(
       };
     }
 
+    // #192: discharge a request-phase redaction by SUBSTITUTING the platform's
+    // engine-masked statement for the caller's original parameters.
+    //
+    // ADR-056 forbids this plugin from redacting for itself, so substitution is
+    // the only sanctioned discharge. Before this, the masked text was not read
+    // at all and the tool ran on the original parameters.
+    //
+    // # WHY EVERY FAILURE HERE BLOCKS
+    //
+    // Three ways the substitution can fail to happen, and all three block
+    // rather than proceed. Once the platform has told us a redaction applies,
+    // running the tool on unmasked parameters is not a degraded outcome, it is
+    // the outcome the redaction existed to prevent - so there is no arm of this
+    // branch that continues with the original.
+    //
+    // `redaction_evaluated` is checked SEPARATELY from the presence of the
+    // masked text, per the platform contract (#2563 B1): absent-or-false means
+    // the redactor never ran, and "it found nothing" is then indistinguishable
+    // from "it never looked". Collapsing the two is how content proceeds
+    // unmasked under the belief that it was checked.
+    if (typeof check.redacted_statement === "string") {
+      if (check.redaction_evaluated !== true) {
+        recordToolCallBlocked();
+        return {
+          block: true,
+          blockReason:
+            "AxonFlow returned a redacted statement but did not report the redaction " +
+            "detector as having run, so the masked content cannot be trusted. " +
+            "Blocking rather than proceeding." + formatRicherContext(check),
+        };
+      }
+      let maskedParams: unknown;
+      try {
+        maskedParams = JSON.parse(check.redacted_statement);
+      } catch {
+        recordToolCallBlocked();
+        return {
+          block: true,
+          blockReason:
+            "AxonFlow returned a redacted statement this plugin could not parse back " +
+            "into tool parameters, so the redaction cannot be applied. Blocking rather " +
+            "than running the tool on unmasked input." + formatRicherContext(check),
+        };
+      }
+      if (maskedParams === null || typeof maskedParams !== "object" || Array.isArray(maskedParams)) {
+        recordToolCallBlocked();
+        return {
+          block: true,
+          blockReason:
+            "AxonFlow returned a redacted statement that is not a parameter object, " +
+            "so the redaction cannot be applied. Blocking rather than running the tool " +
+            "on unmasked input." + formatRicherContext(check),
+        };
+      }
+      recordToolCallAllowed();
+      // The SUBSTITUTION. OpenClaw runs the tool with these parameters instead
+      // of event.params.
+      return { params: maskedParams as Record<string, unknown> };
+    }
+
     // High-risk tools get approval even when policy allows
     if (
       config.highRiskTools &&

@@ -90,6 +90,88 @@ console.log(JSON.stringify(seen));
 fi
 
 echo
+echo "=== stage 1b: the real client, the real handler, a real socket: a masked statement is what the tool receives ==="
+# #192 / #193: the request path DISCHARGES a redaction by substituting the
+# platform's engine-masked statement for the caller's parameters. The unit tests
+# drive the handler against a hand-written client; this stage drives the REAL
+# built client AND the REAL before_tool_call handler over a real listener, so it
+# shows the two fields surviving the transport and the client's own response
+# construction, and that the declaration on the wire (field_redact@1 on the
+# request path) and the behaviour move together.
+if [ ! -d node_modules ] || [ ! -f dist/governance.js ]; then
+  echo "  SKIP: dependencies not installed or plugin not built (run npm ci && npm run build)"
+else
+  OUT=$(node --input-type=module -e '
+import http from "node:http";
+import { AxonFlowClient } from "./dist/axonflow-client.js";
+import { createBeforeToolCallHandler } from "./dist/governance.js";
+
+const ORIGINAL = { query: "email sarah.chen@example.com", limit: 10 };
+const MASKED = { query: "email [REDACTED]", limit: 10 };
+// What the platform answers, one per governed call, in order.
+const answers = [
+  // 1. the redactor ran and masked the statement
+  { allowed: true, policies_evaluated: 1, redaction_evaluated: true, redacted_statement: JSON.stringify(MASKED) },
+  // 2. masked text present but the redactor never reported running (#2563 B1)
+  { allowed: true, policies_evaluated: 1, redacted_statement: JSON.stringify(MASKED) },
+  // 3. the redactor ran and masked nothing
+  { allowed: true, policies_evaluated: 1, redaction_evaluated: true },
+];
+const seen = [];
+const server = http.createServer((req, res) => {
+  let body = "";
+  req.on("data", (c) => (body += c));
+  req.on("end", () => {
+    seen.push({ url: req.url, body, hs: req.headers["x-axonflow-pep-handshake"] ?? null });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(answers[seen.length - 1] ?? { allowed: true, policies_evaluated: 0 }));
+  });
+});
+await new Promise((r) => server.listen(0, "127.0.0.1", r));
+const port = server.address().port;
+const config = {
+  endpoint: `http://127.0.0.1:${port}`,
+  clientId: "runtime-e2e",
+  clientSecret: "runtime-e2e-secret",
+  mode: "self-hosted",
+  pepAudience: "axonflow-decision-proof",
+};
+const client = new AxonFlowClient(config);
+const handler = createBeforeToolCallHandler({ current: client }, config);
+const results = [];
+for (let i = 0; i < answers.length; i++) {
+  results.push((await handler({ toolName: "web_fetch", params: { ...ORIGINAL } })) ?? null);
+}
+server.close();
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+let caps = null;
+try { caps = JSON.parse(Buffer.from(seen[0].hs, "base64url").toString("utf8")).capabilities; } catch {}
+console.log(JSON.stringify({
+  sent_original: seen.length === 3 && seen[0].body.includes("sarah.chen@example.com"),
+  tool_got_masked: same(results[0]?.params, MASKED) && !same(results[0]?.params, ORIGINAL) && !results[0]?.block,
+  unreported_redactor_blocks: results[1]?.block === true && results[1]?.params === undefined,
+  nothing_masked_leaves_original: results[2] === null,
+  declares_field_redact: Array.isArray(caps) && caps.some((c) => c.type === "field_redact" && c.version === 1),
+}));
+' 2>/dev/null | tail -1)
+
+  if [ -z "$OUT" ]; then
+    fail "the built client and handler could not be driven over a socket"
+  else
+    v() { node -e "console.log(JSON.parse(process.argv[1])[process.argv[2]] === true ? 'yes' : 'no')" "$OUT" "$1"; }
+    [ "$(v sent_original)" = yes ] && pass "the plugin sent the ORIGINAL statement for the platform to mask (ADR-056: it never redacts for itself)" \
+      || fail "the statement the platform received did not carry the original content"
+    [ "$(v tool_got_masked)" = yes ] && pass "the tool receives the platform's MASKED parameters, not the caller's original" \
+      || fail "the handler did not substitute the masked statement; the tool would run on unmasked input"
+    [ "$(v unreported_redactor_blocks)" = yes ] && pass "masked text without redaction_evaluated=true BLOCKS rather than proceeds (#2563 B1)" \
+      || fail "a masked statement from a redactor that never reported running was applied or allowed through"
+    [ "$(v nothing_masked_leaves_original)" = yes ] && pass "when the platform masked nothing, the caller's parameters run unchanged" \
+      || fail "the handler altered or blocked a call the platform did not mask"
+    [ "$(v declares_field_redact)" = yes ] && pass "the request path DECLARED field_redact@1 on the same wire that then substituted" \
+      || fail "the request path substitutes but does not declare field_redact@1; the declaration and the behaviour have drifted apart"
+  fi
+fi
+echo
 echo "=== stage 2: a real agent decides ==="
 ENDPOINT="${AXONFLOW_ENDPOINT:-}"
 if [ -z "$ENDPOINT" ] || ! curl -sf --max-time 5 "${ENDPOINT}/health" >/dev/null 2>&1; then

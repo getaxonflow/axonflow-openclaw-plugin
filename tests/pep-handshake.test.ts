@@ -21,7 +21,7 @@ import {
  * the two are compared with each other rather than one with itself.
  */
 const GOLDEN_REQUEST =
-  "eyJwcm9maWxlX3ZlcnNpb24iOjEsInBlcF9pZCI6Im9wZW5jbGF3LXJlcXVlc3QiLCJhdWRpZW5jZSI6ImF4b25mbG93LWRlY2lzaW9uLXByb29mIiwiY2FwYWJpbGl0aWVzIjpbXX0";
+  "eyJwcm9maWxlX3ZlcnNpb24iOjEsInBlcF9pZCI6Im9wZW5jbGF3LXJlcXVlc3QiLCJhdWRpZW5jZSI6ImF4b25mbG93LWRlY2lzaW9uLXByb29mIiwiY2FwYWJpbGl0aWVzIjpbeyJ0eXBlIjoiZmllbGRfcmVkYWN0IiwidmVyc2lvbiI6MX1dfQ";
 const GOLDEN_RESPONSE =
   "eyJwcm9maWxlX3ZlcnNpb24iOjEsInBlcF9pZCI6Im9wZW5jbGF3LXJlc3BvbnNlIiwiYXVkaWVuY2UiOiJheG9uZmxvdy1kZWNpc2lvbi1wcm9vZiIsImNhcGFiaWxpdGllcyI6W3sidHlwZSI6ImZpZWxkX3JlZGFjdCIsInZlcnNpb24iOjF9XX0";
 const AUDIENCE = "axonflow-decision-proof";
@@ -35,17 +35,16 @@ describe("the PEP capability handshake", () => {
     expect(hs!.response).toBe(GOLDEN_RESPONSE);
   });
 
-  it("declares NOTHING on the request path, because that path cannot substitute a masked statement", () => {
+  it("declares field_redact@1 on the request path, which substitutes since #192", () => {
     const hs = buildPepHandshakes(AUDIENCE)!;
     const doc = JSON.parse(Buffer.from(hs.request, "base64url").toString("utf8"));
 
-    // MCPCheckInputResponse declares no redacted_statement member, so this
-    // path cannot yet receive the platform's masked text and cannot perform
-    // the substitution that discharges the obligation (issue #192). Declaring
-    // field_redact here would tell the platform to ALLOW the call on the
-    // strength of a substitution this path cannot perform; declaring nothing
-    // makes it DENY instead.
-    expect(doc.capabilities).toEqual([]);
+    // mcpCheckInput now reads redacted_statement and the before_tool_call
+    // handler substitutes it for the caller's parameters before the tool runs,
+    // so this path really does discharge the obligation. The declaration and
+    // the behaviour must move together: this assertion is what fails if the
+    // substitution is ever removed while the claim stays.
+    expect(doc.capabilities).toEqual([{ type: "field_redact", version: 1 }]);
     expect(doc.pep_id).toBe(PEP_ID_REQUEST);
   });
 
@@ -76,7 +75,7 @@ describe("the PEP capability handshake", () => {
     // member when empty would turn every honest empty declaration into a 400,
     // and the whole-string comparison above would move with it - so this
     // asserts the decoded SHAPE.
-    const raw = Buffer.from(buildPepHandshakes(AUDIENCE)!.request, "base64url").toString("utf8");
+    const raw = Buffer.from(encodeHandshake("p", AUDIENCE, []), "base64url").toString("utf8");
     expect(raw).toContain('"capabilities":[]');
     expect(JSON.parse(raw)).toHaveProperty("capabilities");
   });
