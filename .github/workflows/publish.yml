@@ -87,7 +87,7 @@ jobs:
             echo "Or via OpenClaw plugin manager:"
             echo ""
             echo '```bash'
-            echo "openclaw plugins install @axonflow/openclaw"
+            echo "openclaw plugins install @axonflow/openclaw --accept-capabilities"
             echo '```'
             echo ""
             cat /tmp/release-body.md
@@ -337,7 +337,7 @@ jobs:
           VERSION=${{ steps.version.outputs.VERSION }}
           for i in 1 2 3 4 5; do
             echo "Attempt $i: openclaw plugins install clawhub:@axonflow/openclaw@${VERSION}"
-            openclaw plugins install "clawhub:@axonflow/openclaw@${VERSION}" 2>&1 | tee /tmp/install-out.log || true
+            openclaw plugins install "clawhub:@axonflow/openclaw@${VERSION}" --accept-capabilities 2>&1 | tee /tmp/install-out.log || true
             if grep -q "Installed plugin: axonflow-governance" /tmp/install-out.log; then
               echo "SUCCESS: ClawHub install path returns the plugin cleanly"
               exit 0
