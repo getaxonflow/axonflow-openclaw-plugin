@@ -58,6 +58,10 @@ export const V1_LIMIT_TYPES = [
   "hitl_approvals_window",
   "feature_pro_only",
   "decision_list_size",
+  // The Free per-minute limit on the MCP route, answered as a wrapped HTTP
+  // 429 with Retry-After (axonflow-enterprise#4261). Without it the
+  // envelope fell through and reached the agent as a successful tool result.
+  "per_minute",
 ] as const;
 
 export type V1LimitType = typeof V1_LIMIT_TYPES[number];

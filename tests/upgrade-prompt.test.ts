@@ -74,6 +74,25 @@ const activePoliciesEnvelope: V1RateLimitEnvelope = {
   },
 };
 
+// The Free tier's per-minute limit on the MCP route, as
+// axonflow-enterprise#4261 answers it (resets_at is set per test).
+const perMinuteWording =
+  "Per-minute limit reached on Free tier (25 requests). Pro raises this to 200/min. Try again in a minute.";
+const perMinuteEnvelope = {
+  error: perMinuteWording,
+  limit_type: "per_minute",
+  tier: "Free",
+  limit: 25,
+  remaining: 0,
+  window: "minute",
+  upgrade: {
+    tier: "Pro",
+    wording: perMinuteWording,
+    compare_url: "https://getaxonflow.com/pricing/",
+    buy_url: "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
+  },
+};
+
 describe("upgrade-prompt", () => {
   describe("detectEnvelope", () => {
     it("detects bare envelope shape", () => {
@@ -376,6 +395,36 @@ describe("upgrade-prompt", () => {
       }
     });
 
+    it("detects the wrapped 429 per_minute envelope and backs off to its resets_at, a minute out (#4261)", () => {
+      const cache = mkCacheDir();
+      try {
+        const { logger, calls } = makeLogger();
+        const now = new Date();
+        const resetsAt = new Date(Math.floor(now.getTime() / 1000) * 1000 + 60_000);
+        const result = handleEnvelope({
+          status: 429,
+          body: {
+            id: "call-1",
+            jsonrpc: "2.0",
+            result: {
+              content: [{ text: JSON.stringify({ ...perMinuteEnvelope, resets_at: resetsAt.toISOString() }, null, 2), type: "text" }],
+              isError: true,
+            },
+          },
+          retryAfterHeader: "60",
+          logger,
+          cacheDir: cache,
+          now,
+        });
+        expect(result.detected).toBe(true);
+        expect(result.envelope?.limit_type).toBe("per_minute");
+        expect(result.deadlineEpoch).toBe(Math.floor(resetsAt.getTime() / 1000));
+        expect(calls.some((c) => c.msg.includes("Pro raises this to 200/min"))).toBe(true);
+      } finally {
+        rmCacheDir(cache);
+      }
+    });
+
     it("rejects an unknown limit_type so old plugins survive future server rollouts", () => {
       const cache = mkCacheDir();
       try {
@@ -395,7 +444,7 @@ describe("upgrade-prompt", () => {
   });
 
   describe("V1_LIMIT_TYPES locked enumeration", () => {
-    it("includes the four V1 limit types plus the V1.1 decision_list_size addition", () => {
+    it("includes the four V1 limit types, the V1.1 decision_list_size addition and per_minute", () => {
       // V1.1 (#1982) extends the original V1 set with decision_list_size
       // for the GET /api/v1/decisions cap-hit path. Adding to this list
       // is a coordinated cross-surface change with the platform's
@@ -407,6 +456,7 @@ describe("upgrade-prompt", () => {
         "decision_list_size",
         "feature_pro_only",
         "hitl_approvals_window",
+        "per_minute",
       ]);
     });
   });
