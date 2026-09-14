@@ -5,9 +5,9 @@
 1. **Under the Free per-minute limit, the tool calls succeed** (kind `ok`) for a freshly registered Free tenant.
 2. **Every answer that carries the limit's envelope comes back as kind `envelope`**: never kind `ok` with the envelope handed to the agent as the tool's result, and never a bare error.
 3. **The tier-check path:** when `tools/call` is answered with the limit, the call returns kind `envelope` with the upgrade prompt (`[AxonFlow] Upgrade: ...` on the plugin's logger), the back-off is stamped, and the next call is answered locally (kind `throttled`).
-4. **The pre-credential path:** when `initialize` itself is refused, the call is refused, never kind `ok`. When that refusal carries the limit's envelope, the call returns kind `envelope` with the upgrade prompt.
+4. **The pre-credential path:** when `initialize` itself is refused, the call is refused, never kind `ok`. When that refusal carries the limit's envelope, an isolated probe returns kind `envelope` with the upgrade prompt and its own back-off stamped.
 
-`callMCPTool` runs `initialize` and then `tools/call`, so the limit can answer on either request. The leg reaches the tier-check path first. It then clears the local back-off for each call (a fresh cache directory each) and sends concurrent batches, so the limit's counter keeps climbing until `initialize` itself is refused. A pass-through recorder notes each real response's JSON-RPC method, HTTP status and whether its body is the limit's envelope; it changes nothing on the wire.
+`callMCPTool` runs `initialize` and then `tools/call`, so the limit can answer on either request. The leg reaches the tier-check path first. It then sends concurrent batches, each call pointed at a fresh cache directory so the local back-off does not answer, until `initialize` itself is refused. Those calls share one process environment and the plugin reads its cache directory after its awaits, so they are not isolated from each other, and the leg asserts only their kinds. It then sends one isolated probe, alone, with its own cache directory, and asserts the pre-credential path's prompt and back-off on that probe. A pass-through recorder notes each real response's JSON-RPC method, HTTP status and whether its body is the limit's envelope; it changes nothing on the wire.
 
 ## The platform side
 

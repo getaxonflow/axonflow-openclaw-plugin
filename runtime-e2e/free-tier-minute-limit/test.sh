@@ -80,10 +80,13 @@ pass "registered Free tenant $TENANT_ID (HTTP $REG_CODE; the secret is not print
 
 # The driver calls the plugin's own compiled client, exactly as its agent tools
 # do. Phase 1 calls with one back-off cache until the limit answers (the
-# tier-check path), then once more while the back-off holds. Phase 2 clears the
-# local back-off for every call (a fresh cache directory each) and sends
-# concurrent batches, so the limit's counter keeps climbing until initialize
-# itself is refused (the pre-credential path).
+# tier-check path), then once more while the back-off holds. Phase 2 sends
+# concurrent batches, each call pointed at a fresh cache directory so the local
+# back-off does not answer, until initialize itself is refused. Those calls share
+# one process environment, and the plugin reads AXONFLOW_CACHE_DIR after its
+# awaits, so a batch's calls are NOT isolated from each other: the leg asserts
+# only their kinds. It then sends ONE isolated probe, alone, with its own cache
+# directory: the pre-credential path's prompt and back-off are asserted on it.
 DRIVER="$EVIDENCE/driver.cjs"
 OUT="$EVIDENCE/result.json"
 cat > "$DRIVER" <<'NODE'
@@ -178,17 +181,34 @@ cat > "$DRIVER" <<'NODE'
   const max2 = Number(process.env.E2E_PRECRED_MAX_CALLS || "400");
   const batch = Number(process.env.E2E_BATCH || "10");
   let sent2 = 0;
-  let preCredential = null;
-  while (over && !preCredential && sent2 < max2) {
-    const pending = [];
-    for (let j = 0; j < batch && sent2 < max2; j++, sent2++) {
-      const call = ++n;
-      process.env.AXONFLOW_CACHE_DIR = path.join(baseCache, "p2-" + call);
-      pending.push(invoke(call).then((res) => row(2, call, res)));
+  let probe = null;
+  // Climb the counter with concurrent batches until initialize itself is refused,
+  // then send ONE probe alone with its own cache directory. If the limit's minute
+  // rolled over before the probe landed (its initialize succeeded), climb again.
+  for (let attempt = 1; attempt <= 3 && over && sent2 < max2; attempt++) {
+    let refused = null;
+    while (!refused && sent2 < max2) {
+      const pending = [];
+      for (let j = 0; j < batch && sent2 < max2; j++, sent2++) {
+        const call = ++n;
+        process.env.AXONFLOW_CACHE_DIR = path.join(baseCache, "p2-" + call);
+        pending.push(invoke(call).then((res) => row(2, call, res)));
+      }
+      const rows = await Promise.all(pending);
+      results.push(...rows);
+      refused = rows.find((r) => r.initialize && r.initialize.status >= 400) || null;
     }
-    const rows = await Promise.all(pending);
-    results.push(...rows);
-    preCredential = rows.find((r) => r.initialize && r.initialize.status >= 400) || null;
+    if (!refused) break;
+    const call = ++n;
+    const dir = path.join(baseCache, "probe-" + call);
+    process.env.AXONFLOW_CACHE_DIR = dir;
+    const r = row("probe", call, await invoke(call));
+    r.attempt = attempt;
+    r.cacheDir = path.basename(dir);
+    r.throttleStamped = fs.existsSync(path.join(dir, "throttle-until"));
+    results.push(r);
+    probe = r;
+    if (r.initialize && r.initialize.status >= 400) break;
   }
   process.env.AXONFLOW_CACHE_DIR = baseCache;
 
@@ -263,10 +283,12 @@ else
 fi
 
 echo ""
-echo "--- the pre-credential path (initialize itself refused) ---"
-PC=$(jq -c '[.results[] | select(.initialize != null and .initialize.status >= 400)][0] // empty' "$OUT")
+echo "--- the pre-credential path (initialize itself refused; asserted on the isolated probe) ---"
+PC=$(jq -c '[.results[] | select(.phase == "probe")] | last // empty' "$OUT")
 if [ -z "$PC" ]; then
-  fail "pre-credential path: initialize was never refused within $(jq -r '.phase2Calls' "$OUT") phase-2 calls"
+  fail "pre-credential path: initialize was never refused within $(jq -r '.phase2Calls' "$OUT") phase-2 calls, so no isolated probe was sent"
+elif [ "$(jq -r '.initialize.status // 0' <<< "$PC")" -lt 400 ]; then
+  fail "pre-credential path: the isolated probe's initialize was not refused (HTTP $(jq -r '.initialize.status // "none"' <<< "$PC"), attempt $(jq -r '.attempt' <<< "$PC"))"
 else
   PC_CALL=$(jq -r '.call' <<< "$PC")
   PC_KIND=$(jq -r '.kind' <<< "$PC")
@@ -275,10 +297,10 @@ else
   if [ "$PC_KIND" = "ok" ]; then
     fail "pre-credential path: call $PC_CALL returned kind ok although initialize answered HTTP $PC_STATUS"
   elif [ "$(jq -r '.envelopeOn' <<< "$PC")" = "initialize" ]; then
-    if [ "$PC_KIND" = "envelope" ] && [ "$(jq -r '.prompt' <<< "$PC")" = "true" ]; then
-      pass "pre-credential path: initialize answered HTTP $PC_STATUS with the limit's envelope, and call $PC_CALL returned kind envelope (limit_type $(jq -r '.limitType' <<< "$PC")) with the upgrade prompt"
+    if [ "$PC_KIND" = "envelope" ] && [ "$(jq -r '.prompt' <<< "$PC")" = "true" ] && [ "$(jq -r '.throttleStamped' <<< "$PC")" = "true" ]; then
+      pass "pre-credential path: the isolated probe's initialize answered HTTP $PC_STATUS with the limit's envelope, and call $PC_CALL returned kind envelope (limit_type $(jq -r '.limitType' <<< "$PC")) with the upgrade prompt and its own back-off stamped"
     else
-      fail "pre-credential path: initialize carried the envelope, but call $PC_CALL returned kind $PC_KIND, prompt shown: $(jq -r '.prompt' <<< "$PC")"
+      fail "pre-credential path: the isolated probe's initialize carried the envelope, but call $PC_CALL returned kind $PC_KIND, prompt shown: $(jq -r '.prompt' <<< "$PC"), back-off stamped: $(jq -r '.throttleStamped' <<< "$PC")"
     fi
   else
     pass "pre-credential path: initialize answered HTTP $PC_STATUS, and call $PC_CALL was refused (kind $PC_KIND), not a successful tool result"
