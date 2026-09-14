@@ -1,6 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [2.9.1] - 2026-09-14: the per-minute limit is recognised as an upgrade envelope
+
+### Documentation
+
+- **The install has needed `--accept-capabilities` since 2.9.0, and no release block said so.**
+  2.9.0 began declaring the capabilities this plugin exercises, and the OpenClaw CLI refuses to
+  start a plugin that declares capabilities until you consent once, so
+  `openclaw plugins install @axonflow/openclaw` fails without the flag. The README has said this
+  since it shipped; the 2.9.0 release notes did not, and a published block is not rewritten, so it
+  is recorded here instead. Install with
+  `openclaw plugins install @axonflow/openclaw@2.9.1 --accept-capabilities`.
 
 ### Fixed
 
