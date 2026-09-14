@@ -74,17 +74,20 @@ const activePoliciesEnvelope: V1RateLimitEnvelope = {
   },
 };
 
-// The Free per-minute limit on the MCP route (axonflow-enterprise#4261).
+// The Free tier's per-minute limit on the MCP route, as
+// axonflow-enterprise#4261 answers it (resets_at is set per test).
+const perMinuteWording =
+  "Per-minute limit reached on Free tier (25 requests). Pro raises this to 200/min. Try again in a minute.";
 const perMinuteEnvelope = {
-  error: "Rate limit exceeded (25 req/min). Try again shortly.",
+  error: perMinuteWording,
   limit_type: "per_minute",
   tier: "Free",
   limit: 25,
   remaining: 0,
-  window: "per_minute",
+  window: "minute",
   upgrade: {
     tier: "Pro",
-    wording: "Free tier allows 25 requests per minute. Pro raises this to 200.",
+    wording: perMinuteWording,
     compare_url: "https://getaxonflow.com/pricing/",
     buy_url: "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
   },
@@ -392,19 +395,20 @@ describe("upgrade-prompt", () => {
       }
     });
 
-    it("detects the wrapped 429 per_minute envelope and backs off for Retry-After (#4261)", () => {
+    it("detects the wrapped 429 per_minute envelope and backs off to its resets_at, a minute out (#4261)", () => {
       const cache = mkCacheDir();
       try {
         const { logger, calls } = makeLogger();
         const now = new Date();
+        const resetsAt = new Date(Math.floor(now.getTime() / 1000) * 1000 + 60_000);
         const result = handleEnvelope({
           status: 429,
           body: {
-            jsonrpc: "2.0",
             id: "call-1",
+            jsonrpc: "2.0",
             result: {
+              content: [{ text: JSON.stringify({ ...perMinuteEnvelope, resets_at: resetsAt.toISOString() }, null, 2), type: "text" }],
               isError: true,
-              content: [{ type: "text", text: JSON.stringify(perMinuteEnvelope) }],
             },
           },
           retryAfterHeader: "60",
@@ -414,8 +418,8 @@ describe("upgrade-prompt", () => {
         });
         expect(result.detected).toBe(true);
         expect(result.envelope?.limit_type).toBe("per_minute");
-        expect(result.deadlineEpoch).toBe(Math.floor((now.getTime() + 60_000) / 1000));
-        expect(calls.some((c) => c.msg.includes("Pro raises this to 200"))).toBe(true);
+        expect(result.deadlineEpoch).toBe(Math.floor(resetsAt.getTime() / 1000));
+        expect(calls.some((c) => c.msg.includes("Pro raises this to 200/min"))).toBe(true);
       } finally {
         rmCacheDir(cache);
       }
