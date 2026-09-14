@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A tool call over the Community SaaS Free per-minute limit is no longer handed to the agent as a successful tool result.** When the platform answers the per-minute limit as an HTTP 429 carrying the upgrade envelope with `limit_type` `per_minute` (axonflow-enterprise#4261), `callMCPTool`, the helper behind the plugin's AxonFlow agent tools, now returns the envelope: the upgrade prompt is shown and the back-off follows `Retry-After` (60 seconds). Before this, the plugin did not recognise `per_minute`, so the envelope fell through and the agent received it as the tool's result.
+
 ## [2.9.0] - 2026-09-05
 
 ### Added
