@@ -19,7 +19,11 @@
 //   4. Probe ${AXONFLOW_ENDPOINT}/health — fail fast if the stack
 //      isn't up; the workflow is responsible for spinning it up.
 //   5. Construct AxonFlowClient from the installed tarball + fire a
-//      canonical SQLi-bearing mcpCheckInput. Assert deny shape.
+//      destructive shell command through mcpCheckInput
+//      (rm -rf / --no-preserve-root, which the shipped
+//      sys_dangerous_destructive_fs control denies). Assert deny shape. A
+//      SQL injection string is not used: from AxonFlow v11.0.0 it is
+//      allowed everywhere but /api/request.
 //   6. Fire a benign mcpCheckInput. Assert allow shape.
 //   7. Tear down tmp dirs.
 //
@@ -35,7 +39,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { assertSqliDeny, assertBenignAllow, AssertionFailures } from './assertions.mjs';
+import { assertPolicyDeny, assertBenignAllow, AssertionFailures } from './assertions.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -159,7 +163,7 @@ try {
   process.exit(1);
 }
 
-console.log('\nstep 5: construct client + fire SQLi (canonical deny scenario)');
+console.log('\nstep 5: construct client + fire a destructive command (canonical deny scenario)');
 const installedEntry = join(installed, 'dist', 'index.js');
 const mod = await import(installedEntry);
 if (typeof mod.AxonFlowClient !== 'function') {
@@ -174,19 +178,19 @@ const client = new mod.AxonFlowClient({
 });
 
 const denyResp = await client.mcpCheckInput(
-  'postgresql',
-  "SELECT * FROM users WHERE id='1' OR 1=1--",
-  'query',
+  'openclaw.bash',
+  JSON.stringify({ command: 'rm -rf / --no-preserve-root' }),
+  'execute',
 );
 console.log(
-  `deny response — allowed=${denyResp.allowed} decision_id=${denyResp.decision_id} risk=${denyResp.risk_level} matches=${(denyResp.policy_matches || []).length}`,
+  `deny response — allowed=${denyResp.allowed} decision_id=${denyResp.decision_id} block_reason=${denyResp.block_reason} matches=${(denyResp.policy_matches || []).length}`,
 );
 try {
-  assertSqliDeny(denyResp);
-  console.log('PASS: SQLi denied with elevated risk + policy matches');
+  assertPolicyDeny(denyResp);
+  console.log('PASS: destructive command denied with a decision id, a block reason and policy matches');
 } catch (err) {
   if (err instanceof AssertionFailures) {
-    console.error('FAIL: SQLi deny scenario:');
+    console.error('FAIL: destructive command deny scenario:');
     for (const f of err.failures) console.error(`  - ${f}`);
     exitCode = 1;
   } else {

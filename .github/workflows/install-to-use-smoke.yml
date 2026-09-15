@@ -7,7 +7,8 @@ name: Install-to-Use Smoke
 # disagrees with what a real AxonFlow agent returns over the wire —
 # e.g. a renamed response field, a route gone missing, a Plugin Batch 1
 # attribute that the platform stopped emitting, or a default policy
-# stack that no longer denies SQLi.
+# stack that no longer denies a destructive shell command (the deny fixture;
+# from AxonFlow v11.0.0 a SQL injection string is allowed off /api/request).
 #
 # The companion install-smoke.yml workflow keeps its stub-server gate
 # for fast wire-shape coverage; this workflow is the live-stack

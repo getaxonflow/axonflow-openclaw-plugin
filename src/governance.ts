@@ -10,6 +10,7 @@ import type { ClientRef } from "./client-ref.js";
 import type { AxonFlowPluginConfig } from "./config.js";
 import { shouldGovernTool } from "./config.js";
 import { noteUngovernedFailOpen } from "./fail-open-notice.js";
+import { AxonFlowLimitError } from "./axonflow-client.js";
 import {
   recordToolCallEvaluated,
   recordToolCallBlocked,
@@ -147,6 +148,39 @@ export function isAxonFlowAuthError(err: unknown): boolean {
 }
 
 /**
+ * The rows of the failure posture a thrown governance check can land in (#196):
+ *
+ *   limit        an AxonFlowLimitError (an HTTP 429, a V1 limit envelope, or
+ *                the back-off an earlier limit stamped), or any status 429
+ *   refused      an HTTP 3xx, or a 4xx other than 408 and 429: the endpoint,
+ *                the credential or the configuration refused the check (a
+ *                403 carrying a policy decision never throws; it is the deny)
+ *   unavailable  no usable answer: an HTTP 408, a 5xx, a 2xx that was not a
+ *                decision, a network error or timeout
+ *
+ * An error that exposes no status is refused when its message reads as an
+ * auth error (isAxonFlowAuthError) and unavailable otherwise. The pre-tool hook
+ * reads `limit` and `refused` through config.onError and `unavailable` through
+ * config.failMode; message_sending reads all three through config.onError.
+ */
+export type GovernanceFailureClass = "limit" | "refused" | "unavailable";
+
+export function classifyGovernanceFailure(err: unknown): GovernanceFailureClass {
+  if (err instanceof AxonFlowLimitError) return "limit";
+  if (!err || typeof err !== "object") return "unavailable";
+  const maybeStatus =
+    (err as { status?: number; statusCode?: number }).status ??
+    (err as { status?: number; statusCode?: number }).statusCode;
+  if (typeof maybeStatus === "number" && Number.isFinite(maybeStatus)) {
+    if (maybeStatus === 429) return "limit";
+    if (maybeStatus === 408) return "unavailable";
+    if (maybeStatus >= 300 && maybeStatus < 500) return "refused";
+    return "unavailable";
+  }
+  return isAxonFlowAuthError(err) ? "refused" : "unavailable";
+}
+
+/**
  * Does this error already carry its own operator-visible notice?
  *
  * `AxonFlowClient.markAuthFailed()` — the ONE place the client emits its
@@ -196,21 +230,9 @@ export function createBeforeToolCallHandler(
 
     recordToolCallEvaluated();
 
-    // V1 Plugin Pro back-off gate. When a recent governed call returned
-    // a 429 / 403 envelope, the throttle stamp suppresses outbound
-    // traffic until the envelope's resets_at deadline. Fall open
-    // immediately so the user's tool isn't held up while we wait the
-    // cap out (the upgrade prompt was already surfaced when the
-    // throttle landed).
-    //
-    // The optional-chaining call accommodates tests that pass a mock
-    // client without the V1 helper — the gate degrades to "no
-    // throttle in effect" rather than throwing.
-    if (typeof clientRef.current.isV1ThrottleActive === "function"
-        && clientRef.current.isV1ThrottleActive()) {
-      recordToolCallAllowed();
-      return undefined;
-    }
+    // The V1 back-off an earlier limit stamped is read by mcpCheckInput itself,
+    // which refuses the check as a limit (AxonFlowLimitError) without sending
+    // a request. A second gate here used to let the call run (#196).
 
     const connectorType = deriveConnectorType(event.toolName);
     const statement = JSON.stringify(event.params);
@@ -225,13 +247,13 @@ export function createBeforeToolCallHandler(
     } catch (err) {
       recordGovernanceError();
 
-      // Issue #1545 Direction 3: classify the error to decide fail-open vs
-      // fail-closed. Network errors (timeout, DNS failure, connection
-      // refused, 5xx) always fail OPEN regardless of config.onError —
-      // transient infrastructure issues should never block legitimate dev
-      // workflows. Auth errors (401/403) respect config.onError, defaulting
-      // to fail-closed because they indicate a misconfiguration the
-      // operator can and should fix.
+      // The failure posture (#196, classifyGovernanceFailure):
+      //   - no usable answer (timeout, DNS failure, connection refused, 408,
+      //     5xx): config.failMode decides. "open" (the default) lets the call
+      //     run with the one-shot notice; "closed" blocks it.
+      //   - a limit (429, a V1 envelope, the back-off) and a refusal (3xx,
+      //     4xx, an auth-classified error): config.onError decides, defaulting
+      //     to "block"; "allow" lets the call run with the notice.
       // The endpoint is read off the CLIENT, not off `config`: in
       // community-saas mode registerAxonFlowGovernance swaps in a client
       // built on the endpoint the register response named, so `config`
@@ -242,37 +264,53 @@ export function createBeforeToolCallHandler(
           ? clientRef.current.getEndpoint()
           : "") || config.endpoint;
 
-      const isAuthError = isAxonFlowAuthError(err);
-      if (!isAuthError) {
-        // #167: the fail-open POLICY above is unchanged; the silence is what
-        // changes. Announce once per process that governed calls are running
+      const failure = classifyGovernanceFailure(err);
+      const detail = err instanceof Error ? err.message : "unknown error";
+      if (failure === "unavailable") {
+        if (config.failMode === "closed") {
+          recordToolCallBlocked();
+          return {
+            block: true,
+            blockReason:
+              `AxonFlow governance unavailable: ${detail}. failMode is "closed" ` +
+              "(pluginConfig.failMode or AXONFLOW_FAIL_MODE), so this tool call is blocked.",
+          };
+        }
+        // #167: announce once per process that governed calls are running
         // without policy evaluation, so a session cannot go ungoverned
         // without the user being told.
         noteUngovernedFailOpen(failedEndpoint, err);
         recordToolCallAllowed();
-        return undefined; // Fail-open: transient network issue
+        return undefined;
       }
 
-      // Auth error — respect config.onError (which defaults to "block").
+      // A limit or a refusal: config.onError decides (default "block").
       if (config.onError === "allow") {
-        // #170: proceeding IS the ungoverned outcome, whatever the error's
-        // class. A status-401 stays quiet here because the client's own
-        // one-shot notice (markAuthFailed at the fetch chokepoint) already
-        // announced that governance is disabled for the session. Every other
-        // auth-classified error — a thrown 403, or a message-classified
-        // error exposing no status — previously proceeded with no signal at
-        // all: zero policy evaluation, zero warning. The fail-open POLICY is
-        // unchanged; only the silence is.
-        if (!carriesOwnAuthNotice(err)) {
+        // #170: proceeding IS the ungoverned outcome. A status-401 stays quiet
+        // here because the client's own one-shot notice (markAuthFailed)
+        // already announced it; a limit and every other refusal announce it.
+        if (failure === "limit" || !carriesOwnAuthNotice(err)) {
           noteUngovernedFailOpen(failedEndpoint, err);
         }
         recordToolCallAllowed();
         return undefined;
       }
       recordToolCallBlocked();
+      if (failure === "limit") {
+        return {
+          block: true,
+          blockReason: `AxonFlow request limit reached: ${detail}. This tool call is blocked until the limit resets.`,
+        };
+      }
+      if (isAxonFlowAuthError(err)) {
+        return {
+          block: true,
+          blockReason: `AxonFlow auth error: ${detail}. Fix configuration to restore tool access.`,
+        };
+      }
       return {
         block: true,
-        blockReason: `AxonFlow auth error: ${err instanceof Error ? err.message : "unknown error"}. Fix configuration to restore tool access.`,
+        blockReason: `AxonFlow refused the governance check: ${detail}. Check the endpoint and the credentials to restore tool access.`,
       };
     }
 

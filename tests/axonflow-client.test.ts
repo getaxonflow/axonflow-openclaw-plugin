@@ -93,13 +93,26 @@ describe("AxonFlowClient", () => {
       expect(result.policies_evaluated).toBe(76);
     });
 
-    it("falls back to error field on 403 without block_reason", async () => {
+    it("a 403 that carries no decision (only an error) is a refusal, not a policy deny (#196)", async () => {
+      const { AxonFlowHttpError } = await import("../src/axonflow-client.js");
       mockFetch.mockResolvedValueOnce(
         jsonResponse(403, { error: "Request blocked: DROP TABLE" }),
       );
       const client = makeClient();
+      const err = await client.mcpCheckInput("test", "stmt").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AxonFlowHttpError);
+      expect((err as InstanceType<typeof AxonFlowHttpError>).status).toBe(403);
+      expect((err as Error).message).toContain("Request blocked: DROP TABLE");
+    });
+
+    it("a 403 carrying allowed:false and a block_reason is the policy deny (the platform's shape)", async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse(403, { allowed: false, block_reason: "explicit_constraint", decision_id: "d-1" }),
+      );
+      const client = makeClient();
       const result = await client.mcpCheckInput("test", "stmt");
-      expect(result.block_reason).toBe("Request blocked: DROP TABLE");
+      expect(result.allowed).toBe(false);
+      expect(result.block_reason).toBe("explicit_constraint");
     });
 
     it("throws on non-403 errors", async () => {
@@ -205,13 +218,15 @@ describe("AxonFlowClient", () => {
       expect(result.block_reason).toBe("Exfiltration detected");
     });
 
-    it("falls back to error on 403 without block_reason", async () => {
+    it("a 403 that carries no decision (only an error) is a refusal, not a policy deny (#196)", async () => {
+      const { AxonFlowHttpError } = await import("../src/axonflow-client.js");
       mockFetch.mockResolvedValueOnce(
         jsonResponse(403, { error: "Blocked by policy" }),
       );
       const client = makeClient();
-      const result = await client.mcpCheckOutput("test", "data");
-      expect(result.block_reason).toBe("Blocked by policy");
+      const err = await client.mcpCheckOutput("test", "data").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AxonFlowHttpError);
+      expect((err as InstanceType<typeof AxonFlowHttpError>).status).toBe(403);
     });
 
     it("throws on non-403 errors", async () => {
@@ -795,29 +810,42 @@ describe("AxonFlowClient", () => {
       expect(client.isAuthFailed()).toBe(true);
     });
 
-    it("centralized breaker engages on non-governed endpoints too (searchAuditEvents)", async () => {
-      // Pre-fix: only auditToolCall / auditLLMCall / mcpCheckInput /
-      // mcpCheckOutput wired the breaker. Bad creds therefore caused
-      // 401 storms on every other endpoint (search, explain, overrides,
-      // health, etc.) just at lower volume. Post-fix: the centralized
-      // hook in fetchWithTimeout flips the flag for ALL fetch sites,
-      // so the NEXT audit / governance call short-circuits without
-      // round-tripping.
+    it("a 401 on a route that is not a tenant-credential route does NOT arm the breaker (#196)", async () => {
+      // #196: a 401 from search, explain, the override endpoints or the
+      // agent-tools MCP server can be an identity refusal or that route's own
+      // posture, not the tenant credential failing. Arming the breaker there
+      // locked every governed tool call for the session after one refused
+      // override. Only check-input, check-output and the tool-call audit arm it.
       mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
       const client = makeClient();
       const result = await client.searchAuditEvents();
-      // The lossy searchAuditEvents method itself preserves its existing
-      // shape (returns `{ entries: [], total: 0, error: "HTTP 401" }`)
-      // but the centralized hook flipped the breaker as a side effect.
       expect(result.error).toBe("HTTP 401");
-      expect(client.isAuthFailed()).toBe(true);
+      expect(client.isAuthFailed()).toBe(false);
+      expect(warnSpy).not.toHaveBeenCalled();
 
-      // Now a subsequent audit call MUST short-circuit — proves the
-      // centralized path engaged. Without the centralized fetchWithTimeout
-      // hook, this second call would re-issue a fetch.
+      // The next audit call is sent: nothing short-circuits it.
       mockFetch.mockResolvedValueOnce(jsonResponse(200, { success: true }));
       await client.auditToolCall("tool-after-search-401", {});
-      expect(mockFetch).toHaveBeenCalledTimes(1); // still 1 — second call skipped
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("a refused override read (401, identity required) leaves the governed routes working (#196)", async () => {
+      const { AxonFlowHttpError } = await import("../src/axonflow-client.js");
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: { get: () => null },
+        json: () => Promise.resolve({ error: "Authenticated user identity required (X-User-Email)" }),
+      });
+      const client = makeClient();
+      await expect(client.listOverridesStrict()).rejects.toBeInstanceOf(AxonFlowHttpError);
+      expect(client.isAuthFailed()).toBe(false);
+
+      mockFetch.mockResolvedValueOnce(jsonResponse(200, { allowed: true, policies_evaluated: 3 }));
+      const check = await client.mcpCheckInput("openclaw.bash", "{}");
+      expect(check.allowed).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -859,9 +887,9 @@ describe("AxonFlowClient", () => {
       expect(headers && "X-User-Email" in headers).toBe(false);
     });
 
-    it("forwards X-User-Email on override lifecycle endpoints", async () => {
+    it("forwards X-User-Email on the override read endpoint", async () => {
       mockFetch.mockResolvedValueOnce(
-        jsonResponse(201, { id: "ov-1", policy_id: "p1" }),
+        jsonResponse(200, { overrides: [], count: 0 }),
       );
       const client = new AxonFlowClient({
         endpoint: "http://localhost:8080",
@@ -870,15 +898,12 @@ describe("AxonFlowClient", () => {
         userEmail: "ops@example.com",
         mode: "self-hosted",
       });
-      await client.createOverride({
-        policyId: "sys_sqli_admin_bypass",
-        policyType: "static",
-        overrideReason: "approved debug window",
-      });
+      await client.listOverrides();
 
       expect(mockFetch).toHaveBeenCalledWith(
         "http://localhost:8080/api/v1/overrides",
         expect.objectContaining({
+          method: "GET",
           headers: expect.objectContaining({
             "X-User-Email": "ops@example.com",
           }),

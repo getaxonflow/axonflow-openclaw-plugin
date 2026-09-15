@@ -41,11 +41,6 @@ function readBoolean(args: Record<string, unknown>, key: string): boolean | unde
   return typeof v === "boolean" ? v : undefined;
 }
 
-function asPolicyType(v: unknown): "static" | "dynamic" {
-  if (v === "static" || v === "dynamic") return v;
-  throw new Error(`policy_type must be "static" or "dynamic" (got ${JSON.stringify(v)})`);
-}
-
 function ok(payload: unknown): ToolResult {
   const text = JSON.stringify(payload, null, 2);
   return { content: [{ type: "text", text }], details: payload };
@@ -334,104 +329,6 @@ export function buildListOverridesTool(clientRef: ClientRef): AgentToolDef {
   };
 }
 
-// ─── create_override ───────────────────────────────────────────────────
-
-export function buildCreateOverrideTool(clientRef: ClientRef): AgentToolDef {
-  return {
-    name: "axonflow_create_override",
-    label: "AxonFlow: Create Session Override",
-    description:
-      "Create a governed session override for a policy that would otherwise deny. " +
-      "Mandatory free-text justification; TTL clamped server-side (default 60m, hard cap 24h). " +
-      "Critical-risk policies and policies with allow_override=false are rejected (403).",
-    parameters: {
-      type: "object",
-      properties: {
-        policy_id: { type: "string", description: "Policy to override." },
-        policy_type: {
-          type: "string",
-          enum: ["static", "dynamic"],
-          description: "Policy registry type.",
-        },
-        override_reason: {
-          type: "string",
-          description: "Mandatory justification (1-500 chars).",
-        },
-        tool_signature: {
-          type: "string",
-          description: "Optional: restrict override to a specific tool name.",
-        },
-        ttl_seconds: {
-          type: "number",
-          description: "Requested TTL in seconds. Server clamps to [60, 86400] (default 3600).",
-          minimum: 60,
-          maximum: 86400,
-        },
-      },
-      required: ["policy_id", "policy_type", "override_reason"],
-      additionalProperties: false,
-    },
-    execute: async (_id, args) => {
-      const policyId = readString(args, "policy_id");
-      const overrideReason = readString(args, "override_reason");
-      if (!policyId) return fail("policy_id is required");
-      if (!overrideReason) return fail("override_reason is required");
-      let policyType: "static" | "dynamic";
-      try {
-        policyType = asPolicyType(args["policy_type"]);
-      } catch (e) {
-        return fail(e instanceof Error ? e.message : "invalid policy_type");
-      }
-      try {
-        const result = await clientRef.current.createOverride({
-          policyId,
-          policyType,
-          overrideReason,
-          toolSignature: readString(args, "tool_signature"),
-          ttlSeconds: readNumber(args, "ttl_seconds"),
-        });
-        return ok(result);
-      } catch (e) {
-        const { message, details } = describeError(e);
-        return fail(message, details);
-      }
-    },
-  };
-}
-
-// ─── revoke_override ───────────────────────────────────────────────────
-
-export function buildRevokeOverrideTool(clientRef: ClientRef): AgentToolDef {
-  return {
-    name: "axonflow_revoke_override",
-    label: "AxonFlow: Revoke Session Override",
-    description:
-      "Revoke an active session override. The next policy evaluation after revocation will not consult this override. Emits an override_revoked audit event.",
-    parameters: {
-      type: "object",
-      properties: {
-        override_id: {
-          type: "string",
-          description: "Override ID returned by axonflow_create_override.",
-        },
-      },
-      required: ["override_id"],
-      additionalProperties: false,
-    },
-    execute: async (_id, args) => {
-      const overrideId = readString(args, "override_id");
-      if (!overrideId) return fail("override_id is required");
-      try {
-        await clientRef.current.revokeOverride(overrideId);
-        return ok({ override_id: overrideId, revoked: true });
-      } catch (e) {
-        const { message, details } = describeError(e);
-        return fail(message, details);
-      }
-    },
-  };
-}
-
 // ─── axonflow_get_tenant_id ────────────────────────────────────────────
 //
 // Cross-plugin parity tool (S3 lane of axonflow-enterprise#1958). The
@@ -711,8 +608,6 @@ export function buildAgentTools(
     buildExplainDecisionTool(clientRef),
     buildListRecentDecisionsTool(clientRef),
     buildListOverridesTool(clientRef),
-    buildCreateOverrideTool(clientRef),
-    buildRevokeOverrideTool(clientRef),
     buildGetTenantIdTool(pluginConfig),
     buildRequestApprovalTool(clientRef),
     buildCreateTenantPolicyTool(clientRef),

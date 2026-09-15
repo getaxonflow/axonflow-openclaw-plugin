@@ -17,8 +17,9 @@
  *        deployment_mode=community_saas (the resolved config.endpoint in
  *        community-saas mode is `https://try.getaxonflow.com`, which
  *        matches the `*.try.getaxonflow.com` rule directly — the
- *        AXONFLOW_HARNESS_AGENT_ENDPOINT override only redirects the
- *        bootstrap probe, not the user-facing endpoint), endpoint_type=remote
+ *        AXONFLOW_HARNESS_AGENT_ENDPOINT override redirects the bootstrap
+ *        probe and the governed client, never the config endpoint the
+ *        telemetry classification reads), endpoint_type=remote
  *        (try.getaxonflow.com is a remote host).
  *     5. Telemetry stamp file written.
  *
@@ -138,8 +139,9 @@ async function loadPluginAndRegister({ endpoint, configDir, cacheDir, checkpoint
   process.env.AXONFLOW_HARNESS_REGISTER_URL = `${endpoint}/api/v1/register`;
   process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT = endpoint;
   // Community-SaaS mode resolves config.endpoint to `https://try.getaxonflow.com`
-  // (the public user-facing URL); only the bootstrap probe is redirected to
-  // 127.0.0.1 via AXONFLOW_HARNESS_AGENT_ENDPOINT. The v1 deployment-mode
+  // (the public user-facing URL); the bootstrap probe and the governed client
+  // are redirected to 127.0.0.1 via AXONFLOW_HARNESS_AGENT_ENDPOINT, and
+  // config.endpoint is not. The v1 deployment-mode
   // classifier therefore reports `community_saas` directly from the host
   // match — no need for the explicit AXONFLOW_TRY=1 override here.
   delete process.env.AXONFLOW_TRY;

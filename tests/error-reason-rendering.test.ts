@@ -2,11 +2,13 @@
  * #167 scope 4 / axonflow-enterprise#3062 — render the platform's reason
  * instead of collapsing every failure to `HTTP 401 Unauthorized`.
  *
- * `axonflow_create_override` / `axonflow_revoke_override` return 401 in the
- * default configuration of both Community SaaS and a self-hosted community
- * stack, because the override endpoints need per-user identity and the
- * agent's identity trust gate is off by default since platform 9.9.0. The
- * user was given a bare status line and no way to discover that.
+ * The override endpoints answer 401 in the default configuration of both
+ * Community SaaS and a self-hosted community stack, because they need a
+ * per-user identity and the agent's identity trust gate is off by default
+ * since platform 9.9.0. The user was given a bare status line and no way to
+ * discover that. The override writes are retired from AxonFlow v11.0.0;
+ * `axonflow_list_overrides` still reads the endpoint, and is the real tool
+ * path these tests drive.
  *
  * The plugin's job is to render whatever the platform sends and to degrade
  * cleanly when it sends nothing. NOTHING here may assume a platform version
@@ -21,7 +23,7 @@ import {
   redactErrorBody,
   MAX_REASON_LENGTH,
 } from "../src/axonflow-client.js";
-import { buildCreateOverrideTool, buildGetTenantIdTool } from "../src/agent-tools.js";
+import { buildListOverridesTool, buildGetTenantIdTool } from "../src/agent-tools.js";
 import type { AxonFlowPluginConfig } from "../src/config.js";
 import type { ClientRef } from "../src/client-ref.js";
 
@@ -202,7 +204,7 @@ describe("control characters never reach a terminal, a user or the model", () =>
   });
 
   it("strips them from the AxonFlowHttpError message", () => {
-    const e = new AxonFlowHttpError(502, "Bad Gateway", { error: HOSTILE }, "create override");
+    const e = new AxonFlowHttpError(502, "Bad Gateway", { error: HOSTILE }, "list overrides");
     expect(hasControlCharacters(e.message)).toBe(false);
   });
 });
@@ -275,13 +277,13 @@ describe("AxonFlowHttpError message", () => {
   });
 
   it("is byte-identical to the pre-change message when there is no reason", () => {
-    expect(new AxonFlowHttpError(401, "Unauthorized", {}, "create override").message).toBe(
-      "AxonFlow create override failed: HTTP 401 Unauthorized",
+    expect(new AxonFlowHttpError(401, "Unauthorized", {}, "list overrides").message).toBe(
+      "AxonFlow list overrides failed: HTTP 401 Unauthorized",
     );
   });
 
   it("collapses and truncates a long body on the pre-existing call sites too", () => {
-    // Call sites like createOverride/revokeOverride already passed
+    // Call sites like listOverridesStrict already pass
     // `{ error: <raw text> }`. Their messages are now whitespace-collapsed
     // and capped, where before the full raw body was carried. Deliberate —
     // these strings reach an LLM's context — and pinned here so the change
@@ -390,12 +392,12 @@ describe("the platform's identity-required 401 survives rendering intact", () =>
     });
   }
 
-  it("reaches the agent through the real createOverride path, unwrapped", async () => {
+  it("reaches the agent through the real listOverrides path, unwrapped", async () => {
     // Drives the REAL HTTP path, not a hand-built AxonFlowHttpError. Every
     // other rendering test in this file constructs the already-correctly-parsed
     // shape `{ error: "<reason>" }`, which tests the renderer and not the path
     // — so neither half of this defect could fail a test:
-    //   1. createOverride/revokeOverride wrapped the raw wire text as
+    //   1. the override calls wrapped the raw wire text as
     //      `{ error: <the whole JSON envelope> }`, rendering double-wrapped
     //      JSON and eating cap budget before truncation even applied;
     //   2. the cap then cut the remedies off.
@@ -411,12 +413,8 @@ describe("the platform's identity-required 401 survives rendering intact", () =>
     ) as unknown as typeof fetch;
     try {
       const client = new AxonFlowClient(config());
-      const tool = buildCreateOverrideTool({ current: client } as unknown as ClientRef);
-      const res = await tool.execute("c-3069", {
-        policy_id: "sys_pii_email",
-        policy_type: "static",
-        override_reason: "testing",
-      });
+      const tool = buildListOverridesTool({ current: client } as unknown as ClientRef);
+      const res = await tool.execute("c-3069", {});
       const shown = res.content[0]?.text ?? "";
 
       expect(res.isError).toBe(true);
@@ -540,17 +538,13 @@ describe("mcpCheckInput / mcpCheckOutput 401 body", () => {
 
 describe("agent tool error rendering", () => {
   function clientRefRejecting(err: unknown): ClientRef {
-    return { current: { createOverride: jest.fn().mockRejectedValue(err) } } as unknown as ClientRef;
+    return { current: { listOverridesStrict: jest.fn().mockRejectedValue(err) } } as unknown as ClientRef;
   }
 
-  const args = {
-    policy_id: "sys_pii_email",
-    policy_type: "static",
-    override_reason: "testing",
-  };
+  const args = {};
 
   it("surfaces the platform reason to the agent instead of a bare status line", async () => {
-    const tool = buildCreateOverrideTool(
+    const tool = buildListOverridesTool(
       clientRefRejecting(
         new AxonFlowHttpError(
           401,
@@ -568,8 +562,8 @@ describe("agent tool error rendering", () => {
   });
 
   it("keeps the bare status line when the platform sends no reason", async () => {
-    const tool = buildCreateOverrideTool(
-      clientRefRejecting(new AxonFlowHttpError(401, "Unauthorized", {}, "create override")),
+    const tool = buildListOverridesTool(
+      clientRefRejecting(new AxonFlowHttpError(401, "Unauthorized", {}, "list overrides")),
     );
     const res = await tool.execute("c2", args);
     expect(res.content[0]?.text).toBe("Error: HTTP 401 Unauthorized");
@@ -577,8 +571,8 @@ describe("agent tool error rendering", () => {
 
   it("keeps the body available on details, redacted", async () => {
     const body = { error: "nope", code: "IDENTITY_UNTRUSTED", docs: "https://example/doc" };
-    const tool = buildCreateOverrideTool(
-      clientRefRejecting(new AxonFlowHttpError(401, "Unauthorized", body, "create override")),
+    const tool = buildListOverridesTool(
+      clientRefRejecting(new AxonFlowHttpError(401, "Unauthorized", body, "list overrides")),
     );
     const res = await tool.execute("c3", args);
     expect((res.details as Record<string, unknown>)["body"]).toEqual(body);
@@ -592,8 +586,8 @@ describe("agent tool error rendering", () => {
       error: "rejected",
       request: { headers: { authorization: "Basic dGVuYW50OnN1cGVyLXNlY3JldA==" } },
     };
-    const tool = buildCreateOverrideTool(
-      clientRefRejecting(new AxonFlowHttpError(401, "Unauthorized", body, "create override")),
+    const tool = buildListOverridesTool(
+      clientRefRejecting(new AxonFlowHttpError(401, "Unauthorized", body, "list overrides")),
     );
     const res = await tool.execute("c7", args);
     const rendered = JSON.stringify(res.details);
@@ -604,9 +598,9 @@ describe("agent tool error rendering", () => {
   });
 
   it("renders a malformed reason without crashing the tool", async () => {
-    const tool = buildCreateOverrideTool(
+    const tool = buildListOverridesTool(
       clientRefRejecting(
-        new AxonFlowHttpError(401, "Unauthorized", { error: { nested: true } } as unknown as Record<string, unknown>, "create override"),
+        new AxonFlowHttpError(401, "Unauthorized", { error: { nested: true } } as unknown as Record<string, unknown>, "list overrides"),
       ),
     );
     const res = await tool.execute("c4", args);
@@ -614,7 +608,7 @@ describe("agent tool error rendering", () => {
   });
 
   it("still reports non-HTTP errors by their message", async () => {
-    const tool = buildCreateOverrideTool(clientRefRejecting(new Error("fetch failed")));
+    const tool = buildListOverridesTool(clientRefRejecting(new Error("fetch failed")));
     const res = await tool.execute("c5", args);
     expect(res.content[0]?.text).toContain("fetch failed");
   });

@@ -4,8 +4,6 @@
 // isolation by verify-assertions-fail.mjs — proving the gate is not a
 // no-op even before it runs against a live stack.
 
-const ELEVATED_RISK_LEVELS = new Set(['high', 'critical']);
-
 export class AssertionFailures extends Error {
   constructor(failures) {
     super(`assertion(s) failed: ${failures.length}`);
@@ -25,12 +23,11 @@ function collectDenyFailures(response, label = 'deny') {
   if (typeof response.decision_id !== 'string' || response.decision_id.length === 0) {
     failures.push(`${label}: missing or empty decision_id`);
   }
-  if (typeof response.risk_level !== 'string' || response.risk_level.length === 0) {
-    failures.push(`${label}: missing or empty risk_level`);
-  } else if (!ELEVATED_RISK_LEVELS.has(response.risk_level)) {
-    failures.push(
-      `${label}: expected risk_level one of [${[...ELEVATED_RISK_LEVELS].join(', ')}], got ${JSON.stringify(response.risk_level)}`,
-    );
+  // A deny names its reason. risk_level is not asserted: from AxonFlow
+  // v11.0.0 a check-input deny carries no risk_level (measured on a v11
+  // community stack: allowed, block_reason, decision_id, policy_matches).
+  if (typeof response.block_reason !== 'string' || response.block_reason.length === 0) {
+    failures.push(`${label}: missing or empty block_reason`);
   }
   if (!Array.isArray(response.policy_matches) || response.policy_matches.length === 0) {
     failures.push(`${label}: missing or empty policy_matches`);
@@ -62,8 +59,8 @@ function collectAllowFailures(response, label = 'allow') {
   return failures;
 }
 
-export function assertSqliDeny(response) {
-  const failures = collectDenyFailures(response, 'sqli-deny');
+export function assertPolicyDeny(response) {
+  const failures = collectDenyFailures(response, 'policy-deny');
   if (failures.length > 0) throw new AssertionFailures(failures);
 }
 
@@ -72,4 +69,4 @@ export function assertBenignAllow(response) {
   if (failures.length > 0) throw new AssertionFailures(failures);
 }
 
-export const __test = { collectDenyFailures, collectAllowFailures, ELEVATED_RISK_LEVELS };
+export const __test = { collectDenyFailures, collectAllowFailures };

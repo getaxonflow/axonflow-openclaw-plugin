@@ -1,8 +1,10 @@
 /**
- * Tests for Plugin Batch 1: explainDecision + session overrides (ADR-042 + ADR-043).
+ * Tests for Plugin Batch 1: explainDecision and the richer block context
+ * (ADR-042 + ADR-043). The session override writes are retired from AxonFlow
+ * v11.0.0 and the client no longer offers them (agent-tools.test.ts pins that).
  */
 
-import { AxonFlowClient, AxonFlowHttpError } from "../src/axonflow-client.js";
+import { AxonFlowClient } from "../src/axonflow-client.js";
 
 const mockFetch = jest.fn();
 global.fetch = mockFetch as unknown as typeof fetch;
@@ -14,15 +16,6 @@ function makeClient() {
     clientSecret: "test-secret",
     mode: "self-hosted",
   });
-}
-
-function textResponse(status: number, body: string) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    statusText: status === 200 ? "OK" : "Error",
-    text: () => Promise.resolve(body),
-  };
 }
 
 function jsonResponse(status: number, body: Record<string, unknown>) {
@@ -104,122 +97,6 @@ describe("AxonFlowClient.explainDecision (ADR-043)", () => {
     mockFetch.mockRejectedValueOnce(new Error("network down"));
     const result = await client.explainDecision("dec-1");
     expect(result).toBeNull();
-  });
-});
-
-describe("AxonFlowClient.createOverride (ADR-042)", () => {
-  it("throws for empty override reason (ADR-042 mandatory justification)", async () => {
-    const client = makeClient();
-    await expect(
-      client.createOverride({
-        policyId: "p-1",
-        policyType: "static",
-        overrideReason: "",
-      }),
-    ).rejects.toThrow(/required/);
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it("throws for whitespace-only reason", async () => {
-    const client = makeClient();
-    await expect(
-      client.createOverride({
-        policyId: "p-1",
-        policyType: "static",
-        overrideReason: "   \n  ",
-      }),
-    ).rejects.toThrow(/required/);
-  });
-
-  it("posts full payload on success and returns the created override", async () => {
-    const client = makeClient();
-    const serverResponse = {
-      id: "ov-abc",
-      policy_id: "p-1",
-      policy_type: "static",
-      expires_at: "2026-04-17T13:00:00Z",
-      ttl_seconds: 3600,
-      created_at: "2026-04-17T12:00:00Z",
-    };
-    mockFetch.mockResolvedValueOnce(jsonResponse(201, serverResponse));
-
-    const result = await client.createOverride({
-      policyId: "p-1",
-      policyType: "static",
-      overrideReason: "Debugging production issue",
-      toolSignature: "Bash",
-      ttlSeconds: 1800,
-    });
-
-    expect(result.id).toBe("ov-abc");
-
-    const call = mockFetch.mock.calls[0];
-    expect(call[0]).toContain("/api/v1/overrides");
-    expect((call[1] as { method: string }).method).toBe("POST");
-    const sentBody = JSON.parse((call[1] as { body: string }).body);
-    expect(sentBody.policy_id).toBe("p-1");
-    expect(sentBody.override_reason).toBe("Debugging production issue");
-    expect(sentBody.tool_signature).toBe("Bash");
-    expect(sentBody.ttl_seconds).toBe(1800);
-  });
-
-  it("throws AxonFlowHttpError on 403 (critical-risk policy)", async () => {
-    const client = makeClient();
-    mockFetch.mockResolvedValueOnce(
-      textResponse(403, "Critical-risk policies cannot be overridden"),
-    );
-    await expect(
-      client.createOverride({
-        policyId: "p-critical",
-        policyType: "static",
-        overrideReason: "test",
-      }),
-    ).rejects.toThrow(AxonFlowHttpError);
-  });
-
-  it("omits tool_signature + ttl_seconds when unset", async () => {
-    const client = makeClient();
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse(201, {
-        id: "ov-1",
-        policy_id: "p-1",
-        policy_type: "static",
-        expires_at: "2026-04-17T13:00:00Z",
-        ttl_seconds: 3600,
-        created_at: "2026-04-17T12:00:00Z",
-      }),
-    );
-    await client.createOverride({
-      policyId: "p-1",
-      policyType: "static",
-      overrideReason: "test",
-    });
-    const sentBody = JSON.parse((mockFetch.mock.calls[0][1] as { body: string }).body);
-    expect(sentBody.tool_signature).toBeUndefined();
-    expect(sentBody.ttl_seconds).toBeUndefined();
-  });
-});
-
-describe("AxonFlowClient.revokeOverride", () => {
-  it("throws for empty override id", async () => {
-    const client = makeClient();
-    await expect(client.revokeOverride("")).rejects.toThrow(/required/);
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it("DELETEs the correct URL on success", async () => {
-    const client = makeClient();
-    mockFetch.mockResolvedValueOnce(jsonResponse(200, { id: "ov-1" }));
-    await client.revokeOverride("ov-1");
-    const call = mockFetch.mock.calls[0];
-    expect(call[0]).toContain("/api/v1/overrides/ov-1");
-    expect((call[1] as { method: string }).method).toBe("DELETE");
-  });
-
-  it("throws AxonFlowHttpError on 404", async () => {
-    const client = makeClient();
-    mockFetch.mockResolvedValueOnce(textResponse(404, "Override not found"));
-    await expect(client.revokeOverride("ov-missing")).rejects.toThrow(AxonFlowHttpError);
   });
 });
 

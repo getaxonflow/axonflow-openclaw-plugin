@@ -58,8 +58,6 @@ export {
   buildExplainDecisionTool,
   buildListRecentDecisionsTool,
   buildListOverridesTool,
-  buildCreateOverrideTool,
-  buildRevokeOverrideTool,
 } from "./agent-tools.js";
 export type { AgentToolDef } from "./agent-tools.js";
 // W3 free-tier email-based credential recovery (ADR-049 section 6) —
@@ -307,7 +305,13 @@ export function registerAxonFlowGovernance(api: {
     if (healthy) {
       api.logger.info(`AxonFlow connected: ${config.endpoint}`);
     } else {
-      const msg = `AxonFlow health check failed: ${config.endpoint} is unreachable. Governance hooks will ${config.onError === "allow" ? "fail-open (allow through)" : "fail-closed (block)"}`;
+      // #196: an unreachable endpoint is the no-usable-answer row. Governed
+      // tool calls follow failMode; message_sending follows onError. The old
+      // text named only onError, which never governed this row for tool calls.
+      const msg =
+        `AxonFlow health check failed: ${config.endpoint} is unreachable. While it stays unreachable, ` +
+        `governed tool calls ${config.failMode === "closed" ? 'are blocked (failMode "closed")' : 'run ungoverned, with a one-time notice (failMode "open")'}, ` +
+        `and outbound messages are ${config.onError === "allow" ? 'delivered ungoverned (onError "allow")' : 'cancelled (onError "block")'}.`;
       if (api.logger.warn) {
         api.logger.warn(msg);
       } else {

@@ -14,13 +14,16 @@ import {
   recordMessageRedacted,
   recordGovernanceError,
 } from "./metrics.js";
+import { noteUngovernedFailOpen } from "./fail-open-notice.js";
 
 /**
  * Create the message_sending hook handler.
  *
  * Evaluates outbound message content against AxonFlow output policies.
  * Can cancel (prevent sending) or redact (modify content) before delivery.
- * Respects config.onError for fail-open/fail-closed behavior.
+ * Respects config.onError for every failure of the check: "block" (the
+ * default) cancels the message; "allow" delivers it ungoverned, and says so
+ * once per process (#196: it used to deliver it silently).
  */
 export function createMessageSendingHandler(
   clientRef: ClientRef,
@@ -43,9 +46,14 @@ export function createMessageSendingHandler(
         "openclaw.message_sending",
         event.content,
       );
-    } catch {
+    } catch (err) {
       recordGovernanceError();
       if (config.onError === "allow") {
+        const endpoint =
+          (typeof clientRef.current.getEndpoint === "function"
+            ? clientRef.current.getEndpoint()
+            : "") || config.endpoint;
+        noteUngovernedFailOpen(endpoint, err, "outbound message");
         return undefined; // Fail-open: allow message through ungoverned
       }
       recordMessageCancelled();

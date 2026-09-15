@@ -124,21 +124,12 @@ describe("X-License-Token forwarding", () => {
     );
   });
 
-  it("includes X-License-Token on createOverride / revokeOverride / listOverrides", async () => {
+  it("includes X-License-Token on listOverrides", async () => {
     const client = makeProClient();
-    mockFetch.mockResolvedValueOnce(jsonResponse(201, { id: "ov_1" }));
-    await client.createOverride({
-      policyId: "p",
-      policyType: "static",
-      overrideReason: "test",
-    });
-
-    mockFetch.mockResolvedValueOnce(jsonResponse(204, {}));
-    await client.revokeOverride("ov_1");
-
     mockFetch.mockResolvedValueOnce(jsonResponse(200, { overrides: [], count: 0 }));
     await client.listOverrides();
 
+    expect(mockFetch).toHaveBeenCalledTimes(1);
     for (const call of mockFetch.mock.calls) {
       expect(call[1]?.headers).toEqual(
         expect.objectContaining({ "X-License-Token": "AXON-test-pro-token-abcdef" }),

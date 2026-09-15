@@ -176,7 +176,18 @@ async function readErrorBody(
   response: Response,
   timeoutMs: number,
 ): Promise<Record<string, unknown>> {
-  if (typeof response.text !== "function") return {};
+  if (typeof response.text !== "function") {
+    // A Response always has text(); a test double may expose only json().
+    if (typeof response.json !== "function") return {};
+    try {
+      const parsed: unknown = await response.json();
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
   let text: string;
   try {
     // `fetchWithTimeout` clears its abort timer once the RESPONSE resolves,
@@ -242,6 +253,41 @@ export class AxonFlowHttpError extends Error {
     // Preserve prototype chain for instanceof checks across module boundaries.
     Object.setPrototypeOf(this, AxonFlowHttpError.prototype);
   }
+}
+
+/**
+ * A governed check refused because a request limit was reached: an HTTP 429,
+ * a V1 limit envelope (on a 429 or a 403), or the back-off deadline an earlier
+ * limit stamped (#196). Its own class so governance.ts reads it as the limit
+ * row of the posture table: a 403 carrying an envelope is a limit, not a
+ * credential failure, and the back-off short-circuit sends no request at all.
+ */
+export class AxonFlowLimitError extends AxonFlowHttpError {
+  readonly limitType: string | undefined;
+
+  constructor(
+    status: number,
+    statusText: string,
+    responseBody: Record<string, unknown>,
+    context: string,
+    limitType?: string,
+  ) {
+    super(status, statusText, responseBody, context);
+    this.name = "AxonFlowLimitError";
+    this.limitType = limitType;
+    Object.setPrototypeOf(this, AxonFlowLimitError.prototype);
+  }
+}
+
+/**
+ * Whether a refused check's body carries the platform's decision. The
+ * check-input and check-output routes answer a policy deny as HTTP 403 with
+ * `allowed: false` and a `block_reason` (measured on AxonFlow v11.0.0). A 403
+ * with neither, such as a proxy's refusal or a bare `{"error": "..."}`, is
+ * not a decision (#196).
+ */
+function isDecisionBody(body: Record<string, unknown>): boolean {
+  return body["allowed"] === false || typeof body["block_reason"] === "string";
 }
 
 export interface MCPCheckInputResponse {
@@ -337,27 +383,6 @@ export interface DecisionExplanation {
   historical_hit_count_session: number;
   policy_source_link?: string;
   tool_signature?: string;
-}
-
-// ADR-042: Session override types.
-export interface CreateOverrideOptions {
-  policyId: string;
-  policyType: "static" | "dynamic";
-  overrideReason: string; // mandatory per ADR-042
-  toolSignature?: string;
-  ttlSeconds?: number; // clamped server-side (default 60m, hard cap 24h)
-}
-
-export interface CreateOverrideResult {
-  id: string;
-  policy_id: string;
-  policy_type: string;
-  expires_at: string;
-  ttl_seconds: number;
-  requested_ttl?: number;
-  clamped?: boolean;
-  clamped_reason?: string;
-  created_at: string;
 }
 
 /**
@@ -511,24 +536,34 @@ export class AxonFlowClient {
   // firing audit POSTs on every tool execution. Over a long-lived
   // OpenClaw process this multiplies into hundreds of 401s/day.
   //
-  // Fix: once any auth-bearing call observes a 401, flip the flag and
+  // Fix: once a tenant-credential route observes a 401, flip the flag and
   // short-circuit every subsequent governed/audit call without round-
   // tripping. Process-local — a new AxonFlowClient instance (e.g. after
   // config reload) starts fresh.
   //
-  // 2026-05-20 follow-up hardening: 401 detection is centralized in
-  // fetchWithTimeout so EVERY fetch site (~19 endpoints — search, explain,
-  // overrides, health, listRecentDecisions, callMCPTool, etc.) flips the
-  // flag, not just the four high-volume entry points that short-circuit
-  // on the NEXT call. mcpCheckInput / mcpCheckOutput also detect 401
-  // BEFORE response.json() so a non-JSON 401 body (text/plain from
-  // ALB / nginx / WAF / API Gateway) doesn't throw SyntaxError and
-  // propagate past the typed-error contract.
+  // Only the tenant-credential routes arm it (#196): check-input,
+  // check-output and the tool-call audit. A 401 there is the tenant
+  // credential failing. A 401 on any other route is an identity refusal or
+  // that route's own posture (the override writes answer 401 to a caller
+  // with no per-user identity), and it never locks the governed routes; see
+  // fetchWithTimeout. mcpCheckInput / mcpCheckOutput detect 401 BEFORE
+  // reading the body so a non-JSON 401 (text/plain from ALB / nginx / WAF /
+  // API Gateway) keeps the typed-error contract.
   private authFailed: boolean = false;
   // Companion to authFailed — guards `console.warn` so the operator sees
   // the failure exactly once per process lifetime, even if multiple
   // methods cross the 401 boundary concurrently.
   private authWarningEmitted: boolean = false;
+  // One MCP session reused across agent-tool calls (#196). The platform counts
+  // `initialize` and `tools/call` against the per-minute request limit, so a
+  // fresh session per call spent two requests. A platform session keeps the
+  // identity it was created with, so a revoked X-User-Token keeps reaching the
+  // agent tools for as long as the session is reused: MCP_SESSION_MAX_AGE_MS
+  // bounds that, and any answer that is not a clean result drops the session.
+  // The governed routes (check-input / check-output) use no MCP session.
+  private mcpSession: { id: string; createdAtMs: number } | null = null;
+  /** How long a cached MCP session is reused before a new one is initialized. */
+  static readonly MCP_SESSION_MAX_AGE_MS = 5 * 60 * 1000;
   constructor(config: AxonFlowPluginConfig) {
     // Strip trailing slashes without regex (avoids ReDoS on polynomial patterns)
     let ep = config.endpoint;
@@ -539,9 +574,8 @@ export class AxonFlowClient {
       `${config.clientId}:${config.clientSecret}`,
     ).toString("base64");
     this.authHeader = `Basic ${credentials}`;
-    // Store per-user identity for Plugin Batch 1 endpoints — createOverride /
-    // revokeOverride / listOverrides all require it, and explain's
-    // historical_hit_count scope depends on it.
+    // Store per-user identity for Plugin Batch 1 endpoints — listOverrides
+    // requires it, and explain's historical_hit_count scope depends on it.
     this.userEmail = config.userEmail && config.userEmail.trim()
       ? config.userEmail.trim()
       : undefined;
@@ -659,14 +693,12 @@ export class AxonFlowClient {
   /**
    * Issue #2275 — process-local auth-failure circuit breaker.
    *
-   * Returns true once any auth-bearing call has observed an HTTP 401.
-   * Test-only / introspection helper; production callers do NOT need to
-   * branch on this — the four governed/audit entry points consult the
-   * private `authFailed` flag directly and short-circuit BEFORE issuing
-   * the network call. Detection is centralized in `fetchWithTimeout` so
-   * EVERY caller (~19 fetch sites) participates in flag-flipping, even
-   * if only the four high-volume entry points short-circuit on the next
-   * call.
+   * Returns true once a tenant-credential route (check-input, check-output,
+   * or the tool-call audit auditToolCall and auditLLMCall post to) has
+   * answered HTTP 401. Test-only / introspection helper; production callers
+   * do NOT need to branch on this — those entry points consult the private
+   * `authFailed` flag directly and short-circuit BEFORE issuing the network
+   * call. See `fetchWithTimeout` for why no other route arms it.
    */
   isAuthFailed(): boolean {
     return this.authFailed;
@@ -675,8 +707,8 @@ export class AxonFlowClient {
   /**
    * Issue #2275 — flip the circuit breaker.
    *
-   * Called from any entry point that observes a real HTTP 401 from the
-   * platform. Idempotent: only emits the operator-visible warning the
+   * Called when a tenant-credential route answers HTTP 401 (see
+   * `fetchWithTimeout`). Idempotent: only emits the operator-visible warning the
    * first time it's invoked per process lifetime (guarded by the
    * companion `authWarningEmitted` flag). Concurrent 401s from sibling
    * methods all land in the same single warn — both the flag-set and
@@ -758,6 +790,7 @@ export class AxonFlowClient {
   private async fetchWithTimeout(
     url: string,
     init?: RequestInit,
+    options?: { tenantCredentialRoute?: boolean },
   ): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.requestTimeoutMs);
@@ -771,19 +804,26 @@ export class AxonFlowClient {
     } finally {
       clearTimeout(timeoutId);
     }
-    // Issue #2275 follow-up — centralize 401 detection at the single fetch
-    // chokepoint so the breaker engages regardless of which entry point
-    // is responsible for the network call. Pre-fix, only four of ~19
-    // fetch sites checked status === 401 — bad creds caused 401 storms
-    // on every other endpoint (search, explain, overrides, health,
-    // listRecentDecisions, etc.) just at lower volume than the audit
-    // endpoint. With this centralized hook, every call site benefits.
+    // Issue #2275: the auth-failure breaker is armed here, at the one fetch
+    // chokepoint, but ONLY for a tenant-credential route (#196). The four
+    // callers that pass `tenantCredentialRoute` (mcpCheckInput,
+    // mcpCheckOutput, auditToolCall, auditLLMCall) authenticate with the
+    // tenant credential alone and need no per-user identity, so a 401 there
+    // means that credential failed and every later governed call would fail
+    // the same way; they are also the high-volume routes the 716 x 401 storm
+    // came from. Every other route (the override writes, explain, search, the
+    // decision list, the agent-tools MCP server, health) can answer 401 for a
+    // reason that is not the tenant credential: an identity refusal (the
+    // override writes refuse a caller with no per-user identity) or that
+    // route's own posture. Arming the breaker there locked every governed
+    // tool call for the session after one refused override (#196). A refusal
+    // never opens the breaker; a failing tenant credential still does, on the
+    // next governed call.
     //
     // Idempotent: markAuthFailed() guards its own warn emit via the
     // authWarningEmitted flag, so concurrent 401s from sibling methods
-    // all land in the same single warn even though we don't gate
-    // markAuthFailed() itself behind !this.authFailed here.
-    if (response.status === 401) {
+    // all land in the same single warn.
+    if (response.status === 401 && options?.tenantCredentialRoute === true) {
       this.markAuthFailed();
     }
     return response;
@@ -809,13 +849,18 @@ export class AxonFlowClient {
         "check-input",
       );
     }
-    // V1 Plugin Pro back-off: when a recent governed call returned a
-    // 429 / 403 envelope, the throttle stamp suppresses outbound traffic
-    // until the deadline. Fall open immediately so the user's tool isn't
-    // held up while we wait the cap out (the upgrade prompt was already
-    // surfaced when the throttle landed).
+    // V1 Plugin Pro back-off: an earlier governed call reached a limit and
+    // stamped its deadline, so no request is sent until it passes. That is
+    // the limit row of the posture table (#196): the check is refused as a
+    // limit, which denies under onError=block and runs with the one-shot
+    // notice under onError=allow. It used to answer "allowed".
     if (isThrottleActive()) {
-      return { allowed: true, policies_evaluated: 0 };
+      throw new AxonFlowLimitError(
+        429,
+        "Too Many Requests",
+        { error: "a request limit was reached and its back-off is still in effect" },
+        "check-input",
+      );
     }
     const url = `${this.endpoint}/api/v1/mcp/check-input`;
     const response = await this.fetchWithTimeout(url, {
@@ -826,7 +871,7 @@ export class AxonFlowClient {
         statement,
         operation,
       }),
-    });
+    }, { tenantCredentialRoute: true });
 
     // Issue #2275 follow-up — detect 401 BEFORE response.json() so a
     // non-JSON 401 body (text/plain "Unauthorized" from ALB / nginx /
@@ -848,52 +893,69 @@ export class AxonFlowClient {
       );
     }
 
-    const data = (await response.json()) as Record<string, unknown>;
-
-    // V1 Plugin Pro envelope detection runs BEFORE the policy-block
-    // branch — an envelope-bearing 403 (graduated cap, Pro-only feature)
-    // is structurally distinguishable from a policy-block 403 by its
-    // `limit_type` field, and the user-facing semantics differ:
-    // policy block = "this tool call hit a policy",
-    // envelope = "this account hit a tier cap; Pro removes it".
-    if (this.handleEnvelope(response.status, data, response)) {
-      // Cap reached — fall open (allowed=true). The wording was already
-      // surfaced via the upgrade-prompt logger and a throttle deadline
-      // was stamped so the next call short-circuits at the gate.
-      return {
-        allowed: true,
-        policies_evaluated: 0,
-      };
-    }
-
-    if (response.status === 403) {
-      return {
-        allowed: false,
-        block_reason:
-          typeof data["block_reason"] === "string"
-            ? data["block_reason"]
-            : typeof data["error"] === "string"
-              ? data["error"]
-              : "Blocked by policy",
-        policies_evaluated: extractPoliciesEvaluated(data),
-        ...extractRicherContext(data),
-      };
-    }
-
+    // Every other non-2xx is read through the one body reader (JSON and
+    // plain-text bodies alike) and classified by its STATUS, never by whether
+    // the body parses (#196):
+    //   - a V1 limit envelope (on a 429 or a 403), or any 429: the limit row
+    //     (AxonFlowLimitError), which denies under onError=block;
+    //   - a 403 carrying the platform's decision (allowed:false or a
+    //     block_reason, measured on v11.0.0): the policy deny it is;
+    //   - anything else: AxonFlowHttpError with its status, which
+    //     governance.ts reads as a refusal (3xx, 4xx) or as no usable answer
+    //     (408, 5xx).
     if (!response.ok) {
-      // 401 already handled above (pre-json branch). Any other non-2xx
-      // status is treated as transient: since #167 the classifier decides
-      // on the numeric status alone, so these ALWAYS fail open in
-      // before_tool_call regardless of config.onError, and emit the
-      // one-shot ungoverned notice. config.onError governs 401/403 only.
+      const body = await readErrorBody(response, this.requestTimeoutMs);
+      const envelope = this.handleEnvelope(response.status, body, response);
+      if (envelope || response.status === 429) {
+        throw new AxonFlowLimitError(
+          response.status,
+          response.statusText,
+          body,
+          "check-input",
+          envelope?.limit_type,
+        );
+      }
+      if (response.status === 403 && isDecisionBody(body)) {
+        return {
+          allowed: false,
+          block_reason:
+            typeof body["block_reason"] === "string"
+              ? body["block_reason"]
+              : typeof body["error"] === "string"
+                ? body["error"]
+                : "Blocked by policy",
+          policies_evaluated: extractPoliciesEvaluated(body),
+          ...extractRicherContext(body),
+        };
+      }
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
-        data,
+        body,
         "check-input",
       );
     }
 
+    // A 2xx that is not a JSON object carries no decision: no usable answer.
+    let data: Record<string, unknown>;
+    try {
+      data = (await response.json()) as Record<string, unknown>;
+    } catch {
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: "the answer was not JSON" },
+        "check-input",
+      );
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: "the answer was not a JSON object" },
+        "check-input",
+      );
+    }
     return {
       allowed: data["allowed"] === true,
       block_reason:
@@ -926,9 +988,14 @@ export class AxonFlowClient {
         "check-output",
       );
     }
-    // V1 Plugin Pro back-off — same rationale as mcpCheckInput.
+    // V1 Plugin Pro back-off — the limit row, as in mcpCheckInput.
     if (isThrottleActive()) {
-      return { allowed: true, policies_evaluated: 0 };
+      throw new AxonFlowLimitError(
+        429,
+        "Too Many Requests",
+        { error: "a request limit was reached and its back-off is still in effect" },
+        "check-output",
+      );
     }
     const url = `${this.endpoint}/api/v1/mcp/check-output`;
     const response = await this.fetchWithTimeout(url, {
@@ -938,7 +1005,7 @@ export class AxonFlowClient {
         connector_type: connectorType,
         message,
       }),
-    });
+    }, { tenantCredentialRoute: true });
 
     // Issue #2275 follow-up — detect 401 BEFORE response.json() (see
     // mcpCheckInput for full rationale). Mirror the exact AxonFlowHttpError
@@ -954,46 +1021,69 @@ export class AxonFlowClient {
       );
     }
 
-    const data = (await response.json()) as Record<string, unknown>;
-
-    // V1 Plugin Pro envelope detection — see mcpCheckInput for rationale.
-    // Output scan falls open on cap (no PII detection during back-off
-    // is acceptable — the upgrade prompt was already surfaced).
-    if (this.handleEnvelope(response.status, data, response)) {
-      return {
-        allowed: true,
-        policies_evaluated: 0,
-      };
-    }
-
-    if (response.status === 403) {
-      return {
-        allowed: false,
-        block_reason:
-          typeof data["block_reason"] === "string"
-            ? data["block_reason"]
-            : typeof data["error"] === "string"
-              ? data["error"]
-              : "Blocked by policy",
-        policies_evaluated: extractPoliciesEvaluated(data),
-        ...extractRicherContext(data),
-      };
-    }
-
+    // Every other non-2xx is read through the one body reader (JSON and
+    // plain-text bodies alike) and classified by its STATUS, never by whether
+    // the body parses (#196):
+    //   - a V1 limit envelope (on a 429 or a 403), or any 429: the limit row
+    //     (AxonFlowLimitError), which denies under onError=block;
+    //   - a 403 carrying the platform's decision (allowed:false or a
+    //     block_reason, measured on v11.0.0): the policy deny it is;
+    //   - anything else: AxonFlowHttpError with its status, which
+    //     governance.ts reads as a refusal (3xx, 4xx) or as no usable answer
+    //     (408, 5xx).
     if (!response.ok) {
-      // 401 already handled above (pre-json branch). Any other non-2xx
-      // status is treated as transient: since #167 the classifier decides
-      // on the numeric status alone, so these ALWAYS fail open in
-      // before_tool_call regardless of config.onError, and emit the
-      // one-shot ungoverned notice. config.onError governs 401/403 only.
+      const body = await readErrorBody(response, this.requestTimeoutMs);
+      const envelope = this.handleEnvelope(response.status, body, response);
+      if (envelope || response.status === 429) {
+        throw new AxonFlowLimitError(
+          response.status,
+          response.statusText,
+          body,
+          "check-output",
+          envelope?.limit_type,
+        );
+      }
+      if (response.status === 403 && isDecisionBody(body)) {
+        return {
+          allowed: false,
+          block_reason:
+            typeof body["block_reason"] === "string"
+              ? body["block_reason"]
+              : typeof body["error"] === "string"
+                ? body["error"]
+                : "Blocked by policy",
+          policies_evaluated: extractPoliciesEvaluated(body),
+          ...extractRicherContext(body),
+        };
+      }
       throw new AxonFlowHttpError(
         response.status,
         response.statusText,
-        data,
+        body,
         "check-output",
       );
     }
 
+    // A 2xx that is not a JSON object carries no decision: no usable answer.
+    let data: Record<string, unknown>;
+    try {
+      data = (await response.json()) as Record<string, unknown>;
+    } catch {
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: "the answer was not JSON" },
+        "check-output",
+      );
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: "the answer was not a JSON object" },
+        "check-output",
+      );
+    }
     return {
       allowed: data["allowed"] === true,
       block_reason:
@@ -1028,10 +1118,9 @@ export class AxonFlowClient {
     }
     const url = `${this.endpoint}/api/v1/audit/tool-call`;
     try {
-      // Issue #2275 follow-up — the centralized 401 detection in
-      // fetchWithTimeout flips the authFailed flag for us; no need for
-      // an explicit per-call response.status check here. Response value
-      // is intentionally discarded (fire-and-forget audit semantics).
+      // Issue #2275: a tenant-credential route, so a 401 here arms the breaker
+      // in fetchWithTimeout; no per-call status check is needed. The response
+      // value is intentionally discarded (fire-and-forget audit semantics).
       await this.fetchWithTimeout(url, {
         method: "POST",
         headers: this.baseHeaders(),
@@ -1053,7 +1142,7 @@ export class AxonFlowClient {
           error_message: error,
           duration_ms: durationMs,
         }),
-      });
+      }, { tenantCredentialRoute: true });
     } catch {
       // Audit failures are non-fatal
     }
@@ -1081,8 +1170,7 @@ export class AxonFlowClient {
     }
     const url = `${this.endpoint}/api/v1/audit/tool-call`;
     try {
-      // Issue #2275 follow-up — centralized 401 detection in
-      // fetchWithTimeout handles the breaker flip. See auditToolCall.
+      // Issue #2275: a tenant-credential route; see auditToolCall.
       await this.fetchWithTimeout(url, {
         method: "POST",
         headers: this.baseHeaders(),
@@ -1094,7 +1182,7 @@ export class AxonFlowClient {
           success: true,
           duration_ms: latencyMs,
         }),
-      });
+      }, { tenantCredentialRoute: true });
     } catch {
       // Audit failures are non-fatal
     }
@@ -1217,65 +1305,6 @@ export class AxonFlowClient {
       return (await response.json()) as DecisionExplanation;
     } catch {
       return null;
-    }
-  }
-
-  /**
-   * Create a session-scoped override for a policy the caller was blocked by.
-   *
-   * ADR-042 rules enforced server-side:
-   *   - TTL clamped to [1min, 24h], default 60m.
-   *   - Critical-risk policies rejected (403).
-   *   - allow_override=false policies rejected (403).
-   *   - Justification (overrideReason) is mandatory.
-   *
-   * Plugin does minimal client-side validation and lets the platform
-   * enforce invariants.
-   */
-  async createOverride(opts: CreateOverrideOptions): Promise<CreateOverrideResult> {
-    if (!opts.overrideReason || !opts.overrideReason.trim()) {
-      throw new Error("overrideReason is required (ADR-042: mandatory justification)");
-    }
-    const url = `${this.endpoint}/api/v1/overrides`;
-    const body: Record<string, unknown> = {
-      policy_id: opts.policyId,
-      policy_type: opts.policyType,
-      override_reason: opts.overrideReason,
-    };
-    if (opts.toolSignature) body.tool_signature = opts.toolSignature;
-    if (opts.ttlSeconds !== undefined) body.ttl_seconds = opts.ttlSeconds;
-
-    const response = await this.fetchWithTimeout(url, {
-      method: "POST",
-      headers: this.baseHeaders(),
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      throw new AxonFlowHttpError(
-        response.status,
-        response.statusText,
-        await readErrorBody(response, this.requestTimeoutMs),
-        "create override",
-      );
-    }
-    return (await response.json()) as CreateOverrideResult;
-  }
-
-  /** Revoke a previously-created override. */
-  async revokeOverride(overrideId: string): Promise<void> {
-    if (!overrideId) throw new Error("overrideId is required");
-    const url = `${this.endpoint}/api/v1/overrides/${encodeURIComponent(overrideId)}`;
-    const response = await this.fetchWithTimeout(url, {
-      method: "DELETE",
-      headers: this.baseHeaders(),
-    });
-    if (!response.ok) {
-      throw new AxonFlowHttpError(
-        response.status,
-        response.statusText,
-        await readErrorBody(response, this.requestTimeoutMs),
-        "revoke override",
-      );
     }
   }
 
@@ -1566,57 +1595,80 @@ export class AxonFlowClient {
     }
 
     const url = `${this.endpoint}/api/v1/mcp-server`;
-    // Step 1: initialize the MCP session.
-    const initResp = await this.fetchWithTimeout(url, {
-      method: "POST",
-      headers: this.baseHeaders(),
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "init",
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          clientInfo: { name: "openclaw-axonflow", version: VERSION },
-        },
-      }),
-    });
-    const sessionId = initResp.headers.get("mcp-session-id");
-    if (!sessionId) {
-      // initialize didn't return a session — probably an envelope-bearing
-      // 4xx (auth path is gated) or a protocol-level error. Detect
-      // envelope first so the operator still sees the upgrade prompt.
-      let initBody: unknown = null;
-      try {
-        initBody = await initResp.json();
-      } catch {
-        /* non-JSON; leave body null */
+    // Step 1: reuse the cached MCP session while it is younger than
+    // MCP_SESSION_MAX_AGE_MS, else initialize a new one (#196).
+    const nowMs = Date.now();
+    let sessionId =
+      this.mcpSession !== null &&
+      nowMs - this.mcpSession.createdAtMs < AxonFlowClient.MCP_SESSION_MAX_AGE_MS
+        ? this.mcpSession.id
+        : null;
+    if (sessionId === null) {
+      this.mcpSession = null;
+      const initResp = await this.fetchWithTimeout(url, {
+        method: "POST",
+        headers: this.baseHeaders(),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "init",
+          method: "initialize",
+          params: {
+            protocolVersion: "2024-11-05",
+            clientInfo: { name: "openclaw-axonflow", version: VERSION },
+          },
+        }),
+      });
+      const freshId = initResp.headers.get("mcp-session-id");
+      if (!freshId) {
+        // initialize didn't return a session — probably an envelope-bearing
+        // 4xx (auth path is gated) or a protocol-level error. Detect
+        // envelope first so the operator still sees the upgrade prompt.
+        let initBody: unknown = null;
+        try {
+          initBody = await initResp.json();
+        } catch {
+          /* non-JSON; leave body null */
+        }
+        const env = this.handleEnvelope(initResp.status, initBody, initResp);
+        if (env) {
+          return { kind: "envelope", envelope: env };
+        }
+        return {
+          kind: "error",
+          message: `MCP initialize returned no session-id (HTTP ${initResp.status})`,
+          status: initResp.status,
+        };
       }
-      const env = this.handleEnvelope(initResp.status, initBody, initResp);
-      if (env) {
-        return { kind: "envelope", envelope: env };
-      }
-      return {
-        kind: "error",
-        message: `MCP initialize returned no session-id (HTTP ${initResp.status})`,
-        status: initResp.status,
-      };
+      sessionId = freshId;
+      this.mcpSession = { id: freshId, createdAtMs: nowMs };
     }
 
-    // Step 2: call the tool.
-    const callResp = await this.fetchWithTimeout(url, {
-      method: "POST",
-      headers: { ...this.baseHeaders(), "mcp-session-id": sessionId },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: `call-${name}`,
-        method: "tools/call",
-        params: { name, arguments: args },
-      }),
-    });
+    // Step 2: call the tool. Any answer that is not a clean result drops the
+    // cached session, so the next call initializes a new one.
+    let callResp: Response;
+    try {
+      callResp = await this.fetchWithTimeout(url, {
+        method: "POST",
+        headers: { ...this.baseHeaders(), "mcp-session-id": sessionId },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: `call-${name}`,
+          method: "tools/call",
+          params: { name, arguments: args },
+        }),
+      });
+    } catch (err) {
+      this.mcpSession = null;
+      throw err;
+    }
+    if (!callResp.ok) {
+      this.mcpSession = null;
+    }
     let data: unknown;
     try {
       data = await callResp.json();
     } catch {
+      this.mcpSession = null;
       return {
         kind: "error",
         message: `MCP tools/call returned non-JSON (HTTP ${callResp.status})`,
@@ -1628,11 +1680,13 @@ export class AxonFlowClient {
     // when the agent's mcp_v1_pro_tools.go gate fires.
     const env = this.handleEnvelope(callResp.status, data, callResp);
     if (env) {
+      this.mcpSession = null;
       return { kind: "envelope", envelope: env };
     }
 
     const obj = data as Record<string, unknown>;
     if (obj["error"]) {
+      this.mcpSession = null;
       const err = obj["error"] as Record<string, unknown>;
       const msg = typeof err["message"] === "string" ? err["message"] : "JSON-RPC error";
       return { kind: "error", message: msg, status: callResp.status };
@@ -1642,6 +1696,7 @@ export class AxonFlowClient {
     const content = result?.["content"] as Array<{ type?: string; text?: string }> | undefined;
     const text = content?.[0]?.text;
     if (typeof text !== "string" || text.length === 0) {
+      this.mcpSession = null;
       return {
         kind: "error",
         message: "MCP tools/call result missing content[0].text",

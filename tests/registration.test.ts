@@ -95,7 +95,7 @@ describe("registerAxonFlowGovernance", () => {
     );
   });
 
-  it("registers all 10 agent-callable tools when registerTool API is present", () => {
+  it("registers all 9 agent-callable tools when registerTool API is present (the override writes are retired)", () => {
     const registered: Array<{ name: string; description: string }> = [];
     const logger = { info: jest.fn(), error: jest.fn() };
     const api = {
@@ -115,10 +115,9 @@ describe("registerAxonFlowGovernance", () => {
 
     registerAxonFlowGovernance(api);
 
-    expect(api.registerTool).toHaveBeenCalledTimes(11);
+    expect(api.registerTool).toHaveBeenCalledTimes(9);
     expect(registered.map((t) => t.name).sort()).toEqual([
       "axonflow_audit_search",
-      "axonflow_create_override",
       "axonflow_create_tenant_policy",
       "axonflow_explain_decision",
       "axonflow_get_cost_estimate",
@@ -127,10 +126,9 @@ describe("registerAxonFlowGovernance", () => {
       "axonflow_list_pro_features",
       "axonflow_list_recent_decisions",
       "axonflow_request_approval",
-      "axonflow_revoke_override",
     ]);
     expect(logger.info).toHaveBeenCalledWith(
-      "[AxonFlow] Registered 11 agent-callable tools",
+      "[AxonFlow] Registered 9 agent-callable tools",
     );
   });
 
@@ -151,6 +149,39 @@ describe("registerAxonFlowGovernance", () => {
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("OpenClaw runtime does not expose registerTool"),
     );
+  });
+
+  describe("the startup warning for an unreachable endpoint names both switches (#196)", () => {
+    async function warnFor(pluginConfig: Record<string, unknown>): Promise<string> {
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
+      const api = { pluginConfig, logger, on: jest.fn(), registerTool: jest.fn() };
+      registerAxonFlowGovernance(api);
+      // The health check is fire-and-forget: let its fetch (a 503 here) settle.
+      for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+      const call = logger.warn.mock.calls.find((c: unknown[]) =>
+        String(c[0]).startsWith("AxonFlow health check failed"),
+      );
+      return String(call?.[0] ?? "");
+    }
+
+    it("failMode open, onError block: tool calls run with the notice, messages are cancelled", async () => {
+      const msg = await warnFor({ endpoint: "http://localhost:8080", clientId: "test", clientSecret: "secret" });
+      expect(msg).toContain('governed tool calls run ungoverned, with a one-time notice (failMode "open")');
+      expect(msg).toContain('outbound messages are cancelled (onError "block")');
+      expect(msg).not.toContain("fail-closed");
+    });
+
+    it("failMode closed, onError allow: tool calls are blocked, messages are delivered", async () => {
+      const msg = await warnFor({
+        endpoint: "http://localhost:8080",
+        clientId: "test",
+        clientSecret: "secret",
+        failMode: "closed",
+        onError: "allow",
+      });
+      expect(msg).toContain('governed tool calls are blocked (failMode "closed")');
+      expect(msg).toContain('outbound messages are delivered ungoverned (onError "allow")');
+    });
   });
 
   it("rejects clientSecret without clientId regardless of mode", () => {

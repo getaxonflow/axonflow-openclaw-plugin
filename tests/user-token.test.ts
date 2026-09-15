@@ -348,19 +348,13 @@ describe("X-User-Token forwarding", () => {
     expect(lastRequestHeaders()["X-User-Token"]).toBe(VALID_TOKEN);
   });
 
-  it("includes X-User-Token on searchAuditEvents + explainDecision + override lifecycle", async () => {
+  it("includes X-User-Token on searchAuditEvents + explainDecision + listOverrides", async () => {
     const client = makeClient(VALID_TOKEN);
     await client.searchAuditEvents();
     await client.explainDecision("dec-1");
-    mockFetch.mockResolvedValue(jsonResponse(200, {
-      id: "ov-1", policy_id: "p", policy_type: "static", expires_at: "",
-      ttl_seconds: 60, created_at: "",
-    }));
-    await client.createOverride({
-      policyId: "p", policyType: "static", overrideReason: "test",
-    });
-    await client.revokeOverride("ov-1");
+    mockFetch.mockResolvedValue(jsonResponse(200, { overrides: [], count: 0 }));
     await client.listOverrides();
+    expect(mockFetch.mock.calls.length).toBe(3);
     for (let i = 0; i < mockFetch.mock.calls.length; i++) {
       expect(lastRequestHeaders(i)["X-User-Token"]).toBe(VALID_TOKEN);
     }
