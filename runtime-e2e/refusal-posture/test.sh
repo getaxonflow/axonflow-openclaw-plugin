@@ -149,7 +149,11 @@ elif printf '%s' "$LINE" | grep -q "$CURRENT_NONCE"; then
 else
   pass "R1: the governed tool call was blocked (its output never reached the agent)"
 fi
-if { printf '%s' "$LINE"; jq -r '.payloads[]?.text // empty' "$OUT" 2>/dev/null; cat "$ERR"; } | grep -qE "ERR_TIER_LIMIT_SERVICE_PRINCIPAL|refused the governance check"; then
+# Captured first and grepped from a here-string: under pipefail, `... | grep -q`
+# fails the pipeline whenever grep exits on its first match before the writer
+# is done (SIGPIPE), which reported a match as a miss.
+SESSION_TEXT="$(printf '%s\n' "$LINE"; jq -r '.payloads[]?.text // empty' "$OUT" 2>/dev/null; cat "$ERR")"
+if grep -qE "ERR_TIER_LIMIT_SERVICE_PRINCIPAL|refused the governance check" <<< "$SESSION_TEXT"; then
   pass "R1: the platform's refusal reached the session"
 else
   fail "R1: no refusal text (ERR_TIER_LIMIT_SERVICE_PRINCIPAL / refused the governance check) in the session"
