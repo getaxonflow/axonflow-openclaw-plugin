@@ -456,7 +456,7 @@ See [Configure](#configure) below for the full pluginConfig schema (`highRiskToo
 | `excludedTools` | No | `[]` | Tools to exclude from governance. Takes precedence over `governedTools`. |
 | `defaultOperation` | No | `"execute"` | Operation type for `check_input` (`"execute"` or `"query"`) |
 | `onError` | No | `"block"` | Governs a **rejected credential, a request limit and a refusal** (HTTP 401, 429, a Free-tier limit, a 3xx, and a 4xx other than 408 that carries no policy decision). `"block"` denies the tool call with the reason; `"allow"` lets it through ungoverned, and says so once per process. It also governs every failure of the `message_sending` scan. See Fail behavior below. |
-| `failMode` | No | `"open"` | Governs a governed tool call whose check got **no usable answer** (the endpoint unreachable, a timeout, HTTP 408 or 5xx, an answer that is not a decision). `"open"` lets the call run and says so once per process; `"closed"` denies it. `AXONFLOW_FAIL_MODE` set to any value other than `open` also closes it, so either can close it and neither can reopen it. |
+| `failMode` | No | `"open"` | Governs a governed tool call whose check got **no usable answer** (the endpoint unreachable, a timeout, HTTP 408 or 5xx, an answer that is not a JSON object). `"open"` lets the call run and says so once per process; `"closed"` denies it. `AXONFLOW_FAIL_MODE` set to any value other than `open` also closes it, so either can close it and neither can reopen it. |
 | `requestTimeoutMs` | No | `8000` | Timeout for policy checks, output scans, audit writes, and health checks |
 
 ### Fail behavior
@@ -467,12 +467,12 @@ Every answer the governance check can get lands in one row. A policy decision is
 |---|---|---|
 | A policy decision: an allow, or a deny (including HTTP 403 carrying `allowed: false` and a `block_reason`) | enforced | enforced |
 | A rejected credential: HTTP 401 | `onError`: `"block"` (default) denies; `"allow"` runs. A 401 from `check-input`, `check-output` or the tool-call audit also trips the auth breaker (below) | `onError`: `"block"` cancels; `"allow"` delivers, with the notice |
-| A request limit: HTTP 429, a Free-tier limit envelope (on a 429 or a 403), or the back-off an earlier limit stamped | `onError`: `"block"` denies, naming the limit; `"allow"` runs, with the notice | `onError`, as above |
+| A request limit: HTTP 429, a Free-tier limit envelope (on a 429 or a 403), or the back-off an earlier `check-input` or `check-output` request limit stamped (see Free-tier limits) | `onError`: `"block"` denies, naming the limit; `"allow"` runs, with the notice | `onError`, as above |
 | A refusal: HTTP 3xx, or a 4xx other than 408 and 429 that carries no policy decision (402, a 403 from a proxy, 404, 413, ...) | `onError`: `"block"` denies, with the reason; `"allow"` runs, with the notice | `onError`, as above |
-| No usable answer: the endpoint unreachable, a timeout, HTTP 408, 5xx, or a 2xx that is not a decision | `failMode`: `"open"` (default) runs, with the notice; `"closed"` denies | `onError`, as above |
+| No usable answer: the endpoint unreachable, a timeout, HTTP 408, 5xx, or a 2xx that is not a JSON object | `failMode`: `"open"` (default) runs, with the notice; `"closed"` denies | `onError`, as above |
 | `after_tool_call`, `llm_input`, `llm_output` (audit) | always silently caught; governance was already enforced on the pre-execution hook | |
 
-Every row is classified by the HTTP status, never by whether the body parses: a plain-text 429 from a proxy is a limit, and a plain-text 403 is a refusal.
+Every row is classified by the HTTP status, never by whether the body parses: a plain-text 429 from a proxy is a limit, and a plain-text 403 is a refusal. A redirect is never followed: the 3xx itself is the refusal. A 2xx JSON object without a boolean `allowed` carries no decision and is denied by both hooks, whatever `failMode` says.
 
 **The notice.** The first time a governed call proceeds without a policy decision, whatever the reason, the plugin emits one warning (`console.warn`, so it lands in the OpenClaw plugin log and in the terminal running the session), naming the endpoint and the error:
 
@@ -486,7 +486,7 @@ to reset, to resume enforcement. Shown once per process.
 
 It appears once per process rather than once per call, so a long outage does not flood the transcript. A blocked call needs no notice: the block carries the reason.
 
-**The auth breaker.** A 401 from `check-input`, `check-output` or the tool-call audit means the tenant credential failed, so the plugin stops sending governed requests for the rest of the process and warns once: with `onError: "block"` every governed tool call is denied, with `"allow"` every one runs ungoverned. A 401 from any other endpoint (an override read refused for a missing per-user identity, explain, search, the agent tools) is that endpoint's refusal and does not trip it. A new client (a config reload) starts fresh.
+**The auth breaker.** A 401 from `check-input`, `check-output` or the tool-call audit means the tenant credential failed, so the plugin stops sending governed requests for the rest of the process and warns once: with `onError: "block"` every governed tool call is denied, with `"allow"` every one runs ungoverned. A 401 from any other endpoint (explain, search, the decision list, the override read, or the agent tools' MCP server, which answers a client past the service-principal ceiling with 401) is that endpoint's refusal and does not trip it. A new client (a config reload) starts fresh.
 
 **Failing closed during an outage.** Set `failMode: "closed"` (or `AXONFLOW_FAIL_MODE=closed`) to deny governed tool calls when AxonFlow cannot answer, for example on a production infrastructure agent.
 
@@ -564,7 +564,7 @@ OpenClaw also registers `axonflow_get_tenant_id` locally as a plugin agent tool 
 
 When a tool call is blocked, the agent can surface the `decision_id` to the operator and call `explain_decision` to reveal the triggering policy family. From AxonFlow v11.0.0 a verdict is changed by an administrator in the organization's typed policy document, not by a session override.
 
-**One MCP session per five minutes.** The agent tools that go through the platform's MCP server (`axonflow_request_approval`, `axonflow_create_tenant_policy`, `axonflow_get_cost_estimate`, `axonflow_list_pro_features`) reuse one MCP session for up to five minutes instead of opening one per call, which halves the requests they count against a per-minute limit. Any error drops the session. A platform session keeps the identity it was created with, so after a per-user token (`userToken`) is revoked, those tools can go on using it for up to five minutes; governed tool calls are unaffected, because `check-input` and `check-output` authenticate every request.
+**One MCP session per five minutes.** The agent tools that go through the platform's MCP server (`axonflow_request_approval`, `axonflow_create_tenant_policy`, `axonflow_get_cost_estimate`, `axonflow_list_pro_features`) reuse one MCP session for up to five minutes instead of opening one per call, which halves the requests a run of calls counts against a per-minute limit (two calls made at the same moment can each open a session). Any error drops the session. The platform does not authenticate a request again while its session lives, so after a per-user token (`userToken`) is revoked, a client secret is rotated or a licence changes, those tools can go on using the session for up to five minutes; governed tool calls are unaffected, because `check-input` and `check-output` authenticate every request.
 
 See [Decision Explainability](https://docs.getaxonflow.com/docs/governance/explainability/).
 
@@ -577,7 +577,7 @@ When the plugin's hooks hit a Free-tier cap (200 events/day, 2 active custom pol
 [AxonFlow] Upgrade: https://buy.stripe.com/bJe28qbztcdVchjdkw8k800
 ```
 
-The plugin also stamps a local back-off file from the response's `Retry-After` header so subsequent governed calls fall through immediately (no thundering herd against the agent) until the cap clears. The upgrade nudge is shown at most once per UTC day.
+The plugin also stamps a local back-off from the envelope's `resets_at` or the `Retry-After` header. A request limit (`daily_quota`, `per_minute`) answered to `check-input` or `check-output` denies governed tool calls locally, with no request sent, until the deadline and for at most five minutes after the stamp; after that the plugin asks AxonFlow again. A limit an agent tool or the decision list reaches is stamped in a separate file (`tool-throttle-until`) and pauses only those tools. It never blocks a governed tool call, and neither does a feature or object-count limit, or another AxonFlow plugin's 401 cooldown in the shared cache directory. The upgrade nudge is shown at most once per UTC day.
 
 ---
 
@@ -587,7 +587,6 @@ The plugin also stamps a local back-off file from the response's `Retry-After` h
 - Tool inputs before execution
 - Outbound messages before delivery
 - Tool and LLM audit trails (including search & explainability)
-- Decision-level overrides with per-user attribution
 
 **Not protected yet:**
 - Tool results written into the session transcript (OpenClaw's `tool_result_persist` hook is synchronous and cannot call AxonFlow's HTTP APIs)

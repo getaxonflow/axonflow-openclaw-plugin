@@ -11,7 +11,8 @@ Tools under test:
 - `axonflow_get_cost_estimate` — Pro-only. On Free tier the agent
   returns the V1 envelope `limit_type=feature_pro_only`; the proxy
   surfaces the wording back to the agent as a `fail()` result and
-  stamps the throttle file.
+  stamps the agent-tool back-off file (`tool-throttle-until`), which
+  never gates a governed tool call (#196).
 - `axonflow_request_approval` — exercised by the unit suite (graduated
   cap is HITL-state-dependent; not driven from prod).
 - `axonflow_create_tenant_policy` — exercised by the unit suite (would
@@ -49,7 +50,8 @@ helper on `AxonFlowClient`.
      `details.limit_type === "feature_pro_only"` and
      `details.buy_url` matching the locked V1 URL.
    - The upgrade-prompt logger received the locked wording on stderr.
-   - `${AXONFLOW_CACHE_DIR}/throttle-until` is stamped.
+   - `${AXONFLOW_CACHE_DIR}/tool-throttle-until` is stamped, and
+     `${AXONFLOW_CACHE_DIR}/throttle-until` (the governed back-off) is not.
 
 ## Skip conditions
 
@@ -70,7 +72,7 @@ Evidence under `runtime-e2e/v1_pro_proxy_tools/EVIDENCE/<utc-ts>/`:
 - `driver.cjs` — Node driver source committed alongside the run
 - `driver_out.json` — full output from both tool invocations
 - `driver.log` — stderr from the driver (logger output lands here)
-- `throttle-until.txt` — copy of the stamped back-off file
+- `tool-throttle-until.txt` — copy of the stamped agent-tool back-off file
 - `summary.txt` — top-line PASS / FAIL line
 
 ## Cross-references

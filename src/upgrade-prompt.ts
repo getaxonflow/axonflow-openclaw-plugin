@@ -32,9 +32,11 @@
  * Surfacing rules:
  *   - The wording is logged via the host plugin logger at most once per
  *     UTC day (stamp file at `${cacheDir}/upgrade-prompt-last-shown`).
- *   - A throttle deadline file is stamped at `${cacheDir}/throttle-until`
- *     so subsequent governed calls can short-circuit locally without
- *     re-hammering the agent during the back-off window.
+ *   - A throttle deadline file is stamped: `${cacheDir}/throttle-until` for a
+ *     check-input or check-output limit, which gates governed calls locally
+ *     (request-rate limits only, for at most THROTTLE_MAX_HONOUR_MS), and
+ *     `${cacheDir}/tool-throttle-until` for an agent tool's or the decision
+ *     list's limit, which gates only those surfaces (#196).
  *
  * Doctrine: `feedback_429_no_upgrade_hint_is_conversion_gap.md` —
  * every Free-tier limit hit pre-V1 was a Pro conversion target lost
@@ -176,23 +178,54 @@ export function resolveDeadlineMs(
   return now + 60_000;
 }
 
-/** Returns true if a throttle stamp exists with a future deadline.
- * Caller should fall through (no outbound governed call) when this
- * returns true. Cleans up expired stamps as a side effect. */
+/** The back-off a check-input or check-output limit stamps, and the only one
+ * that gates a governed tool call. The AxonFlow Claude Code, Cursor and Codex
+ * hooks read and write a file of this name and format in the same cache
+ * directory. */
+export const GOVERNED_THROTTLE_FILE = "throttle-until";
+
+/** The back-off an agent tool's or the decision list's limit stamps. Only
+ * those surfaces read it: a limit the model reaches through an agent tool
+ * never gates a governed tool call (#196). */
+export const TOOL_THROTTLE_FILE = "tool-throttle-until";
+
+/** The limit types a governed back-off honours: request-rate limits, which a
+ * check-input or check-output request would reach too. An object-count or
+ * feature limit (active_policies, hitl_approvals_window, feature_pro_only,
+ * decision_list_size) and another plugin's 401 cooldown (auth_failure) in the
+ * shared file never gate a governed tool call. */
+export const GOVERNED_BACKOFF_LIMIT_TYPES: readonly string[] = ["daily_quota", "per_minute"];
+
+/** The longest a stamp is honoured, counted from when its file was written. A
+ * local back-off sends no request, so it never sees the limit reset or an
+ * upgrade: past this the plugin asks the platform again, which answers the
+ * limit again if it still holds. Without it a resets_at a week out (the
+ * rolling HITL window) locked governed calls for the week. */
+export const THROTTLE_MAX_HONOUR_MS = 300_000;
+
+/** Returns true if a throttle stamp exists with a future deadline, was written
+ * less than THROTTLE_MAX_HONOUR_MS ago, and (when `limitTypes` is given)
+ * carries one of those limit types. Cleans up expired and malformed stamps as
+ * a side effect; a stamp of another type or past the cap is left for the
+ * writer that honours it. */
 export function isThrottleActive(
   cacheDir: string = axonflowCacheDir(),
   now: number = Date.now(),
+  options: { file?: string; limitTypes?: readonly string[] } = {},
 ): boolean {
   if (!cacheDir) return false;
-  const file = path.join(cacheDir, "throttle-until");
+  const file = path.join(cacheDir, options.file ?? GOVERNED_THROTTLE_FILE);
   let raw: string;
+  let writtenMs: number;
   try {
     raw = fs.readFileSync(file, "utf8");
+    writtenMs = fs.statSync(file).mtimeMs;
   } catch {
     return false;
   }
   const firstLine = raw.split(/\r?\n/, 1)[0] ?? "";
-  const epochSeconds = parseInt(firstLine.split(/\s+/)[0] ?? "", 10);
+  const [epochField, limitType] = firstLine.split(/\s+/);
+  const epochSeconds = parseInt(epochField ?? "", 10);
   if (Number.isNaN(epochSeconds) || epochSeconds <= 0) {
     safeUnlink(file);
     return false;
@@ -201,14 +234,32 @@ export function isThrottleActive(
     safeUnlink(file);
     return false;
   }
+  if (options.limitTypes && !options.limitTypes.includes(limitType ?? "")) {
+    return false;
+  }
+  if (writtenMs + THROTTLE_MAX_HONOUR_MS <= now) {
+    return false;
+  }
   return true;
 }
 
-/** Stamp the throttle deadline file. Format: `<epoch-seconds> <limit_type>\n`. */
+/** The back-off that gates a governed tool call (check-input, check-output):
+ * the governed stamp, request-rate types only, for at most
+ * THROTTLE_MAX_HONOUR_MS (#196). */
+export function isGovernedBackOffActive(
+  cacheDir: string = axonflowCacheDir(),
+  now: number = Date.now(),
+): boolean {
+  return isThrottleActive(cacheDir, now, { limitTypes: GOVERNED_BACKOFF_LIMIT_TYPES });
+}
+
+/** Stamp a throttle deadline file (GOVERNED_THROTTLE_FILE unless `file` names
+ * another). Format: `<epoch-seconds> <limit_type>\n`. */
 export function stampThrottle(
   cacheDir: string,
   deadlineMs: number,
   limitType: V1LimitType,
+  file: string = GOVERNED_THROTTLE_FILE,
 ): void {
   if (!cacheDir) return;
   try {
@@ -217,9 +268,9 @@ export function stampThrottle(
     return;
   }
   const epoch = Math.floor(deadlineMs / 1000);
-  const file = path.join(cacheDir, "throttle-until");
+  const stampPath = path.join(cacheDir, file);
   try {
-    fs.writeFileSync(file, `${epoch} ${limitType}\n`, { mode: 0o600 });
+    fs.writeFileSync(stampPath, `${epoch} ${limitType}\n`, { mode: 0o600 });
   } catch {
     // Cache write failed — degrade silently. The wording was already
     // surfaced via the logger, the worst that happens is the next
@@ -288,6 +339,10 @@ export function handleEnvelope(opts: {
   logger: UpgradePromptLogger;
   cacheDir?: string;
   now?: Date;
+  /** The back-off file to stamp: GOVERNED_THROTTLE_FILE (the default) only for
+   * a check-input or check-output answer, TOOL_THROTTLE_FILE for any other
+   * surface (#196). */
+  stampFile?: string;
 }): HandleEnvelopeResult {
   const { status, body, retryAfterHeader, logger } = opts;
   const cacheDir = opts.cacheDir ?? axonflowCacheDir();
@@ -323,7 +378,7 @@ export function handleEnvelope(opts: {
   }
 
   const deadlineMs = resolveDeadlineMs(envelope, retryAfterHeader, now.getTime());
-  stampThrottle(cacheDir, deadlineMs, envelope.limit_type);
+  stampThrottle(cacheDir, deadlineMs, envelope.limit_type, opts.stampFile);
 
   const wordingSurfaced = shouldShowPromptToday(cacheDir, now);
   if (wordingSurfaced) {

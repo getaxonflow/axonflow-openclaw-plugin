@@ -829,14 +829,14 @@ describe("AxonFlowClient", () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    it("a refused override read (401, identity required) leaves the governed routes working (#196)", async () => {
+    it("a 401 from the override read, not a tenant-credential route, leaves the governed routes working (#196)", async () => {
       const { AxonFlowHttpError } = await import("../src/axonflow-client.js");
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 401,
         statusText: "Unauthorized",
         headers: { get: () => null },
-        json: () => Promise.resolve({ error: "Authenticated user identity required (X-User-Email)" }),
+        json: () => Promise.resolve({ error: "Unauthorized" }),
       });
       const client = makeClient();
       await expect(client.listOverridesStrict()).rejects.toBeInstanceOf(AxonFlowHttpError);

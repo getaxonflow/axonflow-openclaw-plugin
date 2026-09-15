@@ -123,14 +123,12 @@ export interface AxonFlowPluginConfig {
    *
    * Required (and only required) when you want user-scoped AxonFlow
    * features to work through this plugin:
-   *   - `listOverrides` (the endpoint requires an authenticated user
-   *     identity per ADR-044; the override writes are retired from
-   *     AxonFlow v11.0.0)
+   *   - `listOverrides` per-user scoping (ADR-044; the override writes are
+   *     retired from AxonFlow v11.0.0)
    *   - `explainDecision` historical_hit_count scoping
    *
    * If unset, block responses still include decision_id + policy_matches,
-   * but listOverrides is refused with HTTP 401 and explain's hit-count
-   * aggregates across users.
+   * and explain's hit-count aggregates across users.
    *
    * A reasonable default for CLI/local-agent setups is `os.userInfo().username`
    * + the agent hostname; a reasonable default for multi-tenant SaaS
@@ -182,8 +180,9 @@ export interface AxonFlowPluginConfig {
    *
    * Resolved by `resolveConfig`: "closed" when pluginConfig.failMode is
    * "closed" OR the AXONFLOW_FAIL_MODE environment variable is set to any
-   * value other than "open" (in any case), the name and values the other
-   * AxonFlow plugins read. Either source can close it; neither can reopen it.
+   * value other than "open" (in any case, with no whitespace trimmed), the
+   * name and values the AxonFlow Codex plugin's hooks read. Either source can
+   * close it; neither can reopen it.
    */
   failMode?: "open" | "closed";
 
@@ -333,13 +332,14 @@ export function resolveConfig(
 /**
  * failMode: "closed" when pluginConfig says "closed", or when AXONFLOW_FAIL_MODE
  * is set (non-empty) to anything but "open" in any case, so a typo fails
- * safe. Otherwise "open".
+ * safe. Otherwise "open". No whitespace is trimmed: " open " closes it, as it
+ * does in the Codex hooks.
  */
 function resolveFailMode(raw: unknown): "open" | "closed" {
   if (raw === "closed") return "closed";
   const env = process.env["AXONFLOW_FAIL_MODE"];
   if (typeof env === "string") {
-    const normalized = env.trim().toLowerCase();
+    const normalized = env.toLowerCase();
     if (normalized !== "" && normalized !== "open") return "closed";
   }
   return "open";

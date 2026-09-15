@@ -168,7 +168,9 @@ cat > "$DRIVER" <<'NODE'
     results.push(r);
     if (r.kind !== "ok") over = r;
   }
-  const throttleActive = over ? isThrottleActive() : false;
+  // An agent tool's limit stamps the agent-tool back-off (tool-throttle-until),
+  // never the governed one (#196).
+  const throttleActive = over ? isThrottleActive(undefined, undefined, { file: "tool-throttle-until" }) : false;
   let nextKind = null;
   if (over) {
     const call = ++n;
@@ -205,7 +207,7 @@ cat > "$DRIVER" <<'NODE'
     const r = row("probe", call, await invoke(call));
     r.attempt = attempt;
     r.cacheDir = path.basename(dir);
-    r.throttleStamped = fs.existsSync(path.join(dir, "throttle-until"));
+    r.throttleStamped = fs.existsSync(path.join(dir, "tool-throttle-until"));
     results.push(r);
     probe = r;
     if (r.initialize && r.initialize.status >= 400) break;

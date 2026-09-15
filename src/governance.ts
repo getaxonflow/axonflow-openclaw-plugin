@@ -134,10 +134,8 @@ export function isAxonFlowAuthError(err: unknown): boolean {
 
   // Preferred path: typed error with an HTTP status. Decisive in BOTH
   // directions — a non-auth status ends the classification here.
-  const maybeStatus =
-    (err as { status?: number; statusCode?: number }).status ??
-    (err as { status?: number; statusCode?: number }).statusCode;
-  if (typeof maybeStatus === "number" && Number.isFinite(maybeStatus)) {
+  const maybeStatus = statusOf(err);
+  if (maybeStatus !== undefined) {
     return maybeStatus === 401 || maybeStatus === 403;
   }
 
@@ -145,6 +143,20 @@ export function isAxonFlowAuthError(err: unknown): boolean {
   const message =
     err instanceof Error ? err.message : String(err);
   return AUTH_ERROR_PATTERN.test(message);
+}
+
+/**
+ * The HTTP status a thrown error exposes (`.status`, else `.statusCode`), when
+ * it is a finite number; undefined otherwise.
+ */
+function statusOf(err: unknown): number | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const maybeStatus =
+    (err as { status?: unknown; statusCode?: unknown }).status ??
+    (err as { status?: unknown; statusCode?: unknown }).statusCode;
+  return typeof maybeStatus === "number" && Number.isFinite(maybeStatus)
+    ? maybeStatus
+    : undefined;
 }
 
 /**
@@ -156,7 +168,7 @@ export function isAxonFlowAuthError(err: unknown): boolean {
  *                the credential or the configuration refused the check (a
  *                403 carrying a policy decision never throws; it is the deny)
  *   unavailable  no usable answer: an HTTP 408, a 5xx, a 2xx that was not a
- *                decision, a network error or timeout
+ *                JSON object, a network error or timeout
  *
  * An error that exposes no status is refused when its message reads as an
  * auth error (isAxonFlowAuthError) and unavailable otherwise. The pre-tool hook
@@ -168,10 +180,8 @@ export type GovernanceFailureClass = "limit" | "refused" | "unavailable";
 export function classifyGovernanceFailure(err: unknown): GovernanceFailureClass {
   if (err instanceof AxonFlowLimitError) return "limit";
   if (!err || typeof err !== "object") return "unavailable";
-  const maybeStatus =
-    (err as { status?: number; statusCode?: number }).status ??
-    (err as { status?: number; statusCode?: number }).statusCode;
-  if (typeof maybeStatus === "number" && Number.isFinite(maybeStatus)) {
+  const maybeStatus = statusOf(err);
+  if (maybeStatus !== undefined) {
     if (maybeStatus === 429) return "limit";
     if (maybeStatus === 408) return "unavailable";
     if (maybeStatus >= 300 && maybeStatus < 500) return "refused";
@@ -197,11 +207,7 @@ export function classifyGovernanceFailure(err: unknown): GovernanceFailureClass 
  * (client notice only, no second warning) unchanged.
  */
 export function carriesOwnAuthNotice(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const maybeStatus =
-    (err as { status?: number; statusCode?: number }).status ??
-    (err as { status?: number; statusCode?: number }).statusCode;
-  return maybeStatus === 401;
+  return statusOf(err) === 401;
 }
 
 /**
@@ -289,7 +295,7 @@ export function createBeforeToolCallHandler(
         // #170: proceeding IS the ungoverned outcome. A status-401 stays quiet
         // here because the client's own one-shot notice (markAuthFailed)
         // already announced it; a limit and every other refusal announce it.
-        if (failure === "limit" || !carriesOwnAuthNotice(err)) {
+        if (!carriesOwnAuthNotice(err)) {
           noteUngovernedFailOpen(failedEndpoint, err);
         }
         recordToolCallAllowed();
@@ -310,7 +316,10 @@ export function createBeforeToolCallHandler(
       }
       return {
         block: true,
-        blockReason: `AxonFlow refused the governance check: ${detail}. Check the endpoint and the credentials to restore tool access.`,
+        blockReason:
+          statusOf(err) === 402
+            ? `AxonFlow refused the governance check: ${detail}. HTTP 402 is an AxonFlow tier limit on this client, not an endpoint or credential problem.`
+            : `AxonFlow refused the governance check: ${detail}. Check the endpoint and the credentials to restore tool access.`,
       };
     }
 

@@ -13,7 +13,8 @@
 #   - axonflow_get_cost_estimate.execute() on a Free-tier tenant lands
 #     a Pro-only envelope (limit_type=feature_pro_only) — the tool
 #     wrapper renders the locked V1 wording back to the agent as a
-#     fail() result, the helper stamps the throttle file, and the
+#     fail() result, the helper stamps the agent-tool back-off file
+#     (tool-throttle-until, never the governed throttle-until, #196), and the
 #     once-per-UTC-day stamp gates the prompt.
 #
 # Per HARD RULE #0: real plugin code (built dist/) against real wire
@@ -224,10 +225,12 @@ cat >"$DRIVER_JS" <<'NODE'
   const cacheDir = process.env.AXONFLOW_CACHE_DIR;
   if (cacheDir) {
     try {
-      const f = path.join(cacheDir, "throttle-until");
+      const f = path.join(cacheDir, "tool-throttle-until");
       results.throttle_stamp_after_test2 = fs.readFileSync(f, "utf-8").trim();
     } catch (e) { /* not stamped — caller asserts on results.throttle_stamp_after_test2 */ }
-    try { fs.unlinkSync(path.join(cacheDir, "throttle-until")); }
+    // An agent tool's limit never stamps the governed back-off (#196).
+    results.governed_stamp_after_test2 = fs.existsSync(path.join(cacheDir, "throttle-until"));
+    try { fs.unlinkSync(path.join(cacheDir, "tool-throttle-until")); }
     catch (e) { /* file may not exist; ignore */ }
   }
 
@@ -250,7 +253,7 @@ cat >"$DRIVER_JS" <<'NODE'
   // should succeed (synthetic tenant starts with zero active
   // policies). Asserting against the API shape, not on side-effects.
   if (cacheDir) {
-    try { fs.unlinkSync(path.join(cacheDir, "throttle-until")); } catch {}
+    try { fs.unlinkSync(path.join(cacheDir, "tool-throttle-until")); } catch {}
   }
   try {
     const raw = await client.callMCPTool("axonflow_create_tenant_policy", {
@@ -269,7 +272,7 @@ cat >"$DRIVER_JS" <<'NODE'
   // check that it's still callable via buildAgentTools (the cross-
   // plugin parity tool).
   if (cacheDir) {
-    try { fs.unlinkSync(path.join(cacheDir, "throttle-until")); } catch {}
+    try { fs.unlinkSync(path.join(cacheDir, "tool-throttle-until")); } catch {}
   }
   try {
     const r = await byName["axonflow_get_tenant_id"].execute("call-5", {});
@@ -363,10 +366,13 @@ fi
 # driver clears it so tests 3+4 can round-trip. (At the end of the
 # driver run the file is gone — that's intentional, not a failure.)
 THROTTLE_STAMP=$(jq -r '.throttle_stamp_after_test2 // empty' "$DRIVER_OUT")
+if [ "$(jq -r '.governed_stamp_after_test2' "$DRIVER_OUT")" != "false" ]; then
+  fail "the agent tool's limit stamped the governed back-off (throttle-until); it must stamp only tool-throttle-until (#196)"
+fi
 if [ -z "$THROTTLE_STAMP" ]; then
-  fail "throttle-until file was never stamped after test 2 (envelope path didn't fire)"
+  fail "tool-throttle-until file was never stamped after test 2 (envelope path didn't fire)"
 else
-  echo "$THROTTLE_STAMP" >"$EVIDENCE/throttle-until.txt"
+  echo "$THROTTLE_STAMP" >"$EVIDENCE/tool-throttle-until.txt"
   THROTTLE_EPOCH=$(echo "$THROTTLE_STAMP" | awk '{print $1}')
   NOW=$(date -u +%s)
   if [ -z "$THROTTLE_EPOCH" ] || ! [[ "$THROTTLE_EPOCH" =~ ^[0-9]+$ ]] || [ "$THROTTLE_EPOCH" -le "$NOW" ]; then

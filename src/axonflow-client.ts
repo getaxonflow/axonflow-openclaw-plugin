@@ -8,7 +8,9 @@
 import type { AxonFlowPluginConfig } from "./config.js";
 import {
   handleEnvelope as handleV1Envelope,
+  isGovernedBackOffActive,
   isThrottleActive,
+  TOOL_THROTTLE_FILE,
   type UpgradePromptLogger,
   type V1RateLimitEnvelope,
 } from "./upgrade-prompt.js";
@@ -219,8 +221,8 @@ async function readErrorBody(
 }
 
 /**
- * Typed error thrown by the AxonFlow client on non-2xx HTTP responses
- * (except 403, which is a policy block and handled separately).
+ * Typed error thrown by the AxonFlow client on non-2xx HTTP responses (a
+ * 403 carrying the platform's decision is returned as the deny instead).
  *
  * Exposes `.status` as a dedicated field so downstream consumers —
  * specifically the `isAxonFlowAuthError` classifier in `governance.ts` —
@@ -467,6 +469,27 @@ function extractRicherContext(data: Record<string, unknown>): {
  * or inside policy_info.policies_evaluated (which can be a number or
  * array of policy names) on 200 responses.
  */
+/**
+ * The block reason for a 2xx check answer that is a JSON object without a
+ * boolean `allowed` (#196). It carries no decision, so it is blocked (the
+ * no-decision ruling of 2026-09-14), with a reason that says so rather than
+ * reading as a policy deny.
+ */
+export const NO_DECISION_REASON =
+  'AxonFlow answered the governance check without a decision (no boolean "allowed"), so it is blocked';
+
+function noDecision(data: Record<string, unknown>): {
+  allowed: false;
+  block_reason: string;
+  policies_evaluated: number;
+} {
+  return {
+    allowed: false,
+    block_reason: NO_DECISION_REASON,
+    policies_evaluated: extractPoliciesEvaluated(data),
+  };
+}
+
 function extractPoliciesEvaluated(data: Record<string, unknown>): number {
   if (typeof data["policies_evaluated"] === "number") {
     return data["policies_evaluated"];
@@ -647,7 +670,10 @@ export class AxonFlowClient {
    * Internal helper: detect + handle a V1 envelope on a non-2xx
    * response. Returns the parsed envelope (so the caller can decide
    * how to surface it through its existing return shape) or null if
-   * the response is not envelope-bearing.
+   * the response is not envelope-bearing. `stampFile` names the back-off
+   * file: the default (throttle-until) only for check-input and
+   * check-output, TOOL_THROTTLE_FILE for every other surface, so a limit
+   * there never gates a governed tool call (#196).
    *
    * Runs whether or not a logger is wired — without a logger the
    * envelope is still detected and the throttle deadline is still
@@ -659,6 +685,7 @@ export class AxonFlowClient {
     status: number,
     body: unknown,
     response: Response,
+    stampFile?: string,
   ): V1RateLimitEnvelope | null {
     // Three envelope-bearing paths today: 429 (apiAuthMiddleware
     // daily-quota), 403 (REST graduated cap / Pro-only), and HTTP 200
@@ -675,19 +702,9 @@ export class AxonFlowClient {
       body,
       retryAfterHeader,
       logger: this.upgradePromptLogger ?? noopUpgradePromptLogger,
+      stampFile,
     });
     return result.envelope ?? null;
-  }
-
-  /**
-   * V1 Plugin Pro back-off gate. Callers (governance.ts) check this
-   * BEFORE issuing a governed call — when the throttle file is in
-   * effect, the call is short-circuited and the caller falls open
-   * (the upgrade prompt was already surfaced when the throttle
-   * landed; the cap clears at the deadline).
-   */
-  isV1ThrottleActive(): boolean {
-    return isThrottleActive();
   }
 
   /**
@@ -799,6 +816,13 @@ export class AxonFlowClient {
     try {
       response = await fetch(url, {
         ...init,
+        // A tenant-credential route never follows a redirect (#196). fetch
+        // follows one by default: a 302 came back as the target's 200 page, no
+        // usable answer, so the call ran with the notice; a 307 re-sent the
+        // POST, credential included, to wherever the redirect pointed, and a
+        // check honoured that answer. The 3xx itself is returned and read as a
+        // refusal. telemetry.ts refuses redirects for the same reason.
+        ...(options?.tenantCredentialRoute === true ? { redirect: "manual" as const } : {}),
         signal: controller.signal,
       });
     } finally {
@@ -829,6 +853,86 @@ export class AxonFlowClient {
     return response;
   }
 
+  /**
+   * A check-input or check-output answer that is not a 2xx, classified by its
+   * STATUS, never by whether the body parses (#196). The body is read once,
+   * through readErrorBody, so a plain-text answer from an ALB, nginx or WAF
+   * cannot throw a SyntaxError past the breaker, and whatever reason the
+   * platform sends reaches the user (#167). Returns the deny a 403 carrying
+   * the platform's decision is; throws for everything else:
+   *   - a 401: AxonFlowHttpError(401), the rejected credential
+   *     (fetchWithTimeout has already armed the breaker);
+   *   - a V1 limit envelope (on a 429 or a 403), or any 429:
+   *     AxonFlowLimitError, which denies under onError=block;
+   *   - anything else: AxonFlowHttpError with its status, which governance.ts
+   *     reads as a refusal (3xx, 4xx) or as no usable answer (408, 5xx).
+   */
+  private async readCheckRefusal(
+    response: Response,
+    context: "check-input" | "check-output",
+  ): Promise<MCPCheckInputResponse & MCPCheckOutputResponse> {
+    const body = await readErrorBody(response, this.requestTimeoutMs);
+    if (response.status === 401) {
+      throw new AxonFlowHttpError(401, response.statusText, body, context);
+    }
+    const envelope = this.handleEnvelope(response.status, body, response);
+    if (envelope || response.status === 429) {
+      throw new AxonFlowLimitError(
+        response.status,
+        response.statusText,
+        body,
+        context,
+        envelope?.limit_type,
+      );
+    }
+    if (response.status === 403 && isDecisionBody(body)) {
+      return {
+        allowed: false,
+        block_reason:
+          typeof body["block_reason"] === "string"
+            ? body["block_reason"]
+            : typeof body["error"] === "string"
+              ? body["error"]
+              : "Blocked by policy",
+        policies_evaluated: extractPoliciesEvaluated(body),
+        ...extractRicherContext(body),
+      };
+    }
+    throw new AxonFlowHttpError(response.status, response.statusText, body, context);
+  }
+
+  /**
+   * The JSON object a 2xx check-input or check-output answer carries. A body
+   * that is not JSON, or not an object (an array, a scalar, null), is no
+   * usable answer: AxonFlowHttpError with the 2xx status, read through
+   * failMode (#196).
+   */
+  private async readCheckBody(
+    response: Response,
+    context: "check-input" | "check-output",
+  ): Promise<Record<string, unknown>> {
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: "the answer was not JSON" },
+        context,
+      );
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new AxonFlowHttpError(
+        response.status,
+        response.statusText,
+        { error: "the answer was not a JSON object" },
+        context,
+      );
+    }
+    return data as Record<string, unknown>;
+  }
+
   async mcpCheckInput(
     connectorType: string,
     statement: string,
@@ -849,12 +953,15 @@ export class AxonFlowClient {
         "check-input",
       );
     }
-    // V1 Plugin Pro back-off: an earlier governed call reached a limit and
-    // stamped its deadline, so no request is sent until it passes. That is
-    // the limit row of the posture table (#196): the check is refused as a
-    // limit, which denies under onError=block and runs with the one-shot
-    // notice under onError=allow. It used to answer "allowed".
-    if (isThrottleActive()) {
+    // V1 Plugin Pro back-off: an earlier check-input or check-output request
+    // reached a request-rate limit and stamped its deadline, so no request is
+    // sent until it passes, for at most THROTTLE_MAX_HONOUR_MS
+    // (isGovernedBackOffActive). That is the limit row of the posture table
+    // (#196): the check is refused as a limit, which denies under
+    // onError=block and runs with the one-shot notice under onError=allow. It
+    // used to answer "allowed". A limit reached through an agent tool, a
+    // feature limit and another plugin's 401 cooldown never gate it.
+    if (isGovernedBackOffActive()) {
       throw new AxonFlowLimitError(
         429,
         "Too Many Requests",
@@ -873,88 +980,14 @@ export class AxonFlowClient {
       }),
     }, { tenantCredentialRoute: true });
 
-    // Issue #2275 follow-up — detect 401 BEFORE response.json() so a
-    // non-JSON 401 body (text/plain "Unauthorized" from ALB / nginx /
-    // WAF / API Gateway infra layers) doesn't throw SyntaxError and
-    // propagate past the breaker. fetchWithTimeout already flipped
-    // the authFailed flag for any 401; we just need to surface the
-    // typed error in the same shape the JSON-body path would have.
-    //
-    // #167: the body is read through readErrorBody rather than discarded, so
-    // whatever reason the platform sends reaches the user. It handles the
-    // JSON and the plain-text infra-layer forms alike and degrades to {} —
-    // the bare status line — when the body is empty or unreadable.
-    if (response.status === 401) {
-      throw new AxonFlowHttpError(
-        401,
-        response.statusText,
-        await readErrorBody(response, this.requestTimeoutMs),
-        "check-input",
-      );
-    }
-
-    // Every other non-2xx is read through the one body reader (JSON and
-    // plain-text bodies alike) and classified by its STATUS, never by whether
-    // the body parses (#196):
-    //   - a V1 limit envelope (on a 429 or a 403), or any 429: the limit row
-    //     (AxonFlowLimitError), which denies under onError=block;
-    //   - a 403 carrying the platform's decision (allowed:false or a
-    //     block_reason, measured on v11.0.0): the policy deny it is;
-    //   - anything else: AxonFlowHttpError with its status, which
-    //     governance.ts reads as a refusal (3xx, 4xx) or as no usable answer
-    //     (408, 5xx).
+    // A 401, a limit, a refusal, or a 403 carrying the platform's decision.
     if (!response.ok) {
-      const body = await readErrorBody(response, this.requestTimeoutMs);
-      const envelope = this.handleEnvelope(response.status, body, response);
-      if (envelope || response.status === 429) {
-        throw new AxonFlowLimitError(
-          response.status,
-          response.statusText,
-          body,
-          "check-input",
-          envelope?.limit_type,
-        );
-      }
-      if (response.status === 403 && isDecisionBody(body)) {
-        return {
-          allowed: false,
-          block_reason:
-            typeof body["block_reason"] === "string"
-              ? body["block_reason"]
-              : typeof body["error"] === "string"
-                ? body["error"]
-                : "Blocked by policy",
-          policies_evaluated: extractPoliciesEvaluated(body),
-          ...extractRicherContext(body),
-        };
-      }
-      throw new AxonFlowHttpError(
-        response.status,
-        response.statusText,
-        body,
-        "check-input",
-      );
+      return this.readCheckRefusal(response, "check-input");
     }
 
-    // A 2xx that is not a JSON object carries no decision: no usable answer.
-    let data: Record<string, unknown>;
-    try {
-      data = (await response.json()) as Record<string, unknown>;
-    } catch {
-      throw new AxonFlowHttpError(
-        response.status,
-        response.statusText,
-        { error: "the answer was not JSON" },
-        "check-input",
-      );
-    }
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
-      throw new AxonFlowHttpError(
-        response.status,
-        response.statusText,
-        { error: "the answer was not a JSON object" },
-        "check-input",
-      );
+    const data = await this.readCheckBody(response, "check-input");
+    if (typeof data["allowed"] !== "boolean") {
+      return noDecision(data);
     }
     return {
       allowed: data["allowed"] === true,
@@ -989,7 +1022,7 @@ export class AxonFlowClient {
       );
     }
     // V1 Plugin Pro back-off — the limit row, as in mcpCheckInput.
-    if (isThrottleActive()) {
+    if (isGovernedBackOffActive()) {
       throw new AxonFlowLimitError(
         429,
         "Too Many Requests",
@@ -1007,82 +1040,15 @@ export class AxonFlowClient {
       }),
     }, { tenantCredentialRoute: true });
 
-    // Issue #2275 follow-up — detect 401 BEFORE response.json() (see
-    // mcpCheckInput for full rationale). Mirror the exact AxonFlowHttpError
-    // shape — including the #167 platform-reason rendering — so the
-    // governance.ts classifier and the user-facing message behave
-    // identically across input + output paths.
-    if (response.status === 401) {
-      throw new AxonFlowHttpError(
-        401,
-        response.statusText,
-        await readErrorBody(response, this.requestTimeoutMs),
-        "check-output",
-      );
-    }
-
-    // Every other non-2xx is read through the one body reader (JSON and
-    // plain-text bodies alike) and classified by its STATUS, never by whether
-    // the body parses (#196):
-    //   - a V1 limit envelope (on a 429 or a 403), or any 429: the limit row
-    //     (AxonFlowLimitError), which denies under onError=block;
-    //   - a 403 carrying the platform's decision (allowed:false or a
-    //     block_reason, measured on v11.0.0): the policy deny it is;
-    //   - anything else: AxonFlowHttpError with its status, which
-    //     governance.ts reads as a refusal (3xx, 4xx) or as no usable answer
-    //     (408, 5xx).
+    // The same reading as mcpCheckInput: a 401, a limit, a refusal, or a 403
+    // carrying the platform's decision.
     if (!response.ok) {
-      const body = await readErrorBody(response, this.requestTimeoutMs);
-      const envelope = this.handleEnvelope(response.status, body, response);
-      if (envelope || response.status === 429) {
-        throw new AxonFlowLimitError(
-          response.status,
-          response.statusText,
-          body,
-          "check-output",
-          envelope?.limit_type,
-        );
-      }
-      if (response.status === 403 && isDecisionBody(body)) {
-        return {
-          allowed: false,
-          block_reason:
-            typeof body["block_reason"] === "string"
-              ? body["block_reason"]
-              : typeof body["error"] === "string"
-                ? body["error"]
-                : "Blocked by policy",
-          policies_evaluated: extractPoliciesEvaluated(body),
-          ...extractRicherContext(body),
-        };
-      }
-      throw new AxonFlowHttpError(
-        response.status,
-        response.statusText,
-        body,
-        "check-output",
-      );
+      return this.readCheckRefusal(response, "check-output");
     }
 
-    // A 2xx that is not a JSON object carries no decision: no usable answer.
-    let data: Record<string, unknown>;
-    try {
-      data = (await response.json()) as Record<string, unknown>;
-    } catch {
-      throw new AxonFlowHttpError(
-        response.status,
-        response.statusText,
-        { error: "the answer was not JSON" },
-        "check-output",
-      );
-    }
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
-      throw new AxonFlowHttpError(
-        response.status,
-        response.statusText,
-        { error: "the answer was not a JSON object" },
-        "check-output",
-      );
+    const data = await this.readCheckBody(response, "check-output");
+    if (typeof data["allowed"] !== "boolean") {
+      return noDecision(data);
     }
     return {
       allowed: data["allowed"] === true,
@@ -1488,8 +1454,9 @@ export class AxonFlowClient {
    * The 429-envelope path is the critical Pro-conversion surface per
    * feedback_429_no_upgrade_hint_is_conversion_gap.md — when the Free user
    * exceeds their tier's page cap, the upgrade wording + buy URL must be
-   * surfaced to the host. We also stamp the throttle-gate file so the
-   * caller's next governed call can short-circuit instead of round-tripping.
+   * surfaced to the host. The agent-tool back-off (TOOL_THROTTLE_FILE) is
+   * stamped too; a decision-list limit never gates a governed tool call
+   * (#196).
    */
   async listRecentDecisionsStrict(
     options?: {
@@ -1526,7 +1493,7 @@ export class AxonFlowClient {
       } catch {
         body = null;
       }
-      const envelope = this.handleEnvelope(response.status, body, response);
+      const envelope = this.handleEnvelope(response.status, body, response, TOOL_THROTTLE_FILE);
       if (envelope) {
         return { kind: "envelope", envelope };
       }
@@ -1570,16 +1537,16 @@ export class AxonFlowClient {
    * V1 Plugin Pro envelope detection runs on the call response — if the
    * call hit a Free-tier gate (graduated cap or Pro-only feature), the
    * envelope is detected, the upgrade prompt is surfaced via the host
-   * logger, and the throttle file is stamped. The proxy returns an
+   * logger, and the agent-tool back-off (TOOL_THROTTLE_FILE) is stamped; it
+   * never gates a governed tool call (#196). The proxy returns an
    * `{ envelope }` shape so the agent-tool wrapper can render the locked
    * V1 wording back to the user instead of a generic error.
    *
-   * NOT a hot-path helper. Initializes a fresh MCP session per call —
-   * agent-tools are user-driven and rare; session caching would add
-   * complexity (TTL handling, cross-call lock) that's not worth it for
-   * this surface. Hot-path traffic uses the dedicated `mcpCheckInput`
-   * / `mcpCheckOutput` paths above which target `/api/v1/mcp/check-*`
-   * (no MCP session, no JSON-RPC framing).
+   * NOT a hot-path helper: governed traffic uses `mcpCheckInput` /
+   * `mcpCheckOutput`, which target `/api/v1/mcp/check-*` (no MCP session,
+   * no JSON-RPC framing). One MCP session is reused for up to
+   * MCP_SESSION_MAX_AGE_MS and dropped on any answer that is not a clean
+   * result (#196).
    */
   async callMCPTool(
     name: string,
@@ -1590,7 +1557,8 @@ export class AxonFlowClient {
     | { kind: "throttled" }
     | { kind: "error"; message: string; status?: number }
   > {
-    if (isThrottleActive()) {
+    // This surface's own back-off, or a governed request-rate back-off.
+    if (isThrottleActive(undefined, undefined, { file: TOOL_THROTTLE_FILE }) || isGovernedBackOffActive()) {
       return { kind: "throttled" };
     }
 
@@ -1629,7 +1597,7 @@ export class AxonFlowClient {
         } catch {
           /* non-JSON; leave body null */
         }
-        const env = this.handleEnvelope(initResp.status, initBody, initResp);
+        const env = this.handleEnvelope(initResp.status, initBody, initResp, TOOL_THROTTLE_FILE);
         if (env) {
           return { kind: "envelope", envelope: env };
         }
@@ -1678,7 +1646,7 @@ export class AxonFlowClient {
 
     // V1 envelope detection runs first — wrapped in a JSON-RPC result
     // when the agent's mcp_v1_pro_tools.go gate fires.
-    const env = this.handleEnvelope(callResp.status, data, callResp);
+    const env = this.handleEnvelope(callResp.status, data, callResp, TOOL_THROTTLE_FILE);
     if (env) {
       this.mcpSession = null;
       return { kind: "envelope", envelope: env };
