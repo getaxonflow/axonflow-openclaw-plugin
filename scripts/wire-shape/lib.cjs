@@ -7,7 +7,7 @@
  * agent's OpenAPI spec at a pinned SHA and fails on drift not in baseline.
  *
  * Mirrors the conceptual model of the four AxonFlow SDKs' wire-shape
- * gates (see ADR-047). Plugin scope is much smaller (6 wire-bound types
+ * gates (see ADR-047). Plugin scope is much smaller (5 wire-bound types
  * vs 60+ on SDKs) so the gate is intentionally lean — no transformer
  * walk, no snake/camel case bridging, no cross-spec divergence detector.
  *
@@ -32,11 +32,9 @@ const BASELINE_PATH = path.join(PLUGIN_ROOT, 'tests', 'fixtures', 'wire-shape-ba
 
 /**
  * Map: plugin TS interface name → OpenAPI schema name.
- * Same name on both sides for most types; CreateOverrideResult is the
- * plugin's view of the agent's create-override response — mapped to
- * CreateOverrideResponse (the dedicated create-response schema added
- * in platform v7.4.4), distinct from the at-rest PolicyOverride
- * entity which is what GET endpoints return.
+ * The same name on both sides for every registered type. (The retired
+ * CreateOverrideResult, mapped to CreateOverrideResponse, left with the
+ * override write tools in AxonFlow v11.0.0.)
  */
 const WIRE_BOUND = {
   MCPCheckInputResponse: 'MCPCheckInputResponse',

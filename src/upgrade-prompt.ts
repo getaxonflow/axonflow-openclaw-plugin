@@ -203,8 +203,15 @@ export const GOVERNED_BACKOFF_LIMIT_TYPES: readonly string[] = ["daily_quota", "
  * rolling HITL window) locked governed calls for the week. */
 export const THROTTLE_MAX_HONOUR_MS = 300_000;
 
+/** How far in the future a stamp's modification time may be and still count
+ * as written now. A file written later than that (a clock stepped back, a
+ * skewed network filesystem) is past THROTTLE_MAX_HONOUR_MS: honouring it
+ * would extend the cap by the skew. */
+export const THROTTLE_CLOCK_SKEW_MS = 60_000;
+
 /** Returns true if a throttle stamp exists with a future deadline, was written
- * less than THROTTLE_MAX_HONOUR_MS ago, and (when `limitTypes` is given)
+ * less than THROTTLE_MAX_HONOUR_MS ago (and not more than
+ * THROTTLE_CLOCK_SKEW_MS in the future), and (when `limitTypes` is given)
  * carries one of those limit types. Cleans up expired and malformed stamps as
  * a side effect; a stamp of another type or past the cap is left for the
  * writer that honours it. */
@@ -237,7 +244,7 @@ export function isThrottleActive(
   if (options.limitTypes && !options.limitTypes.includes(limitType ?? "")) {
     return false;
   }
-  if (writtenMs + THROTTLE_MAX_HONOUR_MS <= now) {
+  if (writtenMs - now > THROTTLE_CLOCK_SKEW_MS || writtenMs + THROTTLE_MAX_HONOUR_MS <= now) {
     return false;
   }
   return true;

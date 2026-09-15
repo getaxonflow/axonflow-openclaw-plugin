@@ -819,7 +819,8 @@ export class AxonFlowClient {
         // A tenant-credential route never follows a redirect (#196). fetch
         // follows one by default: a 302 came back as the target's 200 page, no
         // usable answer, so the call ran with the notice; a 307 re-sent the
-        // POST, credential included, to wherever the redirect pointed, and a
+        // POST to wherever the redirect pointed (cross-origin, fetch drops
+        // Authorization but forwards X-License-Token and X-User-Token), and a
         // check honoured that answer. The 3xx itself is returned and read as a
         // refusal. telemetry.ts refuses redirects for the same reason.
         ...(options?.tenantCredentialRoute === true ? { redirect: "manual" as const } : {}),

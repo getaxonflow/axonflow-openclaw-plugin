@@ -28,7 +28,11 @@ import {
   AxonFlowLimitError,
   NO_DECISION_REASON,
 } from "../src/axonflow-client.js";
-import { THROTTLE_MAX_HONOUR_MS, TOOL_THROTTLE_FILE } from "../src/upgrade-prompt.js";
+import {
+  THROTTLE_CLOCK_SKEW_MS,
+  THROTTLE_MAX_HONOUR_MS,
+  TOOL_THROTTLE_FILE,
+} from "../src/upgrade-prompt.js";
 import {
   classifyGovernanceFailure,
   createBeforeToolCallHandler,
@@ -390,7 +394,8 @@ describe("only a check-input or check-output request limit gates a governed call
   function stamp(file: string, limitType: string, deadlineSeconds: number, writtenAgoMs = 0) {
     fs.mkdirSync(cacheDir, { recursive: true });
     fs.writeFileSync(file, `${Math.floor(Date.now() / 1000) + deadlineSeconds} ${limitType}\n`);
-    if (writtenAgoMs > 0) {
+    if (writtenAgoMs !== 0) {
+      // A negative age writes the file's time in the future.
       const written = (Date.now() - writtenAgoMs) / 1000;
       fs.utimesSync(file, written, written);
     }
@@ -433,6 +438,8 @@ describe("only a check-input or check-output request limit gates a governed call
       mockFetch.mockResolvedValueOnce(allowed());
       await expect(bash(makeClient())).resolves.toBeUndefined();
       expect(mockFetch).toHaveBeenCalledTimes(1);
+      // Left for the writer that honours it (the hooks' auth_failure cooldown).
+      expect(fs.existsSync(governedStamp())).toBe(true);
     });
   }
 
@@ -449,6 +456,46 @@ describe("only a check-input or check-output request limit gates a governed call
     mockFetch.mockResolvedValueOnce(allowed());
     await expect(bash(makeClient())).resolves.toBeUndefined();
     expect(mockFetch).toHaveBeenCalledTimes(1);
+    // Left for a writer that honours it to its deadline.
+    expect(fs.existsSync(governedStamp())).toBe(true);
+  });
+
+  it("a daily_quota stamp whose file time is a day in the future is past the cap, not honoured for the skew", async () => {
+    stamp(governedStamp(), "daily_quota", 7 * 24 * 3600, -24 * 3600 * 1000);
+    mockFetch.mockResolvedValueOnce(allowed());
+    await expect(bash(makeClient())).resolves.toBeUndefined();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(governedStamp())).toBe(true);
+  });
+
+  it("a stamp whose file time is within THROTTLE_CLOCK_SKEW_MS in the future still blocks (the control)", async () => {
+    stamp(governedStamp(), "daily_quota", 7 * 24 * 3600, -(THROTTLE_CLOCK_SKEW_MS / 2));
+    const result = await bash(makeClient());
+    expect(result?.block).toBe(true);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("the cap is five minutes and the clock-skew allowance one minute", () => {
+    expect(THROTTLE_MAX_HONOUR_MS).toBe(300_000);
+    expect(THROTTLE_CLOCK_SKEW_MS).toBe(60_000);
+  });
+
+  it("callMCPTool honours a fresh governed request-rate stamp: kind throttled, no request", async () => {
+    stamp(governedStamp(), "per_minute", 60);
+    const res = await makeClient().callMCPTool("axonflow_list_pro_features", {});
+    expect(res.kind).toBe("throttled");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("callMCPTool ignores another plugin's auth_failure stamp: the call is sent", async () => {
+    stamp(governedStamp(), "auth_failure", 300);
+    mockFetch
+      .mockResolvedValueOnce(response(200, { jsonrpc: "2.0", id: "init", result: {} }, { headers: { "mcp-session-id": "s1" } }))
+      .mockResolvedValueOnce(response(200, { jsonrpc: "2.0", id: "call", result: { content: [{ type: "text", text: "{}" }] } }));
+    const res = await makeClient().callMCPTool("axonflow_list_pro_features", {});
+    expect(res.kind).toBe("ok");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(fs.existsSync(governedStamp())).toBe(true);
   });
 
   it("the control: the same stamp written just now blocks without a request", async () => {
