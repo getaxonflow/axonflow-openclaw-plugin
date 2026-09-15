@@ -44,7 +44,6 @@ const WIRE_BOUND = {
   ExplainPolicy: 'ExplainPolicy',
   ExplainRule: 'ExplainRule',
   DecisionExplanation: 'DecisionExplanation',
-  CreateOverrideResult: 'CreateOverrideResponse',
 };
 
 /**

@@ -16,6 +16,14 @@
     ]
   },
   "envVars": {
+    "AXONFLOW_FAIL_MODE": {
+      "required": false,
+      "description": "What a governed tool call does when the governance check gets no usable answer (the endpoint unreachable, a timeout, HTTP 408 or 5xx, a 2xx answer that is not a JSON object). Set to anything but 'open' (in any case, with no whitespace trimmed) to deny those calls, as pluginConfig.failMode 'closed' does; either source can close it and neither can reopen it. Unset, empty or 'open' keeps the default: the call runs, and the plugin says once per process that governed calls are running ungoverned. It never loosens a rejected credential, a request limit, a refusal or a policy deny.",
+      "values": [
+        "open",
+        "closed"
+      ]
+    },
     "AXONFLOW_TELEMETRY": {
       "required": false,
       "description": "Set to 'off', '0', 'false', or 'no' to disable the 7-day usage heartbeat. When unset (default), the plugin sends a lightweight ping to checkpoint.getaxonflow.com once every 7 days per machine.",
