@@ -17,6 +17,10 @@
 #   F4. VACUITY CONTROL: with the endpoint alive, the same agent turn must
 #       produce NO notice. If the notice appeared unconditionally it would
 #       be noise, not signal.
+#   F5. The switch (#196): with failMode "closed", the same dead endpoint
+#       BLOCKS both governed tool calls (neither nonce reaches the agent),
+#       names the switch, and emits no ungoverned notice. It runs last, so
+#       the closed setting cannot leak into F1-F4.
 #
 # Env hygiene (#2937 class): AXONFLOW_ENDPOINT / AXONFLOW_CONFIG_DIR are
 # commonly exported by the e2e driver shell, so every openclaw invocation
@@ -250,6 +254,60 @@ else
   fi
   rm -f "$LIVE_OUT" "$LIVE_ERR"
 fi
+
+# ---------------------------------------------------------------------------
+# F5 — failMode "closed": the dead endpoint blocks instead of running ungoverned
+# ---------------------------------------------------------------------------
+echo "--- F5: failMode=closed against the dead endpoint ($DEAD_URL) ---"
+CLOSED_OUT="$(mktemp -t axonflow-failopen-closedout.XXXXXX)"
+CLOSED_ERR="$(mktemp -t axonflow-failopen-closederr.XXXXXX)"
+plugin_config_patch "{\"endpoint\": \"$DEAD_URL\", \"clientId\": \"e2e-failopen\", \"clientSecret\": \"synth-tok-e2e\", \"failMode\": \"closed\"}" ""
+( cd "$PLUGIN_DIR" && env -u AXONFLOW_ENDPOINT -u AXONFLOW_FAIL_MODE AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
+    openclaw plugins install --force --dangerously-force-unsafe-install . ) >/dev/null 2>&1
+# F5's own prompt: the F1 prompt asks only for the two commands' stdout, so the
+# block reason the host hands the agent never reached the session to be read.
+# This one also asks for the exact error text the agent got instead.
+F5_PROMPT="Do exactly two things, using a shell/bash tool for each, then report.
+Step 1: run the command: cat $SECRET_ONE
+Step 2: run the command: cat $SECRET_TWO
+Do not guess the file contents. If a tool call is blocked or fails, do not retry it.
+Then output exactly the literal text SMOKE_RESULT: followed by single-line JSON like SMOKE_RESULT: {\"step1\":\"<exact stdout of step 1, or empty>\",\"step2\":\"<exact stdout of step 2, or empty>\",\"error\":\"<the exact error text you got instead of an output, or empty>\"}."
+env -u AXONFLOW_ENDPOINT -u AXONFLOW_FAIL_MODE AXONFLOW_CONFIG_DIR="$AXONFLOW_STATE_DIR" \
+  timeout 180 openclaw agent --local --agent main --session-id "$(openclaw_fresh_session_id)" --model "$OPENCLAW_E2E_MODEL" \
+    --message "$F5_PROMPT" --json --thinking off >"$CLOSED_OUT" 2>"$CLOSED_ERR" || true
+
+CLOSED_CALLS=$(jq -r '(.meta.toolSummary.calls // .meta.agentMeta.toolSummary.calls // 0)' "$CLOSED_OUT" 2>/dev/null || echo 0)
+case "$CLOSED_CALLS" in ''|*[!0-9]*) CLOSED_CALLS=0 ;; esac
+CLOSED_LINE=$(extract_smoke_line "$CLOSED_OUT")
+if [ "$CLOSED_CALLS" -lt 1 ]; then
+  fail "F5: the turn attempted no tool call, so the block assertion is vacuous"
+elif printf '%s' "$CLOSED_LINE" | grep -q "$NONCE_ONE" || printf '%s' "$CLOSED_LINE" | grep -q "$NONCE_TWO"; then
+  fail "F5: a governed tool call RAN against a dead endpoint under failMode=closed"
+  echo "      SMOKE_RESULT: ${CLOSED_LINE:-<none>}"
+else
+  pass "F5: failMode=closed blocked the governed tool calls against the dead endpoint"
+fi
+# Captured first and grepped from a here-string: under pipefail, `... | grep -q`
+# fails the pipeline whenever grep exits on its first match before the writer
+# is done (SIGPIPE), which reported a match as a miss.
+# The agent reports the error INSIDE its SMOKE_RESULT JSON, where the quotes in
+# 'failMode is "closed"' arrive escaped (\"closed\"): read the field through jq
+# so it is compared unescaped, alongside the raw session text.
+CLOSED_ERROR=$(printf '%s' "$CLOSED_LINE" | jq -r '.error // empty' 2>/dev/null)
+CLOSED_TEXT="$(printf '%s\n' "$CLOSED_ERROR"; jq -r '.payloads[]?.text // empty' "$CLOSED_OUT" 2>/dev/null; cat "$CLOSED_ERR")"
+if grep -qF 'failMode is "closed"' <<< "$CLOSED_TEXT"; then
+  pass "F5: the block names the switch"
+else
+  fail "F5: no 'failMode is \"closed\"' in the session: the block does not say why"
+  echo "      the agent's reported error: ${CLOSED_ERROR:-<none>}"
+  echo "      SMOKE_RESULT: ${CLOSED_LINE:-<none>}"
+fi
+if grep -q "$NOTICE_MARKER" "$CLOSED_ERR" 2>/dev/null; then
+  fail "F5: the ungoverned notice appeared although the calls were blocked"
+else
+  pass "F5: no ungoverned notice when the calls are blocked"
+fi
+rm -f "$CLOSED_OUT" "$CLOSED_ERR"
 
 echo ""
 if [ "$errors" -ne 0 ]; then

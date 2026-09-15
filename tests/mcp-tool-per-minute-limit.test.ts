@@ -24,7 +24,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { AxonFlowClient } from "../src/axonflow-client.js";
-import { isThrottleActive } from "../src/upgrade-prompt.js";
+import { isThrottleActive, TOOL_THROTTLE_FILE } from "../src/upgrade-prompt.js";
+
+// An agent tool's limit is stamped in the agent-tool back-off only; it never
+// gates a governed tool call (#196).
+const toolBackOff = { file: TOOL_THROTTLE_FILE };
 
 const mockFetch = jest.fn();
 global.fetch = mockFetch as unknown as typeof fetch;
@@ -130,7 +134,8 @@ describe("callMCPTool over the Free per-minute limit", () => {
     expect(infos.some((m) => m.includes("Per-minute limit reached (200 requests)"))).toBe(true);
     expect(infos.some((m) => m.startsWith("[AxonFlow] Upgrade: "))).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(isThrottleActive(cacheDir, now + 50_000)).toBe(true);
+    expect(isThrottleActive(cacheDir, now + 50_000, toolBackOff)).toBe(true);
+    expect(fs.existsSync(path.join(cacheDir, "throttle-until"))).toBe(false);
   });
 
   it("tier-check path (tools/call answered 429 by the Free tier's check): kind envelope, not ok, with the upgrade prompt and a back-off to the minute", async () => {
@@ -146,8 +151,9 @@ describe("callMCPTool over the Free per-minute limit", () => {
     expect(infos.some((m) => m.includes("Pro raises this to 200/min"))).toBe(true);
     expect(infos.some((m) => m.startsWith("[AxonFlow] Upgrade: "))).toBe(true);
     // The back-off ends with the minute (resets_at, 60 s out), not at the daily reset.
-    expect(isThrottleActive(cacheDir, now + 50_000)).toBe(true);
-    expect(isThrottleActive(cacheDir, now + 120_000)).toBe(false);
+    expect(isThrottleActive(cacheDir, now + 50_000, toolBackOff)).toBe(true);
+    expect(isThrottleActive(cacheDir, now + 120_000, toolBackOff)).toBe(false);
+    expect(fs.existsSync(path.join(cacheDir, "throttle-until"))).toBe(false);
   });
 
   it("tier-check path: the next call is answered from the back-off, without a network call", async () => {

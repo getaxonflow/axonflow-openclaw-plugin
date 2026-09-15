@@ -14,8 +14,6 @@ import {
   buildExplainDecisionTool,
   buildListRecentDecisionsTool,
   buildListOverridesTool,
-  buildCreateOverrideTool,
-  buildRevokeOverrideTool,
 } from "../src/agent-tools.js";
 import { AxonFlowClient, AxonFlowHttpError } from "../src/axonflow-client.js";
 import type { ClientRef } from "../src/client-ref.js";
@@ -34,14 +32,13 @@ function makeClientRef(): ClientRef {
 }
 
 describe("agent-tools — buildAgentTools", () => {
-  it("returns 11 tools with axonflow_ prefixed names (W2 governance + V1.1 list + V1 Pro proxies)", () => {
+  it("returns 9 tools with axonflow_ prefixed names (W2 governance + V1.1 list + V1 Pro proxies)", () => {
     const ref = makeClientRef();
     const tools = buildAgentTools(ref);
-    expect(tools).toHaveLength(11);
+    expect(tools).toHaveLength(9);
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       "axonflow_audit_search",
-      "axonflow_create_override",
       "axonflow_create_tenant_policy",
       "axonflow_explain_decision",
       "axonflow_get_cost_estimate",
@@ -50,7 +47,6 @@ describe("agent-tools — buildAgentTools", () => {
       "axonflow_list_pro_features",
       "axonflow_list_recent_decisions",
       "axonflow_request_approval",
-      "axonflow_revoke_override",
     ]);
   });
 
@@ -377,112 +373,16 @@ describe("axonflow_list_overrides", () => {
   });
 });
 
-describe("axonflow_create_override", () => {
-  it("rejects missing required fields", async () => {
+describe("retired override writes (AxonFlow v11.0.0)", () => {
+  it("offers no create or revoke override tool, keeps list_overrides, and the client has no write method", () => {
     const ref = makeClientRef();
-    const tool = buildCreateOverrideTool(ref);
-
-    let result = await tool.execute("call-1", { policy_type: "static", override_reason: "x" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("policy_id is required");
-
-    result = await tool.execute("call-1", { policy_id: "P", policy_type: "static" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("override_reason is required");
-  });
-
-  it("rejects invalid policy_type", async () => {
-    const ref = makeClientRef();
-    const tool = buildCreateOverrideTool(ref);
-    const result = await tool.execute("call-1", {
-      policy_id: "P",
-      policy_type: "garbage",
-      override_reason: "test",
-    });
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("policy_type must be");
-  });
-
-  it("forwards mapped fields including optional tool_signature + ttl_seconds", async () => {
-    const ref = makeClientRef();
-    const spy = jest.spyOn(ref.current, "createOverride").mockResolvedValue({
-      id: "ovr-1",
-      policy_id: "P",
-      policy_type: "static",
-      expires_at: "2026-05-03T01:00:00Z",
-      ttl_seconds: 3600,
-      created_at: "2026-05-03T00:00:00Z",
-    });
-    const tool = buildCreateOverrideTool(ref);
-    const result = await tool.execute("call-1", {
-      policy_id: "P",
-      policy_type: "dynamic",
-      override_reason: "demo",
-      tool_signature: "Bash",
-      ttl_seconds: 600,
-    });
-    expect(spy).toHaveBeenCalledWith({
-      policyId: "P",
-      policyType: "dynamic",
-      overrideReason: "demo",
-      toolSignature: "Bash",
-      ttlSeconds: 600,
-    });
-    expect(result.isError).toBeUndefined();
-  });
-
-  it("surfaces 403 from server as isError with status detail", async () => {
-    const ref = makeClientRef();
-    jest.spyOn(ref.current, "createOverride").mockRejectedValue(
-      new AxonFlowHttpError(403, "Forbidden", { error: "critical-risk" }, "create override"),
-    );
-    const tool = buildCreateOverrideTool(ref);
-    const result = await tool.execute("call-1", {
-      policy_id: "P",
-      policy_type: "static",
-      override_reason: "demo",
-    });
-    expect(result.isError).toBe(true);
-    expect((result.details as { status: number }).status).toBe(403);
-  });
-});
-
-describe("axonflow_revoke_override", () => {
-  it("rejects empty override_id", async () => {
-    const ref = makeClientRef();
-    const tool = buildRevokeOverrideTool(ref);
-    const result = await tool.execute("call-1", {});
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("override_id is required");
-  });
-
-  it("returns revoked confirmation on success", async () => {
-    const ref = makeClientRef();
-    jest.spyOn(ref.current, "revokeOverride").mockResolvedValue();
-    const tool = buildRevokeOverrideTool(ref);
-    const result = await tool.execute("call-1", { override_id: "ovr-7" });
-    expect(result.isError).toBeUndefined();
-    expect((result.details as { revoked: boolean }).revoked).toBe(true);
-    expect((result.details as { override_id: string }).override_id).toBe("ovr-7");
-  });
-
-  it("surfaces 404 from server as isError", async () => {
-    const ref = makeClientRef();
-    jest.spyOn(ref.current, "revokeOverride").mockRejectedValue(
-      new AxonFlowHttpError(404, "Not Found", { error: "no such override" }, "revoke override"),
-    );
-    const tool = buildRevokeOverrideTool(ref);
-    const result = await tool.execute("call-1", { override_id: "ovr-missing" });
-    expect(result.isError).toBe(true);
-    expect((result.details as { status: number }).status).toBe(404);
-  });
-
-  it("handles unknown error type without crashing", async () => {
-    const ref = makeClientRef();
-    jest.spyOn(ref.current, "revokeOverride").mockRejectedValue("not-an-error-instance");
-    const tool = buildRevokeOverrideTool(ref);
-    const result = await tool.execute("call-1", { override_id: "ovr-7" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("Unknown error");
+    const names = buildAgentTools(ref).map((t) => t.name);
+    expect(names).not.toContain("axonflow_create_override");
+    expect(names).not.toContain("axonflow_revoke_override");
+    expect(names).toContain("axonflow_list_overrides");
+    const client = ref.current as unknown as Record<string, unknown>;
+    expect(client["createOverride"]).toBeUndefined();
+    expect(client["revokeOverride"]).toBeUndefined();
+    expect(typeof client["listOverridesStrict"]).toBe("function");
   });
 });

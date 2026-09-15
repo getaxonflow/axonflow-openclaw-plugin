@@ -93,6 +93,7 @@ The plugin recognizes the following environment variables. All are optional with
 | Variable | Effect |
 |---|---|
 | `AXONFLOW_ENDPOINT` | Override the AxonFlow agent gateway endpoint. Wins over `pluginConfig.endpoint` when both are set. Setting this selects self-hosted mode: all governed traffic targets this endpoint and the Community-SaaS auto-registration never runs. When unset and `AXONFLOW_COMMUNITY_SAAS` is not opted out, the plugin auto-bootstraps against `https://try.getaxonflow.com`. For self-hosted deployments, set this (or `pluginConfig.endpoint`) to your AxonFlow URL. |
+| `AXONFLOW_FAIL_MODE` | What a governed tool call does when the governance check gets no usable answer (the endpoint unreachable, a timeout, HTTP 408 or 5xx, a 2xx that is not a JSON object). Set to anything but `open` (any case, no whitespace trimmed) to deny those calls, as `pluginConfig.failMode: "closed"` does; either source can close it, neither can reopen it. Unset, empty or `open` keeps the default: the call runs, with a one-time notice. It never loosens a rejected credential, a request limit, a refusal or a policy deny. |
 | `AXONFLOW_TELEMETRY=off` | Disables the 7-day usage heartbeat to `checkpoint.getaxonflow.com`. Accepted off-values: `off`, `0`, `false`, `no`. |
 | `AXONFLOW_COMMUNITY_SAAS=0` | Disables auto-registration with `try.getaxonflow.com`. You must then set `pluginConfig.endpoint` (or `AXONFLOW_ENDPOINT`) for the plugin to enforce policy. Accepted off-values: `0`, `false`, `off`, `no`. |
 | `AXONFLOW_CACHE_DIR` | Overrides the per-user cache dir (telemetry stamp, rate-limit backoff, free-tier throttle + upgrade-prompt stamps). Defaults to `$XDG_CACHE_HOME/axonflow` (Linux), `~/Library/Caches/axonflow` (macOS), `%LOCALAPPDATA%\axonflow` (Windows). |
@@ -230,8 +231,7 @@ Reload OpenClaw and the plugin picks up the recovered registration on the next i
 | **Outbound message scanning** | Every message to Telegram/Discord/Slack/webhook is scanned for PII and secrets before delivery — redacted, blocked, or passed through per policy |
 | **Compliance-grade audit trail** | Every tool call and LLM interaction records the input, output summary, matched policies, decision, and duration |
 | **Decision explainability** | Blocked calls return a `decision_id` the agent can pass to `explainDecision()` to see exactly which policy family triggered and why |
-| **Session overrides** | Operators can request a time-bounded, audit-logged exception when policy allows it — without leaving the agent |
-| **Per-user identity** | `config.userEmail` threads the actual human operator through to every explain/override call, so shared chat agents still produce attributable audits |
+| **Per-user identity** | `config.userEmail` threads the actual human operator through to every explain call, so shared chat agents still produce attributable audits |
 
 ---
 
@@ -302,7 +302,7 @@ Six months later, a regulator asks: *"For this interaction on March 14, which to
 
 ## Take a governed plugin rollout into production
 
-Solo developers and self-serve teams can use the free 90-day [Plugin Evaluation License](https://getaxonflow.com/plugins/evaluation-license?utm_source=readme_plugin_openclaw_eval) to validate hook behavior, policy packs, and override workflows.
+Solo developers and self-serve teams can use the free 90-day [Plugin Evaluation License](https://getaxonflow.com/plugins/evaluation-license?utm_source=readme_plugin_openclaw_eval) to validate hook behavior and policy packs.
 
 Organizations with a dated production requirement, written controls, an executive sponsor, and a technical owner can use AxonFlow's paid [Production Program](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw). It takes one scoped workflow into production over 60 or 75 days with Enterprise access, founder-led rollout support, upfront conversion pricing, and a fixed decision date.
 
@@ -328,9 +328,8 @@ Outgrown Community on a real plugin install? Evaluation unlocks the capacity and
 | HITL approval gates | — | 25 pending, 24h expiry | Unlimited, 24h |
 | Evidence export (CSV/JSON) | — | 5,000 records · 14d window · 3/day | Unlimited |
 | Policy simulation | — | 300/day | Unlimited |
-| Session overrides (self-service unblock) | — | — | Enterprise-only |
 
-Org-wide policies and session overrides are **Enterprise-only** — those are the actual upgrade triggers for plugin users.
+Org-wide policies are **Enterprise-only**, the actual upgrade trigger for plugin users. Session overrides are retired from AxonFlow v11.0.0 on every tier.
 
 [Get a free Plugin Evaluation license](https://getaxonflow.com/plugins/evaluation-license?utm_source=readme_plugin_openclaw_eval)
 
@@ -435,7 +434,7 @@ Every plugin init logs a one-line canary on stderr confirming the active mode:
 
 If the canary says `mode=community-saas` after you ran Step 1, the plugin is still hitting `try.getaxonflow.com` because Step 3 was skipped or `pluginConfig.endpoint` is unset. Fix Step 3 and reload.
 
-See [Configure](#configure) below for the full pluginConfig schema (`highRiskTools`, `governedTools`, `onError`, `userEmail`, etc.).
+See [Configure](#configure) below for the full pluginConfig schema (`highRiskTools`, `governedTools`, `onError`, `failMode`, `userEmail`, etc.).
 
 ---
 
@@ -451,39 +450,46 @@ See [Configure](#configure) below for the full pluginConfig schema (`highRiskToo
 | `clientId` | No | `"community"` (self-hosted) or auto-bootstrapped `cs_<uuid>` (Community SaaS) | Tenant identity for data isolation. Override for Evaluation License or Enterprise tenants. |
 | `clientSecret` | No | `""` (self-hosted) or auto-bootstrapped (Community SaaS) | Basic-auth secret paired with `clientId`. Required for self-hosted Community Edition with an Evaluation License or AxonFlow Enterprise; auto-populated for Community SaaS; can be left unset for self-hosted Community Edition without a license. |
 | `licenseToken` | No | `process.env.AXONFLOW_LICENSE_TOKEN` if set | AxonFlow Pro plugin-claim license token (begins with `AXON-`). When set, the plugin sends `X-License-Token` on every governed request and the agent applies Pro-tier entitlements (extended retention, higher quotas, license-gated capabilities). Get one at [getaxonflow.com/pricing/](https://getaxonflow.com/pricing/) — buy through Stripe Checkout, the token arrives by email. Env var wins over `pluginConfig.licenseToken`. |
-| `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
+| `userEmail` | No | — | Per-user identity forwarded on explain calls and the override read (`axonflow_list_overrides`). Shared agents should set this from session context. |
 | `userToken` | No | `process.env.AXONFLOW_USER_TOKEN`, else `~/.config/axonflow/user-token.json` (mode `0600`) | Per-user authorization token, sent as `X-User-Token` on every governed request. Yields a **validated** `{identity, role}` on the platform's fleet plane — role-scoped reads return this developer's own rows (a token-less caller gets zero rows on those read tools against current platforms), and audit attribution keys on the token's canonical email rather than the forgeable `userEmail` label on the header-consuming planes (MCP tools + audit/decisions/overrides REST; the `check-input`/`check-output` hook plane keeps client-scoped attribution on current platforms). Minted by an org admin via the platform's user-token mint API. This config value wins over the env var, which wins over the provisioning file; a malformed candidate at any source is dropped with a warning (never sent) and resolution falls through to the next source. Unset: header omitted, wire behavior unchanged. |
 | `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |
 | `excludedTools` | No | `[]` | Tools to exclude from governance. Takes precedence over `governedTools`. |
 | `defaultOperation` | No | `"execute"` | Operation type for `check_input` (`"execute"` or `"query"`) |
-| `onError` | No | `"block"` | Governs behavior on **auth/config errors only** (401/403). `"block"` denies the tool call with a message telling the operator to fix configuration; `"allow"` lets the call through ungoverned. Does not apply to network/transient errors — see Fail behavior below. |
+| `onError` | No | `"block"` | Governs a **rejected credential, a request limit and a refusal** (HTTP 401, 429, a Free-tier limit, a 3xx, and a 4xx other than 408 that carries no policy decision). `"block"` denies the tool call with the reason; `"allow"` lets it through ungoverned, and says so once per process. It also governs every failure of the `message_sending` scan. See Fail behavior below. |
+| `failMode` | No | `"open"` | Governs a governed tool call whose check got **no usable answer** (the endpoint unreachable, a timeout, HTTP 408 or 5xx, an answer that is not a JSON object). `"open"` lets the call run and says so once per process; `"closed"` denies it. `AXONFLOW_FAIL_MODE` set to any value other than `open` also closes it, so either can close it and neither can reopen it. |
 | `requestTimeoutMs` | No | `8000` | Timeout for policy checks, output scans, audit writes, and health checks |
 
 ### Fail behavior
 
-The plugin classifies errors from the AxonFlow client into two buckets and applies different rules per hook.
+Every answer the governance check can get lands in one row. A policy decision is enforced; everything else is read by `onError` or `failMode`, and no governed call runs ungoverned without the plugin saying so.
 
-| Hook | Transient network error (timeout, DNS, connection refused, 5xx) | Auth/config error (401 / 403) |
+| AxonFlow's answer | `before_tool_call` | `message_sending` |
 |---|---|---|
-| `before_tool_call` | **Always fail-open** — tool call proceeds regardless of `onError`. Transient infrastructure issues should not block legitimate dev workflows. |  Respects `onError`. With the default `"block"`, the tool call is denied with a message pointing at the misconfiguration. With `"allow"`, the call proceeds ungoverned. |
-| `message_sending` | Respects `onError`. With `"block"` (default), the outbound message is cancelled. With `"allow"`, it is delivered ungoverned. | Same as network error — respects `onError`. |
-| `after_tool_call`, `llm_input`, `llm_output` (audit) | Always silently caught. Governance was already enforced on the pre-execution hook. | Always silently caught. |
+| A policy decision: an allow, or a deny (including HTTP 403 carrying `allowed: false` and a `block_reason`) | enforced | enforced |
+| A rejected credential: HTTP 401 | `onError`: `"block"` (default) denies; `"allow"` runs. A 401 from `check-input`, `check-output` or the tool-call audit also trips the auth breaker (below) | `onError`: `"block"` cancels; `"allow"` delivers, with the notice |
+| A request limit: HTTP 429, a Free-tier limit envelope (on a 429 or a 403), or the back-off an earlier `check-input` or `check-output` request limit stamped (see Free-tier limits) | `onError`: `"block"` denies, naming the limit; `"allow"` runs, with the notice | `onError`, as above |
+| A refusal: HTTP 3xx, or a 4xx other than 408 and 429 that carries no policy decision (402, a 403 from a proxy, 404, 413, ...) | `onError`: `"block"` denies, with the reason; `"allow"` runs, with the notice | `onError`, as above |
+| No usable answer: the endpoint unreachable, a timeout, HTTP 408, 5xx, or a 2xx that is not a JSON object | `failMode`: `"open"` (default) runs, with the notice; `"closed"` denies | `onError`, as above |
+| `after_tool_call`, `llm_input`, `llm_output` (audit) | always silently caught; governance was already enforced on the pre-execution hook | |
 
-The `before_tool_call` network fail-open is not silent. The first time a governed tool call proceeds because the governance check failed for a non-auth reason — the endpoint was unreachable, timed out, or answered 5xx — the plugin emits one warning on the same channel as the auth-failure notice (`console.warn`, so it lands in the OpenClaw plugin log and in the terminal running the session), naming the endpoint, the underlying error, and the fact that the call ran with no policy evaluated:
+Every row is classified by the HTTP status, never by whether the body parses: a plain-text 429 from a proxy is a limit, and a plain-text 403 is a refusal. A redirect is never followed: the 3xx itself is the refusal. A 2xx JSON object without a boolean `allowed` carries no decision and is denied by both hooks, whatever `failMode` says.
+
+**The notice.** The first time a governed call proceeds without a policy decision, whatever the reason, the plugin emits one warning (`console.warn`, so it lands in the OpenClaw plugin log and in the terminal running the session), naming the endpoint and the error:
 
 ```
 [AxonFlow] Governance check against http://localhost:8080 failed (fetch failed). This tool
 call ran UNGOVERNED — no policy was evaluated, nothing was blocked, and no decision was
-recorded. Tool calls continue to run ungoverned until the endpoint answers again; restore
-it to resume enforcement. Shown once per process.
+recorded. Governed calls continue to run ungoverned until the governance check succeeds
+again; restore the endpoint, fix the credentials it rejected, or wait for the request limit
+to reset, to resume enforcement. Shown once per process.
 ```
 
-It appears once per process rather than once per tool call, mirroring the auth-failure notice, so a long outage does not flood the transcript.
+It appears once per process rather than once per call, so a long outage does not flood the transcript. A blocked call needs no notice: the block carries the reason.
 
-Auth errors do not trigger this notice — they take the `onError` path above. With the default `onError: "block"` nothing runs ungoverned, so there is nothing to announce, and a 401 additionally trips the client's own one-time authentication warning. **One gap remains:** with `onError: "allow"`, an HTTP **403** proceeds ungoverned and emits nothing (only 401 trips the client warning). Tracked in [#170](https://github.com/getaxonflow/axonflow-openclaw-plugin/issues/170); until it is closed, treat `onError: "allow"` as a posture that can go quiet.
+**The auth breaker.** A 401 from `check-input`, `check-output` or the tool-call audit means the tenant credential failed, so the plugin stops sending governed requests for the rest of the process and warns once: with `onError: "block"` every governed tool call is denied, with `"allow"` every one runs ungoverned. A 401 from any other endpoint (explain, search, the decision list, the override read, or the agent tools' MCP server, which answers a client past the service-principal ceiling with 401) is that endpoint's refusal and does not trip it. A new client (a config reload) starts fresh.
 
-If you need tool-execution itself to fail-closed during an AxonFlow outage (for example on a production infrastructure agent), pair the plugin with an OpenClaw-side health check or a front-door liveness gate — the plugin alone will not achieve that for `before_tool_call`.
+**Failing closed during an outage.** Set `failMode: "closed"` (or `AXONFLOW_FAIL_MODE=closed`) to deny governed tool calls when AxonFlow cannot answer, for example on a production infrastructure agent.
 
 ---
 
@@ -543,7 +549,7 @@ Beyond the lifecycle hooks, OpenClaw agents can call **15 MCP tools** via the ag
 
 **Governance (6):** `check_policy`, `check_output`, `audit_tool_call`, `list_policies`, `get_policy_stats`, `search_audit_events`
 
-**Explainability & overrides (4):** `explain_decision`, `create_override`, `delete_override`, `list_overrides`
+**Explainability & overrides (4):** `explain_decision`, `list_overrides`, and `create_override` / `delete_override`, which the platform still lists but which answer a tool error beginning `LEGACY_POLICY_WRITE_FROZEN:` from AxonFlow v11.0.0: session overrides are retired. The plugin no longer registers its own `axonflow_create_override` or `axonflow_revoke_override` agent tool.
 
 **Tenant identity & tier capability (5 — V1 Plugin Pro):**
 
@@ -557,9 +563,11 @@ Beyond the lifecycle hooks, OpenClaw agents can call **15 MCP tools** via the ag
 
 OpenClaw also registers `axonflow_get_tenant_id` locally as a plugin agent tool so it works without the agent proxying the platform's MCP server. The local tool returns the same shape (`tenant_id`, `tier`, `upgrade_url`, `buy_url`, `expires_at`) — agents can answer "what's my tenant ID?" or "am I on Pro?" inline either way.
 
-When a tool call is blocked, the agent can surface the `decision_id` to the operator, call `explain_decision` to reveal the triggering policy family, and — if the decision is overridable — call `create_override` with mandatory justification for a short-lived, audit-logged exception. Operators never leave the OpenClaw session.
+When a tool call is blocked, the agent can surface the `decision_id` to the operator and call `explain_decision` to reveal the triggering policy family. From AxonFlow v11.0.0 a verdict is changed by an administrator in the organization's typed policy document, not by a session override.
 
-See [Decision Explainability](https://docs.getaxonflow.com/docs/governance/explainability/) and [Session Overrides](https://docs.getaxonflow.com/docs/governance/overrides/).
+**One MCP session per five minutes.** The agent tools that go through the platform's MCP server (`axonflow_request_approval`, `axonflow_create_tenant_policy`, `axonflow_get_cost_estimate`, `axonflow_list_pro_features`) reuse one MCP session for up to five minutes instead of opening one per call, which halves the requests a run of calls counts against a per-minute limit (two calls made at the same moment can each open a session). Any error drops the session. The platform does not authenticate a request again while its session lives, so after a per-user token (`userToken`) is revoked, a client secret is rotated or a licence changes, those tools can go on using the session for up to five minutes; governed tool calls are unaffected, because `check-input` and `check-output` authenticate every request.
+
+See [Decision Explainability](https://docs.getaxonflow.com/docs/governance/explainability/).
 
 ### Free-tier limits and upgrade prompts
 
@@ -570,7 +578,7 @@ When the plugin's hooks hit a Free-tier cap (200 events/day, 2 active custom pol
 [AxonFlow] Upgrade: https://buy.stripe.com/bJe28qbztcdVchjdkw8k800
 ```
 
-The plugin also stamps a local back-off file from the response's `Retry-After` header so subsequent governed calls fall through immediately (no thundering herd against the agent) until the cap clears. The upgrade nudge is shown at most once per UTC day.
+The plugin also stamps a local back-off from the envelope's `resets_at` or the `Retry-After` header. A request limit (`daily_quota`, `per_minute`) answered to `check-input` or `check-output` denies governed tool calls locally, with no request sent, until the deadline and for at most five minutes after the stamp; after that the plugin asks AxonFlow again. A limit an agent tool or the decision list reaches is stamped in a separate file (`tool-throttle-until`), which pauses the four agent tools that call the platform's MCP server (the decision list itself reads no back-off). It never blocks a governed tool call, and neither does a feature or object-count limit, or another AxonFlow plugin's 401 cooldown in the shared cache directory; another plugin's request-rate stamp there does gate governed calls, for at most five minutes. A stamp whose file time is more than a minute in the future counts as past the five minutes. The upgrade nudge is shown at most once per UTC day.
 
 ---
 
@@ -580,7 +588,6 @@ The plugin also stamps a local back-off file from the response's `Retry-After` h
 - Tool inputs before execution
 - Outbound messages before delivery
 - Tool and LLM audit trails (including search & explainability)
-- Decision-level overrides with per-user attribution
 
 **Not protected yet:**
 - Tool results written into the session transcript (OpenClaw's `tool_result_persist` hook is synchronous and cannot call AxonFlow's HTTP APIs)
@@ -659,7 +666,7 @@ node tests/e2e/smoke-block-context.mjs
 
 The smoke scenario uses `AxonFlowClient.mcpCheckInput` to fire a SQLi-bearing statement against a running platform and asserts the response carries richer-context fields (`decision_id`, `risk_level`, `policy_matches`). Exits 0 with a `SKIP:` message if no stack is reachable.
 
-For the broader validation story — explain-decision, override lifecycle, audit-filter parity, cache invalidation — see the [OpenClaw integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/).
+For the broader validation story — explain-decision, audit-filter parity, cache invalidation — see the [OpenClaw integration guide](https://docs.getaxonflow.com/docs/integration/openclaw/).
 
 ---
 
@@ -669,7 +676,6 @@ For the broader validation story — explain-decision, override lifecycle, audit
 - [AxonFlow Documentation](https://docs.getaxonflow.com)
 - [Policy Enforcement](https://docs.getaxonflow.com/docs/mcp/policy-enforcement/)
 - [Decision Explainability](https://docs.getaxonflow.com/docs/governance/explainability/)
-- [Session Overrides](https://docs.getaxonflow.com/docs/governance/overrides/)
 - [PII Detection](https://docs.getaxonflow.com/docs/security/pii-detection/)
 - [Audit Logging](https://docs.getaxonflow.com/docs/governance/audit-logging/)
 - Sister plugins: [Claude Code](https://github.com/getaxonflow/axonflow-claude-plugin) · [Cursor](https://github.com/getaxonflow/axonflow-cursor-plugin) · [Codex](https://github.com/getaxonflow/axonflow-codex-plugin)
