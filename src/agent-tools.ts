@@ -562,7 +562,7 @@ export function buildRequestApprovalTool(clientRef: ClientRef): AgentToolDef {
     label: "AxonFlow: Request HITL Approval",
     description:
       "Request human-in-the-loop approval before executing a risky operation (e.g. shell command, file write, git push). " +
-      "On Free tier, 1 approval request allowed per rolling 7-day window. On Pro, unlimited.",
+      "2 approval requests per rolling 7-day window on Free, 20 on Pro.",
     parameters: {
       type: "object",
       properties: {
