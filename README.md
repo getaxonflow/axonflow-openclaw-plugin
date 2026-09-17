@@ -330,7 +330,7 @@ Outgrown Community on a real plugin install? Evaluation unlocks the capacity and
 | Policy simulation | — | 300/day | Unlimited |
 | Session overrides (self-service unblock) | — | — | Enterprise-only |
 
-Org-wide policies and session overrides are **Enterprise-only** — those are the actual upgrade triggers for plugin users.
+Org-wide policies (organization-root policies authored by the customer) are capped at 20 on Community and 50 on Evaluation, unlimited on Enterprise (`tier_limits.go:182`/`:227`/`:274`).
 
 [Get a free Plugin Evaluation license](https://getaxonflow.com/plugins/evaluation-license?utm_source=readme_plugin_openclaw_eval)
 
