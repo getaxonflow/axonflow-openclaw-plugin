@@ -12,11 +12,7 @@
 
 > **Rolling this plugin out for a real team or production workflow?**
 >
-> Choose the path that fits:
-> - **Self-serve:** free 90-day [plugin evaluation license](https://getaxonflow.com/plugins/evaluation-license/?utm_source=readme_plugin_openclaw_eval)
-> - **Paid production program:** [Design Partner or Confidential Pilot](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw)  -  one scoped workflow over 60 or 75 days, founder-led rollout support, upfront conversion pricing, and a fixed decision date; public track from $2,000 or confidential track from $4,000
->
-> The paid program requires a dated forcing event, written controls, an executive sponsor, and a technical owner. Prices are subject to eligibility and a signed agreement.
+> Start with the free 90-day [plugin evaluation license](https://getaxonflow.com/plugins/evaluation-license/?utm_source=readme_plugin_openclaw_eval).
 
 ---
 
@@ -108,7 +104,7 @@ The same set is the authoritative declaration in [`openclaw.plugin.json`](opencl
 
 ## Activate Pro tier
 
-Plugin Pro is the paid tier on top of free Community SaaS. The Free baseline supports 3-day audit retention, 200 governed events / day, 2 active custom policies, and 1 HITL approval per rolling 7d. Pro extends that to **30-day retention**, **2,000 events / day**, **unlimited active custom policies**, **unlimited HITL approvals**, and adds the **LLM cost pre-flight** tool (estimate token cost for a multi-step plan before it runs). 90-day window, **$9.99 USD** one-time payment, no auto-renewal, 14-day no-questions refund. See [getaxonflow.com/pricing/](https://getaxonflow.com/pricing/) for the full breakdown and the Stripe buy button.
+Plugin Pro is the paid tier on top of free Community SaaS. The Free baseline supports 3-day audit retention, 200 governed events / day, and 2 HITL approvals per rolling 7d. Pro extends that to **30-day retention**, **2,000 events / day**, **20 HITL approvals per rolling 7d**, and adds the **LLM cost pre-flight** tool (estimate token cost for a multi-step plan before it runs). 90-day window, **$9.99 USD** one-time payment, no auto-renewal, 14-day no-questions refund. See [getaxonflow.com/pricing/](https://getaxonflow.com/pricing/) for the full breakdown and the Stripe buy button.
 
 To activate Pro on an installed plugin:
 
@@ -304,10 +300,6 @@ Six months later, a regulator asks: *"For this interaction on March 14, which to
 
 Solo developers and self-serve teams can use the free 90-day [Plugin Evaluation License](https://getaxonflow.com/plugins/evaluation-license?utm_source=readme_plugin_openclaw_eval) to validate hook behavior, policy packs, and override workflows.
 
-Organizations with a dated production requirement, written controls, an executive sponsor, and a technical owner can use AxonFlow's paid [Production Program](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw). It takes one scoped workflow into production over 60 or 75 days with Enterprise access, founder-led rollout support, upfront conversion pricing, and a fixed decision date.
-
-Public Design Partner pricing starts at $2,000; the Confidential Paid Pilot starts at $4,000. Prices are subject to eligibility and a signed agreement.
-
 ### See AxonFlow in Action
 
 Videos covering different angles of the platform:
@@ -323,14 +315,14 @@ Outgrown Community on a real plugin install? Evaluation unlocks the capacity and
 | Capability | Community | Evaluation (Free) | Enterprise |
 |---|---|---|---|
 | Tenant policies | 20 | 50 | Unlimited |
-| Org-wide policies | 0 | 5 | Unlimited |
+| Org-wide policies | 20 | 50 | Unlimited |
 | Audit retention | 3 days | 14 days | Up to 10 years |
-| HITL approval gates | — | 25 pending, 24h expiry | Unlimited, 24h |
+| HITL approval gates | — | — | Unlimited, 24h |
 | Evidence export (CSV/JSON) | — | 5,000 records · 14d window · 3/day | Unlimited |
 | Policy simulation | — | 300/day | Unlimited |
 | Session overrides (self-service unblock) | — | — | Enterprise-only |
 
-Org-wide policies and session overrides are **Enterprise-only** — those are the actual upgrade triggers for plugin users.
+Org-wide policies (organization-root policies authored by the customer) are capped at 20 on Community and 50 on Evaluation, unlimited on Enterprise (`tier_limits.go:182`/`:227`/`:274`).
 
 [Get a free Plugin Evaluation license](https://getaxonflow.com/plugins/evaluation-license?utm_source=readme_plugin_openclaw_eval)
 
@@ -550,9 +542,9 @@ Beyond the lifecycle hooks, OpenClaw agents can call **15 MCP tools** via the ag
 | Tool | Free access | Pro access |
 |------|-------------|------------|
 | `axonflow_get_tenant_id` | Visible + callable — returns tenant_id, server-resolved tier, upgrade URL | Same |
-| `axonflow_list_pro_features` | Visible + callable — locked Pro feature list (5 differentiators + $9.99 / 90-day pricing) | Same |
-| `axonflow_request_approval` | Visible + 1 per rolling 7d | Unlimited |
-| `axonflow_create_tenant_policy` | Visible + 2 active max | Unlimited |
+| `axonflow_list_pro_features` | Visible + callable — locked Pro feature list (4 differentiators + $9.99 / 90-day pricing) | Same |
+| `axonflow_request_approval` | Visible + 2 per rolling 7d | Visible + 20 per rolling 7d |
+| `axonflow_create_tenant_policy` | Retired in v11: refuses and names the typed authoring route | Same |
 | `axonflow_get_cost_estimate` | Filtered out of `tools/list` — Pro-only | Visible + callable |
 
 OpenClaw also registers `axonflow_get_tenant_id` locally as a plugin agent tool so it works without the agent proxying the platform's MCP server. The local tool returns the same shape (`tenant_id`, `tier`, `upgrade_url`, `buy_url`, `expires_at`) — agents can answer "what's my tenant ID?" or "am I on Pro?" inline either way.
@@ -563,7 +555,7 @@ See [Decision Explainability](https://docs.getaxonflow.com/docs/governance/expla
 
 ### Free-tier limits and upgrade prompts
 
-When the plugin's hooks hit a Free-tier cap (200 events/day, 2 active custom policies, 1 HITL approval per rolling 7d, or a Pro-only feature), the agent returns a structured upgrade envelope. The plugin parses it and forwards a single-line nudge through the host plugin logger — visible in the OpenClaw plugin log:
+When the plugin's hooks hit a Free-tier cap (200 events/day, 2 HITL approvals per rolling 7d, or a Pro-only feature), the agent returns a structured upgrade envelope. The plugin parses it and forwards a single-line nudge through the host plugin logger — visible in the OpenClaw plugin log:
 
 ```
 [AxonFlow] Daily limit reached on Free tier (200 events). Pro raises this to 2,000/day. Resets at midnight UTC.
