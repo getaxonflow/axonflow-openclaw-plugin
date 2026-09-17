@@ -323,9 +323,9 @@ Outgrown Community on a real plugin install? Evaluation unlocks the capacity and
 | Capability | Community | Evaluation (Free) | Enterprise |
 |---|---|---|---|
 | Tenant policies | 20 | 50 | Unlimited |
-| Org-wide policies | 0 | 5 | Unlimited |
+| Org-wide policies | 20 | 50 | Unlimited |
 | Audit retention | 3 days | 14 days | Up to 10 years |
-| HITL approval gates | — | 25 pending, 24h expiry | Unlimited, 24h |
+| HITL approval gates | — | — | Unlimited, 24h |
 | Evidence export (CSV/JSON) | — | 5,000 records · 14d window · 3/day | Unlimited |
 | Policy simulation | — | 300/day | Unlimited |
 | Session overrides (self-service unblock) | — | — | Enterprise-only |
