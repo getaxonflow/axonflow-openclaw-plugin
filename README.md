@@ -329,7 +329,7 @@ Outgrown Community on a real plugin install? Evaluation unlocks the capacity and
 | Evidence export (CSV/JSON) | — | 5,000 records · 14d window · 3/day | Unlimited |
 | Policy simulation | — | 300/day | Unlimited |
 
-Org-wide policies are **Enterprise-only**, the actual upgrade trigger for plugin users. Session overrides are retired from AxonFlow v11.0.0 on every tier.
+Org-wide policies (an org-root policy that binds every tenant) are capped at 20 on Community and 50 on Evaluation, unlimited on Enterprise. Session overrides are retired from AxonFlow v11.0.0 on every tier.
 
 [Get a free Plugin Evaluation license](https://getaxonflow.com/plugins/evaluation-license?utm_source=readme_plugin_openclaw_eval)
 
