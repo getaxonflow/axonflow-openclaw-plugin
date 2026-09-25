@@ -88,7 +88,8 @@ registerAxonFlowGovernance(api);
 
 // Full registered-tool surface: W2 governance (5 tools, since v2.0) +
 // V1 Plugin Pro proxy tools (5 tools, since v2.2 / umbrella #1958) +
-// V1.1 decision-list (1 tool, since v2.4 / #1982) = 11. Pre-existing
+// V1.1 decision-list (1 tool, since v2.4 / #1982) = 11, less the two override
+// write tools retired with AxonFlow v11.0.0 = 9. Pre-existing
 // bug fix: this list was stale at 5 since the V1 Pro tools landed —
 // the count assertion below was failing for the wrong reason. Bringing
 // the smoke test back into alignment as part of #1982.
@@ -97,8 +98,6 @@ const expectedNames = [
   'axonflow_explain_decision',
   'axonflow_list_recent_decisions',
   'axonflow_list_overrides',
-  'axonflow_create_override',
-  'axonflow_revoke_override',
   'axonflow_get_tenant_id',
   'axonflow_request_approval',
   'axonflow_create_tenant_policy',
@@ -170,24 +169,8 @@ console.log('--- 2/5 axonflow_list_overrides ---');
   }
 }
 
-// 3) create_override — validation rejection should NOT call the server
-console.log('--- 3/5 axonflow_create_override (validation) ---');
-{
-  const r = await exec('axonflow_create_override', {
-    policy_id: 'sys_sqli_v1',
-    policy_type: 'static',
-    // override_reason intentionally omitted to verify client-side validation
-  });
-  if (!r.isError || !r.content[0]?.text.includes('override_reason is required')) {
-    console.error('FAIL: create_override should reject missing override_reason:', JSON.stringify(r));
-    scenarioErrors++;
-  } else {
-    console.log('PASS: create_override rejected missing override_reason without hitting server');
-  }
-}
-
-// 4) explain_decision — empty decision_id → client-side rejection
-console.log('--- 4/5 axonflow_explain_decision (validation) ---');
+// 3) explain_decision — empty decision_id → client-side rejection
+console.log('--- 3/4 axonflow_explain_decision (validation) ---');
 {
   const r = await exec('axonflow_explain_decision', {});
   if (!r.isError || !r.content[0]?.text.includes('decision_id is required')) {
@@ -198,21 +181,9 @@ console.log('--- 4/5 axonflow_explain_decision (validation) ---');
   }
 }
 
-// 5) revoke_override — empty override_id → client-side rejection
-console.log('--- 5/6 axonflow_revoke_override (validation) ---');
-{
-  const r = await exec('axonflow_revoke_override', {});
-  if (!r.isError || !r.content[0]?.text.includes('override_id is required')) {
-    console.error('FAIL: revoke_override should reject empty override_id:', JSON.stringify(r));
-    scenarioErrors++;
-  } else {
-    console.log('PASS: revoke_override rejected empty override_id');
-  }
-}
-
-// 6) list_recent_decisions (V1.1, #1982) — happy path against the live
+// 4) list_recent_decisions (V1.1, #1982) — happy path against the live
 // stack should return a decisions array. Empty is fine on a fresh DB.
-console.log('--- 6/6 axonflow_list_recent_decisions ---');
+console.log('--- 4/4 axonflow_list_recent_decisions ---');
 {
   const r = await exec('axonflow_list_recent_decisions', { limit: 5 });
   if (r.isError) {
@@ -238,4 +209,4 @@ if (scenarioErrors > 0) {
   process.exit(1);
 }
 
-console.log('PASS: runtime-tools-smoke — all 6 tools registered and dispatch correctly');
+console.log(`PASS: runtime-tools-smoke — all ${expectedNames.length} tools registered and the tool scenarios dispatch correctly`);

@@ -123,14 +123,12 @@ export interface AxonFlowPluginConfig {
    *
    * Required (and only required) when you want user-scoped AxonFlow
    * features to work through this plugin:
-   *   - `createOverride` / `revokeOverride` / `listOverrides`
-   *     (endpoint requires an authenticated user identity per ADR-044)
+   *   - `listOverrides` per-user scoping (ADR-044; the override writes are
+   *     retired from AxonFlow v11.0.0)
    *   - `explainDecision` historical_hit_count scoping
-   *   - per-user override enforcement on block paths
    *
-   * If unset, block responses still include decision_id + risk_level
-   * + policy_matches, but the override lifecycle methods will reject
-   * with HTTP 401 and explain's hit-count will aggregate across users.
+   * If unset, block responses still include decision_id + policy_matches,
+   * and explain's hit-count aggregates across users.
    *
    * A reasonable default for CLI/local-agent setups is `os.userInfo().username`
    * + the agent hostname; a reasonable default for multi-tenant SaaS
@@ -170,6 +168,23 @@ export interface AxonFlowPluginConfig {
    * Fail-closed is safer but can cascade AxonFlow failures to the agent.
    */
   onError?: "block" | "allow";
+
+  /**
+   * What a governed tool call does when the governance check got no usable
+   * answer: the endpoint unreachable, a timeout, HTTP 408 or 5xx, or an answer
+   * that is not a decision (#196). It does not apply to a limit or a refusal
+   * (onError decides those) or to message_sending (onError decides).
+   * - "open" (default): the call runs, and the plugin says once per process
+   *   that governed calls are running ungoverned.
+   * - "closed": the call is blocked.
+   *
+   * Resolved by `resolveConfig`: "closed" when pluginConfig.failMode is
+   * "closed" OR the AXONFLOW_FAIL_MODE environment variable is set to any
+   * value other than "open" (in any case, with no whitespace trimmed), the
+   * name and values the AxonFlow Codex plugin's hooks read. Either source can
+   * close it; neither can reopen it.
+   */
+  failMode?: "open" | "closed";
 
   /**
    * Timeout for AxonFlow HTTP calls in milliseconds.
@@ -304,6 +319,7 @@ export function resolveConfig(
         : "execute",
     onError:
       safe["onError"] === "allow" ? "allow" : "block",
+    failMode: resolveFailMode(safe["failMode"]),
     requestTimeoutMs:
       typeof safe["requestTimeoutMs"] === "number" &&
       Number.isFinite(safe["requestTimeoutMs"]) &&
@@ -311,6 +327,22 @@ export function resolveConfig(
         ? (safe["requestTimeoutMs"] as number)
         : 8000,
   };
+}
+
+/**
+ * failMode: "closed" when pluginConfig says "closed", or when AXONFLOW_FAIL_MODE
+ * is set (non-empty) to anything but "open" in any case, so a typo fails
+ * safe. Otherwise "open". No whitespace is trimmed: " open " closes it, as it
+ * does in the Codex hooks.
+ */
+function resolveFailMode(raw: unknown): "open" | "closed" {
+  if (raw === "closed") return "closed";
+  const env = process.env["AXONFLOW_FAIL_MODE"];
+  if (typeof env === "string") {
+    const normalized = env.toLowerCase();
+    if (normalized !== "" && normalized !== "open") return "closed";
+  }
+  return "open";
 }
 
 /** Check if a tool should be governed based on config. */

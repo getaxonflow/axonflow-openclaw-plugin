@@ -61,7 +61,11 @@ function describeCause(err: unknown): string {
  * Returns true when this call emitted the notice, false when a previous
  * call already did — so callers can assert the one-shot contract.
  */
-export function noteUngovernedFailOpen(endpoint: string, err: unknown): boolean {
+export function noteUngovernedFailOpen(
+  endpoint: string,
+  err: unknown,
+  subject: string = "tool call",
+): boolean {
   if (noticeEmitted) return false;
   noticeEmitted = true;
   // #171: the endpoint is remote-influenced text on the same footing as the
@@ -81,10 +85,10 @@ export function noteUngovernedFailOpen(endpoint: string, err: unknown): boolean 
   try {
     console.warn(
       `[AxonFlow] Governance check against ${target} failed (${describeCause(err)}). ` +
-        "This tool call ran UNGOVERNED — no policy was evaluated, nothing was blocked, " +
-        "and no decision was recorded. Tool calls continue to run ungoverned until the " +
-        "governance check succeeds again; restore the endpoint (or fix the credentials " +
-        "it rejected) to resume enforcement. " +
+        `This ${subject} ran UNGOVERNED — no policy was evaluated, nothing was blocked, ` +
+        "and no decision was recorded. Governed calls continue to run ungoverned until the " +
+        "governance check succeeds again; restore the endpoint, fix the credentials it " +
+        "rejected, or wait for the request limit to reset, to resume enforcement. " +
         "Shown once per process.",
     );
   } catch {

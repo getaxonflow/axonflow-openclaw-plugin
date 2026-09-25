@@ -129,8 +129,10 @@ if ! jq -e '.has_get_tenant_id == true' "$DRIVER_OUT" >/dev/null; then
   fail "buildAgentTools() does not include axonflow_get_tenant_id"
 fi
 
-# All 11 expected tool names present.
-EXPECTED='["axonflow_audit_search","axonflow_create_override","axonflow_create_tenant_policy","axonflow_explain_decision","axonflow_get_cost_estimate","axonflow_get_tenant_id","axonflow_list_overrides","axonflow_list_pro_features","axonflow_list_recent_decisions","axonflow_request_approval","axonflow_revoke_override"]'
+# All 9 expected tool names present, and only those: axonflow_create_override
+# and axonflow_revoke_override are retired with the override writes (AxonFlow
+# v11.0.0), so their absence is part of the exact list.
+EXPECTED='["axonflow_audit_search","axonflow_create_tenant_policy","axonflow_explain_decision","axonflow_get_cost_estimate","axonflow_get_tenant_id","axonflow_list_overrides","axonflow_list_pro_features","axonflow_list_recent_decisions","axonflow_request_approval"]'
 ACTUAL=$(jq -c '.names' "$DRIVER_OUT")
 if [ "$ACTUAL" != "$EXPECTED" ]; then
   fail "registered tool names mismatch: got $ACTUAL, want $EXPECTED"

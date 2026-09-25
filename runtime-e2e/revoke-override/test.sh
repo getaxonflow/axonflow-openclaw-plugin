@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# OpenClaw runtime E2E: revoke-override OUTCOME TEST (W2 — rule #1)
+# OpenClaw runtime E2E: delete_override is retired, and the plugin no longer
+# offers axonflow_revoke_override (#196)
 #
-# Seeds a real override, drives the OpenClaw agent to revoke it via
-# axonflow_revoke_override, then asserts SERVER-SIDE that the override
-# is in fact revoked. Dispatch alone isn't proof — only the platform's
-# own state is.
+# Session overrides are retired from AxonFlow v11.0.0: DELETE
+# /api/v1/overrides/<id> answers 409 LEGACY_POLICY_WRITE_FROZEN whatever the
+# id, and the plugin no longer registers axonflow_revoke_override. Both halves,
+# on the runtime path:
+#   1. the platform: DELETE with a per-user identity answers the 409 code;
+#   2. the plugin: a real OpenClaw agent turn dispatches axonflow_get_tenant_id
+#      (the control) and never dispatches axonflow_revoke_override.
 
 set -uo pipefail
 
@@ -18,69 +22,61 @@ echo "--- Building + installing local OpenClaw plugin ---"
 openclaw_install_local_plugin || exit 1
 
 AXONFLOW_AUTH_HDR="Authorization: Basic $(printf '%s:%s' "$AXONFLOW_CLIENT_ID" "$AXONFLOW_CLIENT_SECRET" | base64)"
+errors=0
 
-REASON_TAG="revoke-runtime-e2e-$(date +%s)-$RANDOM"
-echo "--- Seeding override with reason tag: $REASON_TAG ---"
-
-CREATE_RESPONSE=$(curl -s -X POST \
+echo "--- 1. The platform answers the delete as retired ---"
+FABRICATED_ID="ovr-runtime-e2e-$(date +%s)-$RANDOM"
+RESPONSE=$(curl -s -X DELETE \
   -H "$AXONFLOW_AUTH_HDR" \
-  -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: local-dev-org" \
   -H "X-User-Email: dev@getaxonflow.com" \
-  -d "{\"policy_id\":\"sys_pii_email\",\"policy_type\":\"static\",\"override_reason\":\"$REASON_TAG\",\"ttl_seconds\":300}" \
   -w "\nHTTP_STATUS:%{http_code}" \
-  "$AXONFLOW_ENDPOINT/api/v1/overrides")
-CREATE_STATUS=$(printf '%s' "$CREATE_RESPONSE" | sed -n 's/^HTTP_STATUS://p')
-CREATE_BODY=$(printf '%s' "$CREATE_RESPONSE" | sed '$d')
+  "$AXONFLOW_ENDPOINT/api/v1/overrides/$FABRICATED_ID")
+STATUS=$(printf '%s' "$RESPONSE" | sed -n 's/^HTTP_STATUS://p')
+BODY=$(printf '%s' "$RESPONSE" | sed '$d')
+if require_override_write_frozen "$STATUS" "$BODY"; then
+  echo "PASS: DELETE /api/v1/overrides/$FABRICATED_ID answered 409 LEGACY_POLICY_WRITE_FROZEN"
+else
+  errors=$((errors + 1))
+fi
 
-require_override_preflight "$CREATE_STATUS" "$CREATE_BODY" || exit 1
-
-SEED_ID=$(printf '%s' "$CREATE_BODY" | jq -r '.id')
-echo "--- Seeded override id: $SEED_ID ---"
+echo "--- 2. The plugin offers no revoke_override tool ---"
+PROMPT="Do two steps. Step 1: call the tool named axonflow_get_tenant_id. Step 2: call the tool named axonflow_revoke_override with override_id=\"$FABRICATED_ID\". If you have no tool with exactly that name, do not call any other tool in its place. Then output exactly the literal text SMOKE_RESULT: followed by single-line JSON like SMOKE_RESULT: {\"revoke_override_tool_available\":<true if you had a tool named exactly axonflow_revoke_override, else false>}."
 
 OUTPUT_FILE=$(mktemp -t axonflow-openclaw-revoke.XXXXXX)
-cleanup() {
-  curl -s -X DELETE \
-    -H "$AXONFLOW_AUTH_HDR" \
-    -H "X-Tenant-ID: local-dev-org" \
-    -H "X-User-Email: dev@getaxonflow.com" \
-    "$AXONFLOW_ENDPOINT/api/v1/overrides/$SEED_ID" >/dev/null 2>&1 || true
-  rm -f "${OUTPUT_FILE:-}"
-}
-trap cleanup EXIT
-
-PROMPT="Use the axonflow_revoke_override tool with override_id=\"$SEED_ID\". After the tool call, output exactly the literal text SMOKE_RESULT: followed by a single-line JSON like SMOKE_RESULT: {\"dispatched\":true,\"revoked\":true} on success, or SMOKE_RESULT: {\"dispatched\":true,\"revoked\":false} on error."
+trap 'rm -f "$OUTPUT_FILE" "$OUTPUT_FILE.stderr"' EXIT
 
 echo "--- Driving OpenClaw agent (model=$OPENCLAW_E2E_MODEL) ---"
 openclaw_agent_capture "$PROMPT" "$OUTPUT_FILE"
 
-errors=0
-
-if assert_smoke_result "$OUTPUT_FILE"; then
-  echo "PASS: agent emitted SMOKE_RESULT marker"
+if assert_tool_dispatched "$OUTPUT_FILE" "axonflow_get_tenant_id"; then
+  echo "PASS: control: the runtime dispatched the registered plugin tool axonflow_get_tenant_id"
 else
-  echo "FAIL: agent did not emit SMOKE_RESULT marker"
+  echo "FAIL: control: the runtime did not dispatch axonflow_get_tenant_id, so the absence below proves nothing"
+  jq -r '.payloads[]?.text // empty' "$OUTPUT_FILE" 2>/dev/null | head -3 | sed 's/^/      /'
   errors=$((errors + 1))
 fi
 
-# Outcome assertion — server-side state.
-SERVER_STATE=$(curl -s -X GET \
-  -H "$AXONFLOW_AUTH_HDR" \
-  -H "X-Tenant-ID: local-dev-org" \
-  "$AXONFLOW_ENDPOINT/api/v1/overrides?include_revoked=true" \
-  | jq -r --arg id "$SEED_ID" '.overrides[]? | select(.id == $id) | .revoked_at // ""')
-
-if [ -n "$SERVER_STATE" ] && [ "$SERVER_STATE" != "null" ]; then
-  echo "PASS: server-side state shows override $SEED_ID revoked at $SERVER_STATE — outcome verified"
+if jq -e '.meta.toolSummary.tools // .meta.agentMeta.toolSummary.tools' "$OUTPUT_FILE" >/dev/null 2>&1 \
+   && ! assert_tool_dispatched "$OUTPUT_FILE" "axonflow_revoke_override"; then
+  echo "PASS: the runtime dispatched no axonflow_revoke_override: the plugin no longer offers it"
 else
-  echo "FAIL: server-side state shows override $SEED_ID NOT revoked"
+  echo "FAIL: axonflow_revoke_override was dispatched, or the runtime reported no tool summary"
+  jq -c '.meta.toolSummary // .meta.agentMeta.toolSummary // "no toolSummary"' "$OUTPUT_FILE" 2>/dev/null | sed 's/^/      /'
   errors=$((errors + 1))
+fi
+
+SMOKE_LINE=$(extract_smoke_line "$OUTPUT_FILE")
+AVAILABLE=$(printf '%s' "$SMOKE_LINE" | jq -r '.revoke_override_tool_available // empty' 2>/dev/null)
+if [ "$AVAILABLE" = "false" ]; then
+  echo "PASS: the agent reports it had no axonflow_revoke_override tool"
+else
+  echo "WARN: the agent reported revoke_override_tool_available=${AVAILABLE:-<none>} (model narration; the dispatch evidence above decides)"
 fi
 
 if [ "$errors" -gt 0 ]; then
   echo ""
-  echo "FAIL: $errors outcome-test assertion(s) failed"
+  echo "FAIL: $errors assertion(s) failed"
   exit 1
 fi
 echo ""
-echo "PASS: revoke-override outcome — agent dispatched, platform revoked, server state confirmed"
+echo "PASS: revoke-override — the platform answers the delete as retired and the plugin no longer offers the tool"

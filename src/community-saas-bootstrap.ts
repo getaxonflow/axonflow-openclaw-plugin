@@ -155,13 +155,22 @@ async function bootstrapCommunitySaasInner(
     return buildBootstrapResult(opts?.endpoint ?? ENDPOINT_DEFAULT, "", "", "opted-out");
   }
 
-  // 1. Test-harness URL overrides — only honoured when AXONFLOW_HARNESS=1
-  //    and exclusively used by tests/heartbeat-real-stack/. Production
-  //    callers leave AXONFLOW_HARNESS unset and the URLs stay pinned to
-  //    try.getaxonflow.com.
+  // 1. Test-harness URL overrides — only honoured when AXONFLOW_HARNESS=1.
+  //    Production callers leave AXONFLOW_HARNESS unset and the URLs stay
+  //    pinned to try.getaxonflow.com.
+  //
+  //    The harness agent endpoint is the endpoint the GOVERNED client is
+  //    built on, not only the one this bootstrap falls back to (#196 item 3).
+  //    It wins over opts.endpoint (registerAxonFlowGovernance passes the
+  //    resolved config endpoint, https://try.getaxonflow.com in this mode)
+  //    and over the endpoint a registration names, so a zero-config test run
+  //    sends its governed calls to the local stack. The config endpoint is
+  //    untouched: the mode-clarity canary and the telemetry classification
+  //    still read it (tests/heartbeat-real-stack).
   const harness = resolveHarnessInputs();
   const registerUrl = opts?.registerUrl ?? (harness.harnessRegisterUrl || REGISTER_URL_DEFAULT);
-  const endpoint = opts?.endpoint ?? (harness.harnessAgentEndpoint || ENDPOINT_DEFAULT);
+  const harnessEndpoint = harness.harnessAgentEndpoint;
+  const endpoint = harnessEndpoint || (opts?.endpoint ?? ENDPOINT_DEFAULT);
   const fetchFn = opts?.fetchImpl ?? fetch;
   const now = opts?.now ?? (() => new Date());
 
@@ -184,7 +193,7 @@ async function bootstrapCommunitySaasInner(
   const cached = readRegistrationIfFreshAndSafe(registrationFile, now, REFRESH_WINDOW_MS);
   if (cached) {
     return buildBootstrapResult(
-      resolveRegisteredEndpoint(cached.endpoint, endpoint),
+      harnessEndpoint || resolveRegisteredEndpoint(cached.endpoint, endpoint),
       cached.tenant_id,
       cached.secret,
       "cached-registration",
@@ -277,7 +286,7 @@ async function bootstrapCommunitySaasInner(
   }
 
   return buildBootstrapResult(
-    resolveRegisteredEndpoint(parsed.endpoint, endpoint),
+    harnessEndpoint || resolveRegisteredEndpoint(parsed.endpoint, endpoint),
     parsed.tenant_id,
     parsed.secret,
     "fresh-registration",

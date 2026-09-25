@@ -470,6 +470,56 @@ describe("bootstrapCommunitySaas", () => {
     expect(result?.endpoint).toBe("https://override.example.com");
   });
 
+  describe("the zero-config test hook (AXONFLOW_HARNESS=1) redirects the governed endpoint (#196 item 3)", () => {
+    const HARNESS_AGENT = "http://127.0.0.1:18080";
+
+    it("a fresh registration's client is built on the harness endpoint, not the registered one", async () => {
+      process.env.AXONFLOW_HARNESS = "1";
+      process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT = HARNESS_AGENT;
+      const fetchSpy = jest.fn().mockResolvedValueOnce(
+        jsonResponse(201, {
+          tenant_id: "cs_h",
+          secret: "secret-h",
+          expires_at: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+          endpoint: "https://try.getaxonflow.com",
+        }),
+      );
+      const result = await bootstrapCommunitySaas({
+        fetchImpl: fetchSpy as unknown as typeof fetch,
+        endpoint: "https://try.getaxonflow.com",
+      });
+      expect(result?.source).toBe("fresh-registration");
+      expect(result?.endpoint).toBe(HARNESS_AGENT);
+    });
+
+    it("a cached registration's client is built on the harness endpoint too", async () => {
+      fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(registrationFile, makeFreshRegistration(), { mode: 0o600 });
+      process.env.AXONFLOW_HARNESS = "1";
+      process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT = HARNESS_AGENT;
+      const fetchSpy = jest.fn();
+      const result = await bootstrapCommunitySaas({
+        fetchImpl: fetchSpy as unknown as typeof fetch,
+        endpoint: "https://try.getaxonflow.com",
+      });
+      expect(result?.source).toBe("cached-registration");
+      expect(result?.endpoint).toBe(HARNESS_AGENT);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("without AXONFLOW_HARNESS=1 the variable is ignored and the registered endpoint is used", async () => {
+      fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(registrationFile, makeFreshRegistration(), { mode: 0o600 });
+      delete process.env.AXONFLOW_HARNESS;
+      process.env.AXONFLOW_HARNESS_AGENT_ENDPOINT = HARNESS_AGENT;
+      const result = await bootstrapCommunitySaas({
+        fetchImpl: jest.fn() as unknown as typeof fetch,
+        endpoint: "https://try.getaxonflow.com",
+      });
+      expect(result?.endpoint).toBe("https://try.getaxonflow.com");
+    });
+  });
+
   it("in-flight gate de-duplicates concurrent calls", async () => {
     let resolveFn: ((r: Response) => void) | null = null;
     const pending = new Promise<Response>((r) => { resolveFn = r; });
