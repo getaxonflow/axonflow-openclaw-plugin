@@ -105,7 +105,7 @@ fi
 
 # Idempotency: when reusing an env-supplied tenant, prior runs may have
 # left HITL approvals or tenant policies behind which would trip
-# Free-tier gates on tests 3 + 4 (1/7d HITL window + 2 active policy
+# Free-tier gates on tests 3 + 4 (2 per rolling 7-day HITL window + 2 active policy
 # max). Clear that prior state via the canonical db_helpers.sh ECS-exec
 # path. Best-effort — when AWS creds aren't available the cleanup is
 # skipped and the operator is responsible for using a fresh tenant.
@@ -231,8 +231,8 @@ cat >"$DRIVER_JS" <<'NODE'
     catch (e) { /* file may not exist; ignore */ }
   }
 
-  // Test 3: request_approval (Free=1/7d rolling) — first call should
-  // succeed (Free quota: 1 approval per 7d window); plugin pre-test
+  // Test 3: request_approval (Free = 2 per rolling 7-day window, Pro = 20) — first call should
+  // succeed (Free quota: 2 approvals per rolling 7-day window); plugin pre-test
   // assumes the synthetic tenant has zero existing HITL approvals.
   try {
     const raw = await client.callMCPTool("axonflow_request_approval", {
@@ -374,7 +374,7 @@ else
   fi
 fi
 
-# Test 3: request_approval (Free tier 1/7d rolling). First call should
+# Test 3: request_approval (Free tier: 2 per rolling 7-day window; Pro: 20). First call should
 # succeed (synthetic tenant has no prior HITL approvals). Server-side
 # returns approval_id on success.
 RA_KIND=$(jq -r '.request_approval_raw.kind // empty' "$DRIVER_OUT")

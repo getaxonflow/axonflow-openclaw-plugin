@@ -12,8 +12,12 @@ Tools under test:
   returns the V1 envelope `limit_type=feature_pro_only`; the proxy
   surfaces the wording back to the agent as a `fail()` result and
   stamps the throttle file.
-- `axonflow_request_approval` — exercised by the unit suite (graduated
-  cap is HITL-state-dependent; not driven from prod).
+- `axonflow_request_approval` — driven from prod by Test 3 below (the
+  first call on a fresh synthetic tenant lands `kind=ok` with an
+  `approval_id`; the cap is 2 per rolling 7-day window on Free, 20 on
+  Pro, so the idempotency cleanup above clears prior approvals). The
+  unit suite (`tests/agent-tools.test.ts`) pins the tool's description
+  and its forwarding of `ok` and `envelope` results.
 - `axonflow_create_tenant_policy` — exercised by the unit suite (would
   pollute the synthetic tenant's policy table; not driven from prod).
 
