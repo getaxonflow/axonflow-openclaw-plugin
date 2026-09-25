@@ -16,6 +16,7 @@ import {
   buildListOverridesTool,
   buildCreateOverrideTool,
   buildRevokeOverrideTool,
+  buildRequestApprovalTool,
 } from "../src/agent-tools.js";
 import { AxonFlowClient, AxonFlowHttpError } from "../src/axonflow-client.js";
 import type { ClientRef } from "../src/client-ref.js";
@@ -484,5 +485,70 @@ describe("axonflow_revoke_override", () => {
     const result = await tool.execute("call-1", { override_id: "ovr-7" });
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("Unknown error");
+  });
+});
+
+describe("axonflow_request_approval", () => {
+  it("describes the HITL cap as 2 per rolling 7-day window on Free, 20 on Pro", () => {
+    const ref = makeClientRef();
+    const tool = buildRequestApprovalTool(ref);
+    expect(tool.name).toBe("axonflow_request_approval");
+    expect(tool.description).toMatch(/2 approval requests per rolling 7-day window on Free, 20 on Pro/);
+  });
+
+  it("forwards args to callMCPTool and returns the platform's ok result with approval_id", async () => {
+    const ref = makeClientRef();
+    const spy = jest.spyOn(ref.current, "callMCPTool").mockResolvedValue({
+      kind: "ok",
+      result: { success: true, submitted: true, approval_id: "a1" },
+    });
+    const tool = buildRequestApprovalTool(ref);
+    const args = {
+      original_query: "delete the production-east database",
+      request_type: "shell_command",
+      trigger_reason: "destructive_command",
+      severity: "high",
+    };
+    const result = await tool.execute("call-1", args);
+    expect(spy).toHaveBeenCalledWith("axonflow_request_approval", args);
+    expect(result.isError).toBeUndefined();
+    const details = result.details as { success: boolean; submitted: boolean; approval_id: string };
+    expect(details.approval_id).toBe("a1");
+    expect(details.success).toBe(true);
+    expect(details.submitted).toBe(true);
+    expect(result.content[0]?.text).toContain('"approval_id": "a1"');
+  });
+
+  it("surfaces a hitl_approvals_window envelope as isError with the limit_type in details", async () => {
+    const ref = makeClientRef();
+    const wording = "Free tier allows 2 approval requests per rolling 7-day window. Pro raises this to 20.";
+    const envelope: V1RateLimitEnvelope = {
+      error: wording,
+      limit_type: "hitl_approvals_window",
+      tier: "Free",
+      limit: 2,
+      remaining: 0,
+      window: "7d",
+      resets_at: "2026-10-02T00:00:00Z",
+      upgrade: {
+        tier: "Pro",
+        wording,
+        compare_url: "https://getaxonflow.com/pricing/",
+        buy_url: "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
+      },
+    };
+    jest.spyOn(ref.current, "callMCPTool").mockResolvedValue({ kind: "envelope", envelope });
+    const tool = buildRequestApprovalTool(ref);
+    const result = await tool.execute("call-1", {
+      original_query: "push to main",
+      request_type: "git_push",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain(wording);
+    const details = result.details as { limit_type: string; tier: string; limit: number; buy_url: string };
+    expect(details.limit_type).toBe("hitl_approvals_window");
+    expect(details.tier).toBe("Free");
+    expect(details.limit).toBe(2);
+    expect(details.buy_url).toBe("https://buy.stripe.com/bJe28qbztcdVchjdkw8k800");
   });
 });

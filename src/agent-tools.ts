@@ -604,8 +604,10 @@ export function buildCreateTenantPolicyTool(clientRef: ClientRef): AgentToolDef 
     name: "axonflow_create_tenant_policy",
     label: "AxonFlow: Create Tenant Policy",
     description:
-      "Create a custom tenant-scoped governance policy. Free tier supports 2 active policies (delete one to make room); " +
-      "Pro removes the cap. Useful for rules like 'block writes to ~/.ssh/' or 'require approval for any rm -rf'.",
+      "Retired since AxonFlow v11.0.0: the platform answers LEGACY_POLICY_WRITE_FROZEN and writes nothing on any deployment, " +
+      "because a tenant dynamic policy decides nothing in v11. A policy is authored in the organization's typed policy document " +
+      "through /api/v1/typed-policies (or the portal's policy editor on Enterprise). Kept registered so a caller receives that " +
+      "answer rather than an unknown-tool error.",
     parameters: {
       type: "object",
       properties: {
