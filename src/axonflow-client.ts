@@ -244,6 +244,17 @@ export class AxonFlowHttpError extends Error {
   }
 }
 
+export class AxonFlowPaymentRequiredError extends AxonFlowHttpError {
+  readonly checkoutUrl: string;
+
+  constructor(checkoutUrl: string, responseBody: Record<string, unknown>, context: string) {
+    super(402, "Payment Required", responseBody, context);
+    this.name = "AxonFlowPaymentRequiredError";
+    this.checkoutUrl = checkoutUrl;
+    Object.setPrototypeOf(this, AxonFlowPaymentRequiredError.prototype);
+  }
+}
+
 export interface MCPCheckInputResponse {
   allowed: boolean;
   block_reason?: string;
@@ -502,6 +513,8 @@ export class AxonFlowClient {
   // wording + buy URL via this logger and stamp a throttle deadline so
   // subsequent governed calls can short-circuit locally.
   private upgradePromptLogger: UpgradePromptLogger | null = null;
+  private checkoutPromise: Promise<string> | null = null;
+  private paymentPromptEmitted = false;
   // Issue #2275 — process-local 401 circuit breaker.
   //
   // Symptom: 716 × HTTP 401 in 24 hours against /api/v1/audit/tool-call
@@ -711,7 +724,7 @@ export class AxonFlowClient {
    *   masked statement and the request path cannot, so they declare different
    *   capability sets under different names. See src/pep-handshake.ts.
    */
-  private baseHeaders(handshake?: string): Record<string, string> {
+  private baseHeaders(handshake?: string, eventId?: string): Record<string, string> {
     // Tenant is derived from Basic auth credentials on the server side (RFC 6749).
     // X-Tenant-ID header is no longer sent — server knows tenant from auth.
     //
@@ -752,7 +765,49 @@ export class AxonFlowClient {
     if (handshake) {
       h[PEP_HANDSHAKE_HEADER] = handshake;
     }
+    if (eventId?.trim()) {
+      h["X-Axonflow-Event-ID"] = eventId.trim();
+    }
     return h;
+  }
+
+  private async createHostedCheckout(): Promise<string> {
+    if (this.checkoutPromise) return this.checkoutPromise;
+    this.checkoutPromise = (async () => {
+      const response = await this.fetchWithTimeout(`${this.endpoint}/api/v1/billing/checkout`, {
+        method: "POST",
+        headers: this.baseHeaders(),
+        body: "{}",
+      });
+      const body = await readErrorBody(response, this.requestTimeoutMs);
+      const checkoutUrl = typeof body["checkout_url"] === "string" ? body["checkout_url"] : "";
+      if (!response.ok || !checkoutUrl) {
+        throw new AxonFlowHttpError(response.status, response.statusText, body, "checkout creation");
+      }
+      return checkoutUrl;
+    })().finally(() => {
+      this.checkoutPromise = null;
+    });
+    return this.checkoutPromise;
+  }
+
+  private async throwHostedPaymentRequired(body: Record<string, unknown>, context: string): Promise<never> {
+    let checkoutUrl = typeof body["checkout_url"] === "string" ? body["checkout_url"] : "";
+    try {
+      checkoutUrl = await this.createHostedCheckout();
+    } catch {
+      // Keep the server-provided authenticated checkout endpoint as recovery.
+    }
+    if (!this.paymentPromptEmitted) {
+      this.paymentPromptEmitted = true;
+      const message = checkoutUrl.startsWith("http")
+        ? `[AxonFlow] Hosted governance needs an active plan. Complete checkout: ${checkoutUrl}`
+        : `[AxonFlow] Hosted governance needs an active plan. Run checkout against ${this.endpoint}/api/v1/billing/checkout.`;
+      const logger = this.upgradePromptLogger ?? noopUpgradePromptLogger;
+      if (logger.warn) logger.warn(message);
+      else logger.info?.(message);
+    }
+    throw new AxonFlowPaymentRequiredError(checkoutUrl, body, context);
   }
 
   private async fetchWithTimeout(
@@ -793,6 +848,7 @@ export class AxonFlowClient {
     connectorType: string,
     statement: string,
     operation: string = "execute",
+    eventId?: string,
   ): Promise<MCPCheckInputResponse> {
     // Issue #2275 — auth-failure circuit breaker. Once any auth-bearing
     // call has observed a 401, short-circuit subsequent governance
@@ -820,7 +876,7 @@ export class AxonFlowClient {
     const url = `${this.endpoint}/api/v1/mcp/check-input`;
     const response = await this.fetchWithTimeout(url, {
       method: "POST",
-      headers: this.baseHeaders(this.pepHandshakes?.request),
+      headers: this.baseHeaders(this.pepHandshakes?.request, eventId),
       body: JSON.stringify({
         connector_type: connectorType,
         statement,
@@ -849,6 +905,10 @@ export class AxonFlowClient {
     }
 
     const data = (await response.json()) as Record<string, unknown>;
+
+    if (response.status === 402) {
+      return this.throwHostedPaymentRequired(data, "check-input");
+    }
 
     // V1 Plugin Pro envelope detection runs BEFORE the policy-block
     // branch — an envelope-bearing 403 (graduated cap, Pro-only feature)
@@ -916,6 +976,7 @@ export class AxonFlowClient {
   async mcpCheckOutput(
     connectorType: string,
     message: string,
+    eventId?: string,
   ): Promise<MCPCheckOutputResponse> {
     // Issue #2275 — auth-failure circuit breaker (mirrors mcpCheckInput).
     if (this.authFailed) {
@@ -933,7 +994,7 @@ export class AxonFlowClient {
     const url = `${this.endpoint}/api/v1/mcp/check-output`;
     const response = await this.fetchWithTimeout(url, {
       method: "POST",
-      headers: this.baseHeaders(this.pepHandshakes?.response),
+      headers: this.baseHeaders(this.pepHandshakes?.response, eventId),
       body: JSON.stringify({
         connector_type: connectorType,
         message,
@@ -955,6 +1016,10 @@ export class AxonFlowClient {
     }
 
     const data = (await response.json()) as Record<string, unknown>;
+
+    if (response.status === 402) {
+      return this.throwHostedPaymentRequired(data, "check-output");
+    }
 
     // V1 Plugin Pro envelope detection — see mcpCheckInput for rationale.
     // Output scan falls open on cap (no PII detection during back-off

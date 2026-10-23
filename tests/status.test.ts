@@ -182,7 +182,10 @@ describe("resolveStatusInputs", () => {
   });
 
   it("resolves token/upgradeUrl to undefined and endpoint to the shared default when env + pluginConfig are empty", () => {
-    const inputs = resolveStatusInputs();
+    // Pass the live empty config explicitly. An undefined config represents
+    // the standalone CLI and is allowed to read a runtime-state record left
+    // by another test file sharing this Jest worker.
+    const inputs = resolveStatusInputs({});
     expect(inputs.licenseToken).toBeUndefined();
     // Since #162 the endpoint comes from the shared resolveEffectiveEndpoint
     // decision used by the governance runtime — with no user input either
@@ -367,9 +370,9 @@ describe("formatStatusReport", () => {
     // v1.5.0 invariant: status MUST NOT use `tenant_id:` as the primary
     // labeled field. Bridge parenthetical "(formerly tenant_id)" is OK.
     expect(out).not.toMatch(/^\s*tenant_id:\s+cs_/m);
-    expect(out).toContain("Stripe checkout custom field");
-    expect(out).toContain("tier:       Free (no Pro license configured)");
-    expect(out).toContain("upgrade:    https://getaxonflow.com/pricing/");
+    expect(out).toContain("hosted checkout binds it automatically");
+    expect(out).toContain("tier:       Hosted Starter (payment status checked by AxonFlow)");
+    expect(out).toContain("checkout:   POST https://getaxonflow.com/pricing/");
     expect(out).not.toContain("license:");
   });
 
@@ -391,7 +394,7 @@ describe("formatStatusReport", () => {
       config_recorded_source: null,
       runtime_endpoint_at_last_load: null,
     });
-    expect(out).toContain("tier:       Pro (expires 2026-08-03, 90 days remaining)");
+    expect(out).toContain("tier:       Prepaid Pro (expires 2026-08-03, 90 days remaining)");
     expect(out).toContain("license:    …ABCD");
     expect(out).toContain("redacted");
     // codex-plugin#41 regression guard: a representative full-token shape
@@ -419,7 +422,7 @@ describe("formatStatusReport", () => {
       config_recorded_source: null,
       runtime_endpoint_at_last_load: null,
     });
-    expect(out).toContain("tier:       Pro (expires UNKNOWN — could not parse token)");
+    expect(out).toContain("tier:       Prepaid Pro (expiry could not be read)");
     expect(out).toContain("license:    …ABCD");
     expect(out).not.toMatch(/AXON-[A-Za-z0-9._-]{8,}/);
   });
@@ -442,7 +445,8 @@ describe("formatStatusReport", () => {
       config_recorded_source: null,
       runtime_endpoint_at_last_load: null,
     });
-    expect(out).toContain("tier:       Free (Pro expired 2026-02-04 — visit https://getaxonflow.com/pricing/ to renew)");
+    expect(out).toContain("tier:       Prepaid term expired 2026-02-04");
+    expect(out).toContain("checkout:   POST https://getaxonflow.com/pricing/");
     expect(out).toContain("license:    …ZZZZ");
     expect(out).toContain("will not forward an expired token");
     // The expired-token state must NOT print the standalone "upgrade:"
@@ -618,11 +622,11 @@ describe("buildProTierInitLogLine", () => {
     );
   });
 
-  it("emits 'Free tier — Pro expired DATE; visit URL to renew' canary for a past exp", () => {
+  it("emits the hosted checkout action for an expired prepaid term", () => {
     const exp = now - 30 * 86400;
     const line = buildProTierInitLogLine(mintAxonJwt(exp), "https://corp.example/buy", now);
     expect(line).toBe(
-      `[AxonFlow] Free tier — Pro expired ${formatExpiryDate(exp)}; visit https://corp.example/buy to renew`,
+      `[AxonFlow] Prepaid term expired ${formatExpiryDate(exp)}; create checkout with POST https://corp.example/buy`,
     );
   });
 
