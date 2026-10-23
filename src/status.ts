@@ -1,12 +1,9 @@
 /**
  * Plugin status surface — read-only introspection for users.
  *
- * Solves the W4 paid-Pro launch UX gap: a user installs the plugin, then
- * needs to know their `tenant_id` to paste into the Stripe Payment Link
- * custom field before they can buy Pro. There was no way to surface that
- * value from the user's installed plugin without poking at on-disk
- * `try-registration.json` themselves. This module reads that same file
- * and reports the values back in a stable text shape the user can copy.
+ * Reports the identity used for authenticated hosted checkout and governed
+ * traffic. The platform binds that identity to Stripe metadata, so a buyer
+ * never copies an identifier into Checkout.
  *
  * Also reports tier state (Free vs Pro vs Pro-expired) and a redacted
  * preview of the configured Pro license token, so a user mid-rollout
@@ -68,8 +65,8 @@ const REGISTRATION_FILE_NAME = "try-registration.json";
  */
 export const STATUS_DEFAULT_ENDPOINT = COMMUNITY_SAAS_DEFAULT_ENDPOINT;
 
-/** Default upgrade URL surfaced in status output for free-tier users. */
-export const STATUS_DEFAULT_UPGRADE_URL = "https://getaxonflow.com/pricing/";
+/** Authenticated endpoint that creates the dedicated hosted Checkout session. */
+export const STATUS_DEFAULT_UPGRADE_URL = "https://try.getaxonflow.com/api/v1/billing/checkout";
 
 /**
  * Tier the plugin is currently operating under.
@@ -682,9 +679,8 @@ export function resolveStatusInputs(
  * stdout. Stable line shape so users can grep / pipe it.
  *
  * The report is intentionally chatty for first-time users: we explain
- * what client_id is for (Stripe checkout custom field, still labeled
- * "AxonFlow tenant ID" on the Stripe form until that surface rebrands
- * separately), and where to recover lost credentials. Power users who
+ * what client_id is for, how authenticated checkout binds it without
+ * customer entry, and where to recover lost credentials. Power users who
  * want a stable structured surface should consume `buildStatusReport()`
  * directly — both `client_id` and `tenant_id` keys are populated in
  * the report for v2.4.x → v2.5.0 JSON-consumer compat.
@@ -692,7 +688,7 @@ export function resolveStatusInputs(
  * The identity block is mode-aware (#167). Self-hosted installs get the
  * tenant identity their traffic actually authenticates with and no Stripe
  * copy (there is nothing to buy against a self-hosted tenant); Community-SaaS
- * installs keep the checkout guidance they had.
+ * installs show the authenticated hosted checkout action.
  *
  * #171: the endpoint and identity values are routed through
  * `stripControlCharacters` before they hit stdout. The identity comes from
@@ -730,8 +726,7 @@ export function formatStatusReport(report: StatusReport): string {
     }
   } else if (report.client_id) {
     lines.push(`  client_id:  ${clientId}  (formerly tenant_id)`);
-    lines.push("              (paste this into the Stripe checkout custom field when buying Pro —");
-    lines.push("              the form's field label is still 'AxonFlow tenant ID' for now)");
+    lines.push("              (authenticated identity; hosted checkout binds it automatically)");
   } else {
     lines.push("  client_id:  (not registered)  (formerly tenant_id)");
     lines.push(`              No registration file at ${report.registration_file}`);
@@ -763,11 +758,11 @@ export function formatStatusReport(report: StatusReport): string {
   // openclaw): four shapes, see StatusTier doc + parseLicenseTokenExpiry.
   if (report.tier === "pro") {
     if (report.expires_at !== null && report.expires_in_days !== null) {
-      lines.push(`  tier:       Pro (expires ${report.expires_at}, ${report.expires_in_days} days remaining)`);
+      lines.push(`  tier:       Prepaid Pro (expires ${report.expires_at}, ${report.expires_in_days} days remaining)`);
     } else {
       // Token loaded but JWT body did not parse. Treat as Pro for
       // display; platform is the source of truth on validity.
-      lines.push("  tier:       Pro (expires UNKNOWN — could not parse token)");
+      lines.push("  tier:       Prepaid Pro (expiry could not be read)");
     }
     lines.push(`  license:    ${report.license_token_preview} (redacted — last 4 chars only)`);
   } else if (report.tier === "pro_expired") {
@@ -776,14 +771,18 @@ export function formatStatusReport(report: StatusReport): string {
     // first column. Don't print a generic "upgrade:" line on top — that
     // would be redundant with the renew URL embedded in the tier line.
     const expiresLabel = report.expires_at ?? "UNKNOWN";
-    lines.push(`  tier:       Free (Pro expired ${expiresLabel} — visit ${report.upgrade_url} to renew)`);
+    lines.push(`  tier:       Prepaid term expired ${expiresLabel}`);
     lines.push(`  license:    ${report.license_token_preview} (redacted — last 4 chars only)`);
     lines.push("              The plugin will not forward an expired token.");
-    lines.push("              After buying a renewal, set AXONFLOW_LICENSE_TOKEN=<new> or restart with");
-    lines.push("              the new token in pluginConfig.licenseToken.");
+    lines.push(`  checkout:   POST ${report.upgrade_url}`);
   } else {
-    lines.push("  tier:       Free (no Pro license configured)");
-    lines.push(`  upgrade:    ${report.upgrade_url}`);
+    if (report.mode === "community-saas") {
+      lines.push("  tier:       Hosted Starter (payment status checked by AxonFlow)");
+      lines.push(`  checkout:   POST ${report.upgrade_url}`);
+      lines.push("              The first unpaid governed call opens the dedicated $9.99/month checkout.");
+    } else {
+      lines.push("  tier:       Self-hosted Community");
+    }
   }
   lines.push("");
   return lines.join("\n");
@@ -793,12 +792,11 @@ export function formatStatusReport(report: StatusReport): string {
  * Build the one-line init log canary for the OpenClaw plugin's
  * `registerAxonFlowGovernance` registration path. Three shapes:
  *   - Pro active   → "[AxonFlow] Pro tier — expires YYYY-MM-DD (N days remaining); X-License-Token forwarded on every governed request"
- *   - Pro expired  → "[AxonFlow] Free tier — Pro expired YYYY-MM-DD; visit <url> to renew"
+ *   - Prepaid expired: "[AxonFlow] Prepaid term expired YYYY-MM-DD; create checkout with POST <url>"
  *   - Pro (could not parse) → "[AxonFlow] Pro tier active — license token configured, X-License-Token will be forwarded on every governed request" (preserves the legacy line for unparseable tokens — a noisy regression of the canary on every malformed token would be worse than silent fallback).
  *
- * Returns `null` when `licenseToken` is empty / null — Free-tier installs
- * see no extra log line (matches the existing convention; only Pro state
- * gets a canary).
+ * Returns `null` when `licenseToken` is empty or null. Monthly subscription
+ * state is checked by the service and has no local token canary.
  */
 export function buildProTierInitLogLine(
   licenseToken: string | undefined | null,
@@ -821,9 +819,9 @@ export function buildProTierInitLogLine(
   if (expEpoch > now && expDate !== null && daysLeft !== null) {
     return `[AxonFlow] Pro tier — expires ${expDate} (${daysLeft} days remaining); X-License-Token forwarded on every governed request`;
   }
-  // exp is past — surface the renew CTA on init even though the token is
+  // exp is past: surface the checkout action on init even though the token is
   // still in config. Users notice this on the next plugin reload rather
   // than discovering it on a 401 from a governed call.
   const expLabel = expDate ?? "UNKNOWN";
-  return `[AxonFlow] Free tier — Pro expired ${expLabel}; visit ${upgradeUrl} to renew`;
+  return `[AxonFlow] Prepaid term expired ${expLabel}; create checkout with POST ${upgradeUrl}`;
 }

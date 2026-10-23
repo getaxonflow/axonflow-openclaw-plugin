@@ -14,6 +14,10 @@ import {
   recordMessageRedacted,
   recordGovernanceError,
 } from "./metrics.js";
+import {
+  isAxonFlowHostedLimitReached,
+  isAxonFlowPaymentRequired,
+} from "./governance.js";
 
 /**
  * Create the message_sending hook handler.
@@ -43,8 +47,12 @@ export function createMessageSendingHandler(
         "openclaw.message_sending",
         event.content,
       );
-    } catch {
+    } catch (err) {
       recordGovernanceError();
+      if (isAxonFlowPaymentRequired(err) || isAxonFlowHostedLimitReached(err)) {
+        recordMessageCancelled();
+        return { cancel: true };
+      }
       if (config.onError === "allow") {
         return undefined; // Fail-open: allow message through ungoverned
       }

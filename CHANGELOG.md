@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.10.0] - 2026-10-22
+
+### Changed
+
+- Community SaaS now uses the paid-first Hosted Starter flow. An unpaid HTTP 402 creates an authenticated, tenant-bound Checkout session and surfaces one actionable URL. Users no longer copy a tenant ID into Stripe or paste an emailed license token into OpenClaw.
+- Payment-required responses always block tool calls and outbound messages, including when `onError` is `allow`. Retries carry `X-Axonflow-Event-ID` so the platform can count one governed event once.
+- Status and agent tools point to the dedicated hosted checkout endpoint. Existing 90-day prepaid tokens remain supported through their recorded expiry.
+
+### Release gate
+
+- This release candidate must not be published until the platform's #4488 security acceptance and #4486 workflow acceptance gates pass. The first $9.99/month tier includes limited FinCrime, payment exception, support refund, and secure Customer Portal access.
+
 ## [2.9.1] - 2026-09-14: the per-minute limit is recognised as an upgrade envelope
 
 ### Documentation

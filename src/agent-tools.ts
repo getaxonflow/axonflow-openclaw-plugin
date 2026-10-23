@@ -452,9 +452,8 @@ export function buildGetTenantIdTool(
     name: "axonflow_get_tenant_id",
     label: "AxonFlow: Get Tenant ID + Tier",
     description:
-      "Return this AxonFlow plugin install's tenant_id, current tier (Free / Pro / pro_expired), " +
-      "and the canonical upgrade URLs. Use when the user asks how to upgrade, what tier they're on, " +
-      "or for the tenant_id they need to paste into Stripe Checkout. Available in every tier.",
+      "Return this AxonFlow plugin install's tenant_id, current tier, endpoint, and authenticated " +
+      "hosted checkout endpoint. Hosted checkout binds the tenant automatically. Available in every tier.",
     parameters: {
       type: "object",
       properties: {},
@@ -478,16 +477,8 @@ export function buildGetTenantIdTool(
           endpoint: report.endpoint,
           mode: report.mode,
           identity_source: report.identity_source,
-          upgrade_url: report.upgrade_url,
-          // Locked V1 buy URL — duplicates community_saas_ratelimit_response.go's
-          // v1ProUpgradeBuyURL constant. Tracked in the cross-surface drift
-          // checklist (feedback_cross_surface_drift_check_categorized.md):
-          // any change to the buy URL needs a matching update in:
-          //   - axonflow-enterprise/platform/agent/community_saas_ratelimit_response.go
-          //   - axonflow-enterprise/platform/agent/billing/email.go
-          //   - axonflow-landing/content/pricing.html (hardcoded button href)
-          //   - the 4 plugin repos' upgrade-prompt helpers + status surfaces.
-          buy_url: "https://buy.stripe.com/bJe28qbztcdVchjdkw8k800",
+          checkout_url: report.upgrade_url,
+          checkout_method: "POST",
           expires_at: report.expires_at,
           expires_in_days: report.expires_in_days,
         });
@@ -549,7 +540,7 @@ function describeMCPCallResult<T>(
   }
   if (res.kind === "throttled") {
     return fail(
-      "AxonFlow Free-tier cap is active — back-off in effect from a previous V1 envelope. Try again after the deadline.",
+      "An AxonFlow hosted limit is active. Try again after the reported deadline or use the Enterprise PoC path.",
       { throttled: true },
     );
   }
@@ -562,7 +553,7 @@ export function buildRequestApprovalTool(clientRef: ClientRef): AgentToolDef {
     label: "AxonFlow: Request HITL Approval",
     description:
       "Request human-in-the-loop approval before executing a risky operation (e.g. shell command, file write, git push). " +
-      "On Free tier, 1 approval request allowed per rolling 7-day window. On Pro, unlimited.",
+      "Hosted availability and allowance are reported by the current plan.",
     parameters: {
       type: "object",
       properties: {
@@ -604,8 +595,8 @@ export function buildCreateTenantPolicyTool(clientRef: ClientRef): AgentToolDef 
     name: "axonflow_create_tenant_policy",
     label: "AxonFlow: Create Tenant Policy",
     description:
-      "Create a custom tenant-scoped governance policy. Free tier supports 2 active policies (delete one to make room); " +
-      "Pro removes the cap. Useful for rules like 'block writes to ~/.ssh/' or 'require approval for any rm -rf'.",
+      "Create a custom tenant-scoped governance policy within the current hosted or self-hosted plan. " +
+      "Useful for rules like 'block writes to ~/.ssh/' or 'require approval for any rm -rf'.",
     parameters: {
       type: "object",
       properties: {
@@ -646,7 +637,7 @@ export function buildGetCostEstimateTool(clientRef: ClientRef): AgentToolDef {
     label: "AxonFlow: LLM Cost Pre-Flight Estimate",
     description:
       "Estimate the LLM token cost of a planned multi-step operation BEFORE running it. " +
-      "Pro-tier feature — the tool will return a Pro-only envelope on Free tier. Returns input/output token estimates, total cost in USD.",
+      "Availability follows the current plan. Returns input/output token estimates and total cost in USD.",
     parameters: {
       type: "object",
       properties: {
@@ -677,9 +668,9 @@ export function buildGetCostEstimateTool(clientRef: ClientRef): AgentToolDef {
 export function buildListProFeaturesTool(clientRef: ClientRef): AgentToolDef {
   return {
     name: "axonflow_list_pro_features",
-    label: "AxonFlow: List Pro Features",
+    label: "AxonFlow: List Hosted Plan Features",
     description:
-      "Return the locked V1 Plugin Pro feature list as data. Use when the user asks 'what would I get if I upgraded?'. Available in all tiers.",
+      "Return the current hosted plan feature data. The legacy tool name is retained for server compatibility. Available in all tiers.",
     parameters: {
       type: "object",
       properties: {},

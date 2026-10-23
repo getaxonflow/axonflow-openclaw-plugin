@@ -483,6 +483,40 @@ describe("createBeforeToolCallHandler", () => {
     expect(result).toBeUndefined();
   });
 
+  it("blocks payment-required responses even when onError=allow", async () => {
+    const client = mockClient({});
+    (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error("Hosted governance requires an active paid plan"), { status: 402 }),
+    );
+    const config = baseConfig({ onError: "allow" as const });
+    const handler = createBeforeToolCallHandler({ current: client }, config);
+
+    const result = await handler({ toolName: "payments_refund", params: {}, toolCallId: "call-7" });
+
+    expect(result?.block).toBe(true);
+    expect(result?.blockReason).toContain("active paid plan");
+    expect(client.mcpCheckInput).toHaveBeenCalledWith(
+      "openclaw.payments_refund", expect.any(String), "execute", "call-7",
+    );
+  });
+
+  it("blocks hosted monthly-limit responses even when onError=allow", async () => {
+    const client = mockClient({});
+    (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error("Monthly hosted governance allowance reached"), {
+        status: 429,
+        responseBody: { error: "hosted_monthly_limit_reached" },
+      }),
+    );
+    const config = baseConfig({ onError: "allow" as const });
+    const handler = createBeforeToolCallHandler({ current: client }, config);
+
+    const result = await handler({ toolName: "payments_refund", params: {}, toolCallId: "call-limit" });
+
+    expect(result?.block).toBe(true);
+    expect(result?.blockReason).toContain("Monthly hosted governance allowance reached");
+  });
+
   it("blocks on AUTH error when onError=block (default) — operator fixable (#1545)", async () => {
     const client = mockClient({});
     (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(

@@ -48,7 +48,7 @@
     },
     "AXONFLOW_LICENSE_TOKEN": {
       "required": false,
-      "description": "AxonFlow Pro plugin-claim license token (begins with 'AXON-'). When set, the plugin forwards this token on every governed request via the X-License-Token header so the agent applies Pro-tier entitlements (extended audit retention, higher quotas, license-gated capabilities). Wins over pluginConfig.licenseToken when both are set. Get one from getaxonflow.com/plugins/pro \u2014 the token is emailed to the address used at Stripe Checkout."
+      "description": "Legacy prepaid plugin-claim token. Existing 90-day purchases remain valid through expiry. New monthly hosted subscriptions are resolved from the registered tenant and require no token."
     },
     "AXONFLOW_USER_TOKEN": {
       "required": false,
@@ -64,7 +64,7 @@
     },
     "AXONFLOW_UPGRADE_URL": {
       "required": false,
-      "description": "Override the upgrade URL surfaced by axonflow-openclaw-status to free-tier users when reporting Pro-tier features. Defaults to https://getaxonflow.com/pricing/."
+      "description": "Override the authenticated hosted checkout endpoint surfaced by axonflow-openclaw-status. Defaults to https://try.getaxonflow.com/api/v1/billing/checkout."
     },
     "AXONFLOW_TRY": {
       "required": false,
