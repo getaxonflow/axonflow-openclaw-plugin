@@ -25,6 +25,27 @@ The run creates a Checkout session but does not complete payment. Credentials an
 
 ## Production run
 
+The preferred operator path loads the dedicated identity bundle from AWS
+Secrets Manager and keeps credential values out of command history and logs:
+
+```bash
+AXONFLOW_HOSTED_E2E_TARGET=staging \
+bash runtime-e2e/hosted-paid-first/run-from-aws-secret.sh
+```
+
+The default secret IDs are:
+
+- staging: `axonflow/community-saas-staging/hosted-paid-first-e2e`
+- production: `axonflow/community-saas/hosted-paid-first-e2e`
+
+Override the name with `AXONFLOW_HOSTED_E2E_SECRET_ID` and the region with
+`AWS_REGION`. The secret must be a JSON object containing
+`unpaid_client_id`, `unpaid_client_secret`, `paid_client_id`,
+`paid_client_secret`, and `endpoint`. The loader fails before the live proof if
+any field is absent or empty and never prints a credential value.
+
+For a direct run in an isolated operator shell:
+
 ```bash
 AXONFLOW_HOSTED_E2E_CONFIRM=hosted-paid-first \
 AXONFLOW_HOSTED_E2E_TARGET=production \
