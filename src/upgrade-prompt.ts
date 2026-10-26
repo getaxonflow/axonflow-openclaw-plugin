@@ -329,7 +329,7 @@ export function handleEnvelope(opts: {
   if (wordingSurfaced) {
     const wording = envelope.upgrade?.wording || envelope.error
       || "Free-tier limit reached on AxonFlow. Pro removes this cap.";
-    const buy = envelope.upgrade?.buy_url || "https://getaxonflow.com/pricing/";
+    const buy = envelope.upgrade?.buy_url || "https://try.getaxonflow.com/api/v1/billing/checkout";
     logger.info(`[AxonFlow] ${wording}`);
     logger.info(`[AxonFlow] Upgrade: ${buy}`);
   }

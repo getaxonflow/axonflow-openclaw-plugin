@@ -146,6 +146,25 @@ export function isAxonFlowAuthError(err: unknown): boolean {
   return AUTH_ERROR_PATTERN.test(message);
 }
 
+export function isAxonFlowPaymentRequired(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const status = (err as { status?: number; statusCode?: number }).status ??
+    (err as { status?: number; statusCode?: number }).statusCode;
+  return status === 402;
+}
+
+export function isAxonFlowHostedLimitReached(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const candidate = err as {
+    status?: number;
+    statusCode?: number;
+    responseBody?: Record<string, unknown>;
+  };
+  const status = candidate.status ?? candidate.statusCode;
+  return status === 429 &&
+    candidate.responseBody?.["error"] === "hosted_monthly_limit_reached";
+}
+
 /**
  * Does this error already carry its own operator-visible notice?
  *
@@ -217,13 +236,36 @@ export function createBeforeToolCallHandler(
 
     let check;
     try {
-      check = await clientRef.current.mcpCheckInput(
-        connectorType,
-        statement,
-        config.defaultOperation ?? "execute",
-      );
+      const eventId = event.toolCallId ?? event.runId;
+      check = eventId
+        ? await clientRef.current.mcpCheckInput(
+            connectorType, statement, config.defaultOperation ?? "execute", eventId,
+          )
+        : await clientRef.current.mcpCheckInput(
+            connectorType, statement, config.defaultOperation ?? "execute",
+          );
     } catch (err) {
       recordGovernanceError();
+
+      if (isAxonFlowPaymentRequired(err)) {
+        recordToolCallBlocked();
+        return {
+          block: true,
+          blockReason: err instanceof Error
+            ? err.message
+            : "AxonFlow hosted governance requires an active paid plan.",
+        };
+      }
+
+      if (isAxonFlowHostedLimitReached(err)) {
+        recordToolCallBlocked();
+        return {
+          block: true,
+          blockReason: err instanceof Error
+            ? err.message
+            : "AxonFlow Hosted Starter monthly allowance reached.",
+        };
+      }
 
       // Issue #1545 Direction 3: classify the error to decide fail-open vs
       // fail-closed. Network errors (timeout, DNS failure, connection

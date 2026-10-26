@@ -187,7 +187,7 @@ export function registerAxonFlowGovernance(api: {
   // expired state on init rather than waiting for the platform to reject
   // the token on the next governed call. Three shapes:
   //   - Pro active   → "[AxonFlow] Pro tier — expires YYYY-MM-DD (N days remaining); X-License-Token forwarded on every governed request"
-  //   - Pro expired  → "[AxonFlow] Free tier — Pro expired YYYY-MM-DD; visit <url> to renew"
+  //   - Prepaid expired: "[AxonFlow] Prepaid term expired YYYY-MM-DD; create checkout with POST <url>"
   //   - Could not parse JWT → legacy "Pro tier active — license token configured, X-License-Token will be forwarded on every governed request" (preserves pre-v2.2 byte-exact compat for unparseable tokens; mode-clarity test + any external grep on this string keep working)
   // Falls back silently for free-tier (no token) — buildProTierInitLogLine
   // returns null and we skip the log call.

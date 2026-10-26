@@ -1,4 +1,7 @@
-import { AxonFlowClient } from "../src/axonflow-client.js";
+import {
+  AxonFlowClient,
+  AxonFlowPaymentRequiredError,
+} from "../src/axonflow-client.js";
 
 // Mock global fetch
 const mockFetch = jest.fn();
@@ -17,7 +20,10 @@ function jsonResponse(status: number, body: Record<string, unknown>) {
   return {
     ok: status >= 200 && status < 300,
     status,
+    statusText: status === 402 ? "Payment Required" : "",
     json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+    headers: { get: () => null },
   };
 }
 
@@ -152,6 +158,55 @@ describe("AxonFlowClient", () => {
       const call = mockFetch.mock.calls[0];
       const body = JSON.parse((call?.[1] as RequestInit).body as string);
       expect(body.operation).toBe("query");
+    });
+
+    it("creates tenant-bound checkout and throws a typed payment error on 402", async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(402, {
+          error: "hosted_payment_required",
+          checkout_url: "http://localhost:8080/api/v1/billing/checkout",
+        }))
+        .mockResolvedValueOnce(jsonResponse(201, {
+          checkout_url: "https://checkout.stripe.test/session",
+          price_usd_monthly: "9.99",
+        }));
+      const warn = jest.fn();
+      const client = makeClient();
+      client.setUpgradePromptLogger({ info: jest.fn(), warn, error: jest.fn() });
+
+      await expect(client.mcpCheckInput("payments", "{}", "execute", "tool-call-42"))
+        .rejects.toMatchObject({
+          status: 402,
+          checkoutUrl: "https://checkout.stripe.test/session",
+        });
+
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        2,
+        "http://localhost:8080/api/v1/billing/checkout",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({ Authorization: expect.stringContaining("Basic ") }),
+        }),
+      );
+      const firstHeaders = (mockFetch.mock.calls[0]?.[1] as RequestInit).headers as Record<string, string>;
+      expect(firstHeaders["X-Axonflow-Event-ID"]).toBe("tool-call-42");
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("https://checkout.stripe.test/session"));
+    });
+
+    it("emits the hosted payment prompt once per client", async () => {
+      const payment = { error: "hosted_payment_required", checkout_url: "" };
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(402, payment))
+        .mockResolvedValueOnce(jsonResponse(503, { error: "checkout unavailable" }))
+        .mockResolvedValueOnce(jsonResponse(402, payment))
+        .mockResolvedValueOnce(jsonResponse(503, { error: "checkout unavailable" }));
+      const warn = jest.fn();
+      const client = makeClient();
+      client.setUpgradePromptLogger({ info: jest.fn(), warn, error: jest.fn() });
+
+      await expect(client.mcpCheckInput("test", "one")).rejects.toBeInstanceOf(AxonFlowPaymentRequiredError);
+      await expect(client.mcpCheckInput("test", "two")).rejects.toBeInstanceOf(AxonFlowPaymentRequiredError);
+      expect(warn).toHaveBeenCalledTimes(1);
     });
   });
 

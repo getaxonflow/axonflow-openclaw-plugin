@@ -93,4 +93,29 @@ describe("createMessageSendingHandler", () => {
     const result = await handler({ to: "user", content: "Hello" });
     expect(result).toBeUndefined();
   });
+
+  it("cancels message on payment required even when onError=allow", async () => {
+    const client = mockClient();
+    (client.mcpCheckOutput as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error("Hosted governance requires an active paid plan"), { status: 402 }),
+    );
+    const config = { ...baseConfig, onError: "allow" as const };
+    const handler = createMessageSendingHandler({ current: client }, config);
+    const result = await handler({ to: "user", content: "Refund approved" });
+    expect(result).toEqual({ cancel: true });
+  });
+
+  it("cancels message on hosted monthly limit even when onError=allow", async () => {
+    const client = mockClient();
+    (client.mcpCheckOutput as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error("Monthly hosted governance allowance reached"), {
+        status: 429,
+        responseBody: { error: "hosted_monthly_limit_reached" },
+      }),
+    );
+    const config = { ...baseConfig, onError: "allow" as const };
+    const handler = createMessageSendingHandler({ current: client }, config);
+    const result = await handler({ to: "user", content: "Refund approved" });
+    expect(result).toEqual({ cancel: true });
+  });
 });
