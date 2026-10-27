@@ -6,10 +6,10 @@ name: Security Scan
 # walks every path shipping to npm and forbids property shapes known to
 # trip static analyzers. Independent of any external scanner version.
 #
-# Layer 2 (`scripts/scan-tarball.mjs`): runs the OpenClaw plugin
-# scanner against the npm-pack tarball — the same artifact ClawHub
-# scans at publish time. Invoked via `openclaw plugins install <tarball>`
-# with isolated state so the run never pollutes a real install.
+# Layer 2 (`scripts/scan-tarball.mjs`): configures the fail-closed
+# `security.installPolicy` command in `scripts/openclaw-install-policy.mjs`,
+# proves a hostile credential-exfiltration fixture is blocked, and installs
+# the exact npm-pack tarball through current OpenClaw with isolated state.
 #
 # Both layers run via `npm run scan`, which chains
 # `npm run build && npm run check:publish-bait && node scripts/scan-tarball.mjs --no-build`.
@@ -26,6 +26,7 @@ on:
       - 'openclaw.plugin.json'
       - 'tsconfig.json'
       - 'scripts/scan-tarball.mjs'
+      - 'scripts/openclaw-install-policy.mjs'
       - 'scripts/check-publish-bait.mjs'
       - 'README.md'
       - 'CHANGELOG.md'
@@ -41,6 +42,7 @@ on:
       - 'openclaw.plugin.json'
       - 'tsconfig.json'
       - 'scripts/scan-tarball.mjs'
+      - 'scripts/openclaw-install-policy.mjs'
       - 'scripts/check-publish-bait.mjs'
       - 'README.md'
       - 'CHANGELOG.md'
@@ -74,13 +76,11 @@ jobs:
       - name: Install build deps
         run: npm ci
 
-      # Install the latest published openclaw on every run. This is
-      # deliberate: the scanner ruleset evolves with each openclaw
-      # release; pinning here would let new rules ship without us
-      # noticing. If a future ruleset rejects our package, that is the
-      # signal to refactor — not the signal to pin.
+      # Install the latest published OpenClaw on every run. The operator-owned
+      # policy remains stable, while this catches install protocol and config
+      # compatibility changes before publication.
       - name: Install openclaw CLI (latest)
         run: npm install -g openclaw@latest
 
       - name: Run security scan against packed tarball
-        run: npm run scan
+        run: OPENCLAW_BIN="$(npm prefix -g)/bin/openclaw" npm run scan
