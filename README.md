@@ -105,7 +105,7 @@ The plugin recognizes the following environment variables. All are optional with
 | `AXONFLOW_UPGRADE_URL` | Overrides the authenticated hosted checkout endpoint surfaced by `axonflow-openclaw-status`. Defaults to `https://try.getaxonflow.com/api/v1/billing/checkout`. |
 | `AXONFLOW_TRY=1` | Forces the v1 telemetry `deployment_mode` classifier to report `community_saas` even when the configured endpoint is a custom hostname proxying `try.getaxonflow.com`. No effect outside the heartbeat payload. |
 
-The same set is the authoritative declaration in [`openclaw.plugin.json`](openclaw.plugin.json) `envVars` block — both surfaces ship in the published artifact and stay in lockstep via the [`manifest-envvars-coverage`](.github/workflows/manifest-envvars-coverage.yml) CI gate.
+This table is the published declaration for user-facing environment variables. The [`manifest-envvars-coverage`](.github/workflows/manifest-envvars-coverage.yml) gate keeps it aligned with shipped code. The code-plugin manifest intentionally omits unsupported top-level `envVars` and `runtimeBehavior` fields.
 
 ## Activate Hosted Starter
 
@@ -359,9 +359,10 @@ Follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/)
 Requires OpenClaw **2026.4.15 or later** (CVE floor). **Strongly recommended: 2026.5.7 or later** — see [hash-mismatch workaround](#openclaw-cli-hash-mismatch) below. Upgrade with `npm install -g openclaw@latest`.
 
 ```bash
-openclaw plugins install @axonflow/openclaw@latest --accept-capabilities
+openclaw plugins install @axonflow/openclaw@latest
 ```
-> **Since 2.9.0 the install needs `--accept-capabilities`.** The plugin now declares the capabilities it exercises (the ADR-065 enforcement-point handshake), and the OpenClaw CLI refuses to start a plugin that declares capabilities until you consent once at install or enable time. Without the flag the install completes and then the CLI reports `Plugin "axonflow-governance" requires capability consent`.
+
+Current OpenClaw releases review plugin capabilities during installation and no longer accept `--accept-capabilities`. If an older supported CLI reports that capability consent is required, check `openclaw plugins install --help` and use that CLI version's consent option.
 
 
 We recommend the npm-spec form as our primary install path. npm is our source-of-truth registry — every release is published there first, with the long track record and stability you'd expect from a mature package registry. The CLI resolves the npm spec and downloads the latest tarball directly.
@@ -369,7 +370,7 @@ We recommend the npm-spec form as our primary install path. npm is our source-of
 To pin a specific version (recommended in production / CI):
 
 ```bash
-openclaw plugins install @axonflow/openclaw@2.10.0 --accept-capabilities
+openclaw plugins install @axonflow/openclaw@2.10.1
 ```
 
 The `clawhub:@axonflow/openclaw` form is also supported and pulls from the [ClawHub](https://clawhub.ai/plugins/%40axonflow%2Fopenclaw) mirror, which we publish to alongside [npm](https://www.npmjs.com/package/@axonflow/openclaw) on each release.
@@ -389,7 +390,7 @@ The published artifact is byte-correct on both [npm](https://www.npmjs.com/packa
 
 ```bash
 npm install -g openclaw@latest
-openclaw plugins install @axonflow/openclaw@latest --accept-capabilities
+openclaw plugins install @axonflow/openclaw@latest
 ```
 
 If you cannot upgrade the CLI, fall back to a local-tgz install — the same path used for the older ENOENT bug below — which bypasses the broken integrity check:

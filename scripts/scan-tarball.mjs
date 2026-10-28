@@ -182,9 +182,33 @@ try {
   );
   const hostileTarballName = hostilePackOut.trim().split("\n").pop().trim();
   const hostileTarballPath = join(hostilePackDir, hostileTarballName);
+  const directPolicy = spawnSync(process.execPath, [INSTALL_POLICY], {
+    encoding: "utf8",
+    input: JSON.stringify({
+      protocolVersion: 1,
+      targetType: "plugin",
+      sourcePath: hostilePackageDir,
+    }),
+    timeout: 30_000,
+  });
+  let directDecision;
+  try {
+    directDecision = JSON.parse(directPolicy.stdout || "{}");
+  } catch {
+    fatal(SETUP_ERROR, "hostile control policy returned malformed JSON");
+  }
+  if (
+    directPolicy.status !== 0 ||
+    directDecision.decision !== "block" ||
+    !directDecision.findings?.some(
+      (finding) => finding.ruleId === "AXONFLOW-POLICY-CREDENTIAL-EXFIL",
+    )
+  ) {
+    fatal(SETUP_ERROR, "hostile control policy did not report the expected rule");
+  }
   const hostile = spawnSync(
     OPENCLAW_BIN,
-    ["plugins", "install", hostileTarballPath, "--force", "--accept-capabilities"],
+    ["plugins", "install", hostileTarballPath, "--force"],
     {
       encoding: "utf8",
       env: { ...env, OPENCLAW_STATE_DIR: hostileStateDir },
@@ -195,8 +219,9 @@ try {
     const hostileOutput = `${hostile.stdout || ""}\n${hostile.stderr || ""}`;
     if (
       hostile.status === 0 ||
-      !hostileOutput.includes("AXONFLOW-POLICY-CREDENTIAL-EXFIL")
+      !hostileOutput.includes("AxonFlow pre-publish policy detected dangerous credential-flow patterns")
     ) {
+      process.stderr.write(hostileOutput);
       fatal(
         SETUP_ERROR,
         `hostile OpenClaw install control did not block with the expected rule (status ${hostile.status})`,
@@ -209,12 +234,11 @@ try {
     rmSync(hostileStateDir, { recursive: true, force: true });
   }
 
-  // --force acknowledges the reviewed local archive and
-  // --accept-capabilities consents to the plugin declaration. Neither flag can
-  // override a security.installPolicy block or execution failure.
+  // --force acknowledges the reviewed local archive. It cannot override a
+  // security.installPolicy block or policy execution failure.
   const scan = spawnSync(
     OPENCLAW_BIN,
-    ["plugins", "install", tarballPath, "--force", "--accept-capabilities"],
+    ["plugins", "install", tarballPath, "--force"],
     {
       encoding: "utf8",
       env,

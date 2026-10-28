@@ -52,15 +52,16 @@ jobs:
           USER_FACING_GLOBS=(
             'src/'
             'bin/'
+            'openclaw.plugin.json'
             'openclaw.json'
             'plugin.json'
           )
-          CHANGED=$(git diff --name-only "$BASE" "$HEAD" || true)
+          mapfile -t CHANGED_FILES < <(git diff --name-only "$BASE" "$HEAD" || true)
           echo "Changed files in PR:" >&2
-          printf '  %s\n' $CHANGED >&2
+          printf '  %s\n' "${CHANGED_FILES[@]}" >&2
 
           MATCHED=""
-          for f in $CHANGED; do
+          for f in "${CHANGED_FILES[@]}"; do
             for pat in "${USER_FACING_GLOBS[@]}"; do
               case "$f" in
                 "$pat"*|*"/$pat"*)
@@ -71,7 +72,7 @@ jobs:
             done
           done
 
-          RUNTIME_E2E_TOUCHED=$(echo "$CHANGED" | grep -c '^runtime-e2e/' || true)
+          RUNTIME_E2E_TOUCHED=$(printf '%s\n' "${CHANGED_FILES[@]}" | grep -c '^runtime-e2e/' || true)
 
           {
             echo "user_facing_changed=$([ -n "$MATCHED" ] && echo true || echo false)"

@@ -38,6 +38,8 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
+const isolatedCacheDir = mkdtempSync(join(tmpdir(), 'openclaw-install-smoke-cache-'));
+process.env.AXONFLOW_CACHE_DIR = isolatedCacheDir;
 
 let exitCode = 0;
 const failures = [];
@@ -161,6 +163,11 @@ if (manifest && (!manifest.configSchema || !manifest.configSchema.properties)) {
 if (manifest && manifest.configSchema && !manifest.configSchema.properties.endpoint) {
   fail('manifest.configSchema.properties.endpoint missing');
 }
+for (const field of ['envVars', 'runtimeBehavior']) {
+  if (manifest && Object.prototype.hasOwnProperty.call(manifest, field)) {
+    fail(`manifest contains unsupported top-level field: ${field}`);
+  }
+}
 
 const installedEntry = join(installed, 'dist', 'index.js');
 const mod = await import(installedEntry);
@@ -220,6 +227,7 @@ const cleanup = () => {
   if (!stub.killed) stub.kill('SIGTERM');
   rmSync(packDir, { recursive: true, force: true });
   rmSync(consumer, { recursive: true, force: true });
+  rmSync(isolatedCacheDir, { recursive: true, force: true });
 };
 
 try {
