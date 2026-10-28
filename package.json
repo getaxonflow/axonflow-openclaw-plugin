@@ -12,8 +12,8 @@
     }
   },
   "bin": {
-    "axonflow-openclaw-recover": "./bin/axonflow-openclaw-recover.mjs",
-    "axonflow-openclaw-status": "./bin/axonflow-openclaw-status.mjs"
+    "axonflow-openclaw-recover": "bin/axonflow-openclaw-recover.mjs",
+    "axonflow-openclaw-status": "bin/axonflow-openclaw-status.mjs"
   },
   "files": [
     "dist",
@@ -61,7 +61,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/getaxonflow/axonflow-openclaw-plugin.git"
+    "url": "git+https://github.com/getaxonflow/axonflow-openclaw-plugin.git"
   },
   "homepage": "https://docs.getaxonflow.com/docs/integration/openclaw/",
   "bugs": {
