@@ -147,6 +147,25 @@ if (!existsSync(installed)) {
 // 5. Verify installed manifest + module shape.
 // ---------------------------------------------------------------
 console.log('\n--- Step 5: validate installed manifest + exports ---');
+const packageJsonPath = join(installed, 'package.json');
+let packageJson;
+try {
+  packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+} catch (e) {
+  fail(`package.json unreadable: ${e.message}`);
+}
+const expectedBins = {
+  'axonflow-openclaw-recover': 'bin/axonflow-openclaw-recover.mjs',
+  'axonflow-openclaw-status': 'bin/axonflow-openclaw-status.mjs',
+};
+for (const [name, path] of Object.entries(expectedBins)) {
+  if (packageJson?.bin?.[name] !== path) {
+    fail(`package.json bin[${name}] expected ${JSON.stringify(path)}, got ${JSON.stringify(packageJson?.bin?.[name])}`);
+  }
+}
+if (packageJson?.repository?.url !== 'git+https://github.com/getaxonflow/axonflow-openclaw-plugin.git') {
+  fail(`package.json repository.url is not npm-normalized: ${JSON.stringify(packageJson?.repository?.url)}`);
+}
 const manifestPath = join(installed, 'openclaw.plugin.json');
 let manifest;
 try {

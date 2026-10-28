@@ -10,6 +10,7 @@
 - Validate release versions as strict numeric semver and pass GitHub event data through step environments so dispatch input cannot alter release shell commands.
 - Remove the obsolete `--accept-capabilities` install option from current OpenClaw commands and release checks.
 - Isolate test and install-smoke cache state so an operator's local throttle stamp cannot alter release-gate results.
+- Normalize npm CLI paths and repository metadata so manual publication preserves both bundled commands without npm rewriting the reviewed manifest.
 
 ### Validation
 
