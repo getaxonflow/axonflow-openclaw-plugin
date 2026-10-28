@@ -1,14 +1,13 @@
 name: manifest-envvars-coverage
 
-# Catch drift between AXONFLOW_* env vars referenced in shipped code/docs
-# and what's declared in the plugin manifest. Prevents the v2.3.0 → v2.3.1
-# incident where ship-time code referenced env vars not declared in
-# openclaw.plugin.json and ClawScan flagged the inconsistency.
+# Catch drift between AXONFLOW_* env vars referenced in shipped code and docs.
+# OpenClaw and ClawHub do not support top-level envVars or runtimeBehavior in a
+# code-plugin manifest, so the manifest must omit both fields. The README is the
+# user-facing declaration for this plugin's environment variables and behavior.
 #
-# Three sources must stay in sync:
+# Two sources must stay in sync:
 #   1. AXONFLOW_* references in src/, bin/  (shipped runtime code)
-#   2. openclaw.plugin.json envVars block    (manifest declaration)
-#   3. README.md "## Environment variables" table  (user-facing prose)
+#   2. README.md "## Environment variables" table  (user-facing prose)
 #
 # Internal-only vars (HARNESS_*, LOGS, OPENAPI_SPECS_DIR, CHECKPOINT_URL,
 # CLIENT_ID, CLIENT_SECRET) are excluded — these are SDK-side or test-only
@@ -40,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Compute three-way envVars coverage
+      - name: Compute environment-variable documentation coverage
         run: |
           set -euo pipefail
 
@@ -53,14 +52,7 @@ jobs:
           cat /tmp/code-refs.txt
           echo ""
 
-          # 2) openclaw.plugin.json envVars keys
-          python3 -c "import json; print('\n'.join(sorted(json.load(open('openclaw.plugin.json'))['envVars'].keys())))" \
-            > /tmp/manifest-decl.txt
-          echo "Manifest declarations (openclaw.plugin.json envVars):"
-          cat /tmp/manifest-decl.txt
-          echo ""
-
-          # 3) README.md "## Environment variables" section — extract every
+          # 2) README.md "## Environment variables" section. Extract every
           # AXONFLOW_* mention from table rows under that heading.
           # State-machine awk (vs range pattern) so the start heading
           # itself doesn't terminate the section on /^## /.
@@ -76,13 +68,22 @@ jobs:
           cat /tmp/readme-decl.txt
           echo ""
 
-          # Drift checks
+          # Unsupported top-level manifest fields must stay absent. Their
+          # presence causes a ClawHub compatibility warning and OpenClaw does
+          # not consume them for this code plugin.
+          python3 - <<'PY'
+          import json
+          manifest = json.load(open('openclaw.plugin.json', encoding='utf-8'))
+          unsupported = sorted({'envVars', 'runtimeBehavior'} & manifest.keys())
+          if unsupported:
+              raise SystemExit(
+                  'unsupported top-level manifest fields: ' + ', '.join(unsupported)
+              )
+          print('Manifest compatibility: unsupported top-level fields absent')
+          PY
+
+          # Drift check
           FAIL=0
-          if ! diff -q /tmp/code-refs.txt /tmp/manifest-decl.txt >/dev/null; then
-            echo "::error::AXONFLOW_* drift between shipped code and openclaw.plugin.json envVars:"
-            diff /tmp/code-refs.txt /tmp/manifest-decl.txt || true
-            FAIL=1
-          fi
           if ! diff -q /tmp/code-refs.txt /tmp/readme-decl.txt >/dev/null; then
             echo "::error::AXONFLOW_* drift between shipped code and README.md env-vars table:"
             diff /tmp/code-refs.txt /tmp/readme-decl.txt || true
@@ -90,7 +91,7 @@ jobs:
           fi
           if [ "$FAIL" -ne 0 ]; then
             echo ""
-            echo "::error::Resolution: every user-facing AXONFLOW_* referenced in src/ or bin/ must be declared in BOTH openclaw.plugin.json envVars AND README.md '## Environment variables' table. See feedback_plugin_manifest_envvars_hygiene.md."
+            echo "::error::Resolution: every user-facing AXONFLOW_* referenced in src/ or bin/ must be declared in the README.md '## Environment variables' table."
             exit 1
           fi
-          echo "OK: code refs == manifest envVars == README table ($(wc -l < /tmp/code-refs.txt) entries)"
+          echo "OK: code refs == README table ($(wc -l < /tmp/code-refs.txt) entries)"

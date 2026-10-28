@@ -17,123 +17,6 @@
       "axonflow_list_pro_features"
     ]
   },
-  "envVars": {
-    "AXONFLOW_TELEMETRY": {
-      "required": false,
-      "description": "Set to 'off', '0', 'false', or 'no' to disable the 7-day usage heartbeat. When unset (default), the plugin sends a lightweight ping to checkpoint.getaxonflow.com once every 7 days per machine.",
-      "values": [
-        "off",
-        "0",
-        "false",
-        "no"
-      ]
-    },
-    "AXONFLOW_COMMUNITY_SAAS": {
-      "required": false,
-      "description": "Set to '0', 'false', 'off', or 'no' to disable auto-registration with try.getaxonflow.com Community SaaS. When opted out, configure pluginConfig.endpoint to point at a self-hosted AxonFlow instance \u2014 otherwise the plugin loads but cannot enforce policy.",
-      "values": [
-        "0",
-        "false",
-        "off",
-        "no"
-      ]
-    },
-    "AXONFLOW_CACHE_DIR": {
-      "required": false,
-      "description": "Override the per-user cache directory used for telemetry stamps, rate-limit backoffs, and the free-tier upgrade-prompt/throttle stamps. Defaults to OS conventions: $XDG_CACHE_HOME/axonflow on Linux, ~/Library/Caches/axonflow on macOS, %LOCALAPPDATA%\\axonflow on Windows."
-    },
-    "AXONFLOW_CONFIG_DIR": {
-      "required": false,
-      "description": "Override the per-user config directory. Holds the Community-SaaS registration file (mode 0o600), the first-load disclosure stamp, and the plugin runtime-state record that lets the axonflow-openclaw-status CLI report the endpoint and identity the governance runtime resolved. Defaults to OS conventions: $XDG_CONFIG_HOME/axonflow on Linux, ~/Library/Application Support/axonflow on macOS, %APPDATA%\\axonflow on Windows."
-    },
-    "AXONFLOW_LICENSE_TOKEN": {
-      "required": false,
-      "description": "Legacy prepaid plugin-claim token. Existing 90-day purchases remain valid through expiry. New monthly hosted subscriptions are resolved from the registered tenant and require no token."
-    },
-    "AXONFLOW_USER_TOKEN": {
-      "required": false,
-      "description": "Per-user authorization token forwarded as the X-User-Token header on every governed request, giving this developer a validated {identity, role} on the AxonFlow fleet plane: role-scoped reads plus audit attribution keyed on the token's canonical email on the header-consuming planes (the MCP tools and the audit/decisions/overrides REST surface; the check-input/check-output hook plane keeps client-scoped attribution on current platforms). Minted by an org admin via the AxonFlow user-token mint API and delivered via managed settings/MDM. Resolution order: pluginConfig.userToken wins over this env var, which wins over the 0600 provisioning file ~/.config/axonflow/user-token.json (shared with the other AxonFlow plugins on the machine). A malformed value is dropped with a warning (never sent) and resolution falls through to the next source. Unset (default): no header is sent and requests are byte-identical to prior versions."
-    },
-    "AXONFLOW_ENDPOINT": {
-      "required": false,
-      "description": "Override the AxonFlow agent gateway endpoint. Wins over pluginConfig.endpoint when both are set. Setting this selects self-hosted mode: all governed traffic targets this endpoint and the Community-SaaS auto-registration never runs. When unset and AXONFLOW_COMMUNITY_SAAS is not opted out, the plugin auto-bootstraps against https://try.getaxonflow.com. For self-hosted deployments, set this (or pluginConfig.endpoint) to your AxonFlow URL."
-    },
-    "AXONFLOW_RECOVERY_TIMEOUT_MS": {
-      "required": false,
-      "description": "Per-HTTP-request timeout in milliseconds for the axonflow-openclaw-recover CLI's calls to /api/v1/recover and /api/v1/recover/verify. Default: 10000 (10s). Increase for high-latency networks; decrease for fail-fast CI environments."
-    },
-    "AXONFLOW_UPGRADE_URL": {
-      "required": false,
-      "description": "Override the authenticated hosted checkout endpoint surfaced by axonflow-openclaw-status. Defaults to https://try.getaxonflow.com/api/v1/billing/checkout."
-    },
-    "AXONFLOW_TRY": {
-      "required": false,
-      "description": "Set to '1' to force the v1 telemetry deployment-mode classifier to report 'community_saas' even when the configured endpoint is a custom hostname. Use only when proxying try.getaxonflow.com behind a different host. No behavioural effect outside the heartbeat payload.",
-      "values": [
-        "1"
-      ]
-    },
-    "AXONFLOW_PEP_AUDIENCE": {
-      "help": "The audience your AxonFlow decision proofs are bound to. Set it and this plugin declares what it can enforce on every governed call (the ADR-065 PEP capability handshake, X-Axonflow-PEP-Handshake), so a platform running v10.4.0 or later refuses to hand it a mandatory obligation it has declared it cannot discharge, instead of assuming it will. The plugin presents TWO declarations under separate names, because its request and response paths discharge different obligations. Optional - when unset no header is sent and requests are unchanged."
-    }
-  },
-  "runtimeBehavior": {
-    "autoBootstrap": {
-      "enabled": true,
-      "description": "When neither AXONFLOW_ENDPOINT nor pluginConfig.endpoint is set and AXONFLOW_COMMUNITY_SAAS is not opted out, the plugin POSTs to https://try.getaxonflow.com/api/v1/register on first load to obtain Community-SaaS credentials, persists them at $AXONFLOW_CONFIG_DIR/try-registration.json (mode 0o600), and uses them for subsequent governance calls. The 7-day rotation refresh window keeps tenants from lapsing silently.",
-      "optOut": "Set AXONFLOW_COMMUNITY_SAAS=0 OR set AXONFLOW_ENDPOINT or pluginConfig.endpoint to a self-hosted AxonFlow instance.",
-      "userDisclosure": "First-load disclosure banner emitted via plugin logger (warn level), one time per machine, before the registration POST fires."
-    },
-    "outboundData": {
-      "atGovernanceTime": "Tool name + arguments (before execution) and outbound message bodies (before delivery) are sent to the configured AxonFlow endpoint for policy evaluation and audit. With Community SaaS, the endpoint is try.getaxonflow.com; with self-hosted, traffic stays on your network.",
-      "telemetry": "7-day usage heartbeat to checkpoint.getaxonflow.com containing plugin version, OS, arch, runtime version, deployment mode, hook count, and a per-machine instance_id (UUID v4). No tool inputs, no message bodies, no LLM provider keys.",
-      "neverTransmitted": [
-        "LLM provider API keys",
-        "OpenClaw conversation history outside governed tools",
-        "Files outside the OpenClaw runtime"
-      ],
-      "credentialRecovery": "Only when you run the bundled axonflow-openclaw-recover CLI: POST /api/v1/recover and POST /api/v1/recover/verify against the configured endpoint (default https://try.getaxonflow.com), carrying the email address you pass on the command line and the magic-link token you paste back. Never fires from the plugin runtime."
-    },
-    "persistence": {
-      "files": [
-        {
-          "path": "$AXONFLOW_CONFIG_DIR/try-registration.json",
-          "mode": "0o600",
-          "purpose": "Community-SaaS registration credentials (tenant_id, secret, expires_at). Refused at load time if permissions are not 0o600 on POSIX."
-        },
-        {
-          "path": "$AXONFLOW_CONFIG_DIR/openclaw-plugin-community-saas-disclosure-shown",
-          "mode": "0o600",
-          "purpose": "First-load disclosure stamp. Body is the ISO-8601 timestamp of the disclosure; only its presence is read, and that presence prevents re-warning on subsequent loads."
-        },
-        {
-          "path": "$AXONFLOW_CONFIG_DIR/openclaw-plugin-runtime-state.json",
-          "mode": "0o600",
-          "purpose": "Rewritten on every plugin load with the endpoint override the governance runtime resolved \u2014 from either the AXONFLOW_ENDPOINT environment variable or pluginConfig.endpoint \u2014 plus which of those channels supplied it and the configured clientId. Lets the axonflow-openclaw-status CLI, a separate process that can see neither channel, report the endpoint and identity your traffic actually uses instead of the Community-SaaS default. Contains no credentials: clientSecret, licenseToken and userToken are never written."
-        },
-        {
-          "path": "$AXONFLOW_CACHE_DIR/openclaw-plugin-telemetry-sent",
-          "mode": "0o600",
-          "purpose": "Heartbeat stamp file. Body is the per-machine instance_id (UUID v4); mtime drives the 7-day rate limit."
-        },
-        {
-          "path": "$AXONFLOW_CACHE_DIR/openclaw-plugin-register-backoff",
-          "mode": "0o600",
-          "purpose": "Rate-limit backoff stamp written when /api/v1/register returns 429. Body is a Unix timestamp (seconds) until which the bootstrap will not retry."
-        },
-        {
-          "path": "$AXONFLOW_CACHE_DIR/throttle-until",
-          "mode": "0o600",
-          "purpose": "Free-tier back-off stamp written when a governed call returns a V1 rate-limit envelope. Body is a Unix timestamp (seconds) until which governed calls short-circuit locally instead of being sent."
-        },
-        {
-          "path": "$AXONFLOW_CACHE_DIR/upgrade-prompt-last-shown",
-          "mode": "0o600",
-          "purpose": "Once-per-UTC-day stamp for the free-tier upgrade prompt. Body is a date string; presence and value keep the prompt from repeating within the same day."
-        }
-      ]
-    }
-  },
   "uiHints": {
     "endpoint": {
       "label": "AxonFlow Endpoint",
@@ -160,7 +43,7 @@
       "label": "Per-User Token",
       "sensitive": true,
       "placeholder": "(minted by your org admin)",
-      "help": "Per-user authorization token forwarded as the X-User-Token header on every governed request. Minted by an org admin via the AxonFlow user-token mint API and delivered through managed settings/MDM. Gives this developer a validated identity and role on the platform's fleet plane, so role-scoped reads return their own rows and audit attribution keys on the token's canonical email \u2014 beating the forgeable userEmail label \u2014 on the header-consuming planes (MCP tools + audit/decisions/overrides REST; the check-input/check-output hook plane keeps client-scoped attribution on current platforms). Resolution order: this value, then AXONFLOW_USER_TOKEN env, then ~/.config/axonflow/user-token.json (mode 0600). Optional \u2014 when unset, requests are unchanged."
+      "help": "Per-user authorization token forwarded as the X-User-Token header on every governed request. Minted by an org admin via the AxonFlow user-token mint API and delivered through managed settings/MDM. Gives this developer a validated identity and role on the platform's fleet plane, so role-scoped reads return their own rows and audit attribution keys on the token's canonical email, beating the forgeable userEmail label, on the header-consuming planes (MCP tools + audit/decisions/overrides REST; the check-input/check-output hook plane keeps client-scoped attribution on current platforms). Resolution order: this value, then AXONFLOW_USER_TOKEN env, then ~/.config/axonflow/user-token.json (mode 0600). Optional; when unset, requests are unchanged."
     },
     "licenseToken": {
       "label": "Pro License Token",

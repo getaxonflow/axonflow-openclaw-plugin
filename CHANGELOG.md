@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.10.1] - 2026-10-28
+
+### Fixed
+
+- Remove unsupported top-level `envVars` and `runtimeBehavior` fields from the code-plugin manifest. Runtime behavior and environment-variable documentation remain unchanged, while ClawHub can validate the manifest without a compatibility warning.
+- Update the manifest coverage gate so shipped `AXONFLOW_*` references stay aligned with the README and the unsupported fields cannot return.
+- Update the ClawHub publisher to the supported `clawhub@0.23.3` client and mirror the exact npm registry tarball into ClawHub.
+- Validate release versions as strict numeric semver and pass GitHub event data through step environments so dispatch input cannot alter release shell commands.
+- Remove the obsolete `--accept-capabilities` install option from current OpenClaw commands and release checks.
+- Isolate test and install-smoke cache state so an operator's local throttle stamp cannot alter release-gate results.
+
+### Validation
+
+- Full Jest, lint, coverage, TypeScript build, install smoke, publish-bait, packed-artifact, OpenClaw scanner, and plugin-doctor checks must pass before tagging.
+
 ## [2.10.0] - 2026-10-22
 
 ### Changed

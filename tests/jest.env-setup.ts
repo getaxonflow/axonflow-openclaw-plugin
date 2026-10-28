@@ -37,3 +37,8 @@ const isolatedConfigDir = path.join(
 );
 fs.mkdirSync(isolatedConfigDir, { recursive: true, mode: 0o700 });
 process.env.AXONFLOW_CONFIG_DIR = isolatedConfigDir;
+
+const isolatedCacheDir = fs.mkdtempSync(
+  path.join(os.tmpdir(), "axonflow-openclaw-jest-cache-"),
+);
+process.env.AXONFLOW_CACHE_DIR = isolatedCacheDir;

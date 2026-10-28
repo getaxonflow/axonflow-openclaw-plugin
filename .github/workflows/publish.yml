@@ -34,14 +34,17 @@ jobs:
 
       - name: Resolve version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$DISPATCH_VERSION"
           else
             VERSION="${GITHUB_REF#refs/tags/v}"
           fi
-          if [ -z "$VERSION" ]; then
-            echo "::error::Could not resolve version from event"
+          if ! printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version must use strict numeric semver, for example 2.10.1"
             exit 1
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
@@ -63,8 +66,10 @@ jobs:
       # `feedback_patch_release_notes_cumulative.md` after the v2.3.0/v2.3.1
       # incident on 2026-05-07.
       - name: Extract CHANGELOG section
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
+          VERSION="$RELEASE_VERSION"
           awk -v ver="$VERSION" '$0 ~ "^## \\["ver"\\]" {p=1; next} p && /^## \[/ {exit} p {print}' CHANGELOG.md > /tmp/release-body.md
           if [ ! -s /tmp/release-body.md ]; then
             echo "::error::No CHANGELOG.md section found for version $VERSION — refusing to publish."
@@ -87,7 +92,7 @@ jobs:
             echo "Or via OpenClaw plugin manager:"
             echo ""
             echo '```bash'
-            echo "openclaw plugins install @axonflow/openclaw --accept-capabilities"
+            echo "openclaw plugins install @axonflow/openclaw"
             echo '```'
             echo ""
             cat /tmp/release-body.md
@@ -145,12 +150,14 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Update version in package.json
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
-          npm version ${VERSION} --no-git-tag-version --allow-same-version
+          VERSION="$RELEASE_VERSION"
+          npm version "${VERSION}" --no-git-tag-version --allow-same-version
           echo "Updated version to ${VERSION}"
           grep '"version"' package.json
 
@@ -209,50 +216,25 @@ jobs:
       - name: Install dependencies and build
         run: npm ci && npm run build
 
-      # Pin clawhub@0.12.3 — v0.12.2 (2026-05-02 21:45 UTC) shipped the
-      # CLI fix for v0.12.1's tarball-bytes-mismatch regression
-      # ("publish code plugins as clawpacks and allow legacy package
-      # downloads"); v0.12.3 (2026-05-06) added monorepo support +
-      # dry-run-metadata-only + scope-owner inference. Confirmed working
-      # via local `clawhub package pack` + `clawhub package publish .
-      # --dry-run` against this repo at v2.3.2 — produced clean ClawPack
-      # tarball with correct sha256/integrity.
-      #
-      # Migration from v0.12.0 (Legacy ZIP folder upload) → v0.12.3
-      # (ClawPack folder upload, CLI auto-packs + uploads as ClawPack):
-      # closes the "Legacy ZIP — may have compatibility issues" badge
-      # on the ClawHub listing AND moves the verification tier from
-      # `source-linked` (lowest) to a higher tier per the modern
-      # plugin architecture. Note: ClawPack format does NOT close the
-      # ClawScan "Credentials" review concern — that's upstream-blocked
-      # because code plugins have no envVars schema slot in their
-      # capabilities indexing today (the clawhub@0.7.0 envVars schema
-      # is skill-side only). See feedback_plugin_manifest_envvars_hygiene.md.
-      #
-      # Safety net: existing `verify-clawhub-install` job runs
-      # `openclaw plugins install clawhub:@axonflow/openclaw@<version>`
-      # and would catch any bytes-mismatch immediately — same gate
-      # that broke v2.0.5/v2.0.6 visibly during the v0.12.1 regression.
-      # If broken, revert to clawhub@0.12.0 + folder upload (Legacy ZIP)
-      # — well-understood path per
-      # `feedback_clawhub_cli_v0_12_1_tarball_regression.md`.
+      # Use the currently supported ClawHub operator client. Mirror the exact
+      # npm-registry artifact below so npm and ClawHub cannot diverge.
       - name: Install ClawHub CLI
-        run: npm install -g clawhub@0.12.3
+        run: |
+          npm install -g clawhub@0.23.3
+          test "$(clawhub --cli-version)" = "0.23.3"
 
       - name: Extract version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "VERSION=$DISPATCH_VERSION" >> "$GITHUB_OUTPUT"
           else
-            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           fi
 
-      # Folder argument with clawhub@0.12.3 — CLI auto-packs the source
-      # folder into a ClawPack npm-style tarball + uploads. No `npm pack`
-      # step needed; the CLI handles tarball generation internally. The
-      # `.clawhubignore` file controls what files end up in the ClawPack.
-      #
       # --owner axonflow matches the @axonflow package scope. ClawHub
       # enforces strict scope-owner match as of 2026-05-09; PR #127
       # changed this from --owner saurabhjain1592 (the prior workaround
@@ -265,10 +247,12 @@ jobs:
       - name: Publish to ClawHub (ClawPack format)
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION="$RELEASE_VERSION"
           clawhub login --token "$CLAWHUB_TOKEN"
-          clawhub package publish . \
+          TARBALL="$(npm pack "@axonflow/openclaw@${VERSION}" --silent)"
+          clawhub package publish "$TARBALL" \
             --family code-plugin \
             --name "@axonflow/openclaw" \
             --owner axonflow \
@@ -276,8 +260,9 @@ jobs:
             --version "$VERSION" \
             --changelog "See https://github.com/getaxonflow/axonflow-openclaw-plugin/blob/v${VERSION}/CHANGELOG.md" \
             --source-repo "getaxonflow/axonflow-openclaw-plugin" \
-            --source-commit "${{ github.sha }}" \
-            --source-ref "v${VERSION}"
+            --source-commit "$(git rev-parse HEAD)" \
+            --source-ref "v${VERSION}" \
+            --wait
 
   verify-publish:
     needs: [preflight, publish]
@@ -285,17 +270,19 @@ jobs:
     steps:
       - name: Extract version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Wait for npm propagation
         run: sleep 30
 
       - name: Verify package on npm
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION="$RELEASE_VERSION"
           for i in 1 2 3 4 5; do
             echo "Attempt $i: Checking npm for @axonflow/openclaw@${VERSION}..."
-            if npm view @axonflow/openclaw@${VERSION} version 2>/dev/null | grep -q "${VERSION}"; then
+            if npm view "@axonflow/openclaw@${VERSION}" version 2>/dev/null | grep -q "${VERSION}"; then
               echo "SUCCESS: @axonflow/openclaw@${VERSION} is available on npm"
               exit 0
             fi
@@ -319,7 +306,7 @@ jobs:
     steps:
       - name: Extract version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -333,11 +320,13 @@ jobs:
         run: sleep 30
 
       - name: Install via openclaw plugins install clawhub
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION="$RELEASE_VERSION"
           for i in 1 2 3 4 5; do
             echo "Attempt $i: openclaw plugins install clawhub:@axonflow/openclaw@${VERSION}"
-            openclaw plugins install "clawhub:@axonflow/openclaw@${VERSION}" --accept-capabilities 2>&1 | tee /tmp/install-out.log || true
+            openclaw plugins install "clawhub:@axonflow/openclaw@${VERSION}" 2>&1 | tee /tmp/install-out.log || true
             if grep -q "Installed plugin: axonflow-governance" /tmp/install-out.log; then
               echo "SUCCESS: ClawHub install path returns the plugin cleanly"
               exit 0

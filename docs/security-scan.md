@@ -24,9 +24,8 @@ requests, scanner errors, unsafe symlinks, oversized source trees, and source
 files that co-locate credential access with outbound network or process
 execution.
 
-`--force` acknowledges that the archive is outside ClawHub trust metadata and
-`--accept-capabilities` accepts the reviewed plugin capabilities. Neither flag
-can override an install-policy block or policy execution failure.
+`--force` acknowledges that the archive is outside ClawHub trust metadata. It
+cannot override an install-policy block or policy execution failure.
 
 ## Expected result
 
