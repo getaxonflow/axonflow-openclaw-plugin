@@ -189,6 +189,30 @@ export function carriesOwnAuthNotice(err: unknown): boolean {
   return maybeStatus === 401;
 }
 
+function highRiskApproval(
+  toolName: string,
+  check: MCPCheckInputResponse,
+): NonNullable<BeforeToolCallResult["requireApproval"]> {
+  // Map platform risk_level (low|medium|high|critical) to OpenClaw's
+  // approval severity (info|warning|critical). When the platform doesn't
+  // surface risk_level, fall back to warning to preserve v1.2.x behavior.
+  let severity: "info" | "warning" | "critical" = "warning";
+  if (check.risk_level === "critical" || check.risk_level === "high") {
+    severity = "critical";
+  } else if (check.risk_level === "low") {
+    severity = "info";
+  }
+  return {
+    title: `AxonFlow: ${toolName} requires approval`,
+    description:
+      `Tool call governed by AxonFlow. ${check.policies_evaluated} policies evaluated.` +
+      formatRicherContext(check),
+    severity,
+    timeoutMs: 60_000,
+    timeoutBehavior: "deny",
+  };
+}
+
 /**
  * Create the before_tool_call hook handler.
  *
@@ -381,6 +405,21 @@ export function createBeforeToolCallHandler(
             "on unmasked input." + formatRicherContext(check),
         };
       }
+
+      // Redaction changes the parameters the tool will receive; it does not
+      // discharge an independently configured human-approval requirement.
+      // Return both fields so OpenClaw holds the high-risk call for approval
+      // and, after approval, executes only the platform-masked parameters.
+      if (
+        config.highRiskTools &&
+        config.highRiskTools.includes(event.toolName)
+      ) {
+        recordToolCallApprovalRequired();
+        return {
+          params: maskedParams as Record<string, unknown>,
+          requireApproval: highRiskApproval(event.toolName, check),
+        };
+      }
       recordToolCallAllowed();
       // The SUBSTITUTION. OpenClaw runs the tool with these parameters instead
       // of event.params.
@@ -393,25 +432,8 @@ export function createBeforeToolCallHandler(
       config.highRiskTools.includes(event.toolName)
     ) {
       recordToolCallApprovalRequired();
-      // Map platform risk_level (low|medium|high|critical) to OpenClaw's
-      // approval severity (info|warning|critical). When the platform doesn't
-      // surface risk_level, fall back to warning to preserve v1.2.x behavior.
-      let severity: "info" | "warning" | "critical" = "warning";
-      if (check.risk_level === "critical" || check.risk_level === "high") {
-        severity = "critical";
-      } else if (check.risk_level === "low") {
-        severity = "info";
-      }
       return {
-        requireApproval: {
-          title: `AxonFlow: ${event.toolName} requires approval`,
-          description:
-            `Tool call governed by AxonFlow. ${check.policies_evaluated} policies evaluated.` +
-            formatRicherContext(check),
-          severity,
-          timeoutMs: 60_000,
-          timeoutBehavior: "deny",
-        },
+        requireApproval: highRiskApproval(event.toolName, check),
       };
     }
 
