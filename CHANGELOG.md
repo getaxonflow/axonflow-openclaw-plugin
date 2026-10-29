@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.10.2] - 2026-10-29
+
+### Security
+
+- Preserve the configured human-approval gate when AxonFlow returns masked
+  parameters for a high-risk tool. OpenClaw now receives both the engine-masked
+  parameters and `requireApproval`; successful redaction can no longer bypass
+  the independently configured approval control.
+- Correct the bundled hardening guide: transient `before_tool_call` failures
+  fail open with a one-time warning even when `onError` is `block`. Production
+  deployments requiring outage blocking must add an OpenClaw-side health or
+  liveness gate.
+
+### Validation
+
+- Add a regression test that drives the real hook with a redacted high-risk
+  call and proves it both substitutes the masked parameters and requires
+  fail-closed approval.
+
 ## [2.10.1] - 2026-10-28
 
 ### Fixed

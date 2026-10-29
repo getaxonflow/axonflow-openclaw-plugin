@@ -97,9 +97,17 @@ For security-sensitive deployments, configure `pluginConfig` for the `@axonflow/
 - `clientId` — your AxonFlow tenant identifier.
 - `clientSecret` — the matching secret. **Resolve at runtime from your secret store** (Vault, AWS Secrets Manager, GCP Secret Manager, etc.); never embed the value in a config file checked into source control.
 - `highRiskTools` — list the tools that should always require human approval. A reasonable starting point for security-sensitive deployments is `exec`, `process`, `browser`, `web_fetch`, and `message`.
-- `onError` set to `block` — fail-closed if AxonFlow is unreachable.
+- `onError` set to `block` — fail-closed for authentication/configuration
+  errors and outbound messages. Transient `before_tool_call` failures still
+  fail open, with a one-time `UNGOVERNED` warning.
 
-Setting `onError` to `block` means if AxonFlow is unreachable, tool calls are blocked rather than allowed. This is the safer default for production. Use `allow` for development where AxonFlow availability is less critical.
+`onError: block` does **not** make tool execution fail-closed during an AxonFlow
+outage: timeouts, DNS failures, connection failures, and 5xx responses on
+`before_tool_call` allow the tool to proceed and emit a one-time `UNGOVERNED`
+warning. For production agents that require outage blocking, add an
+OpenClaw-side health/liveness gate in front of tool execution. Use
+`onError: allow` only when authentication/configuration failures may also
+proceed ungoverned.
 
 ## References
 

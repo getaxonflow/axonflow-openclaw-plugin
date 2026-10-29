@@ -28,6 +28,18 @@ function handlerFor(response: Record<string, unknown>) {
   return createBeforeToolCallHandler(clientRef, CONFIG);
 }
 
+function highRiskHandlerFor(response: Record<string, unknown>) {
+  const clientRef = {
+    current: {
+      mcpCheckInput: jest.fn().mockResolvedValue(response),
+    },
+  } as any;
+  return createBeforeToolCallHandler(
+    clientRef,
+    { ...CONFIG, highRiskTools: ["web_fetch"] },
+  );
+}
+
 const ORIGINAL = { query: "email sarah.chen@example.com", limit: 10 };
 const MASKED = { query: "email [REDACTED]", limit: 10 };
 
@@ -46,6 +58,27 @@ describe("the request path discharges a redaction by substituting the masked sta
     expect(result?.params).toEqual(MASKED);
     expect(result?.params).not.toEqual(ORIGINAL);
     expect(result?.block).toBeFalsy();
+  });
+
+  it("still requires human approval when the redacted tool is high-risk", async () => {
+    const handler = highRiskHandlerFor({
+      allowed: true,
+      policies_evaluated: 1,
+      redaction_evaluated: true,
+      redacted_statement: JSON.stringify(MASKED),
+      risk_level: "high",
+    });
+
+    const result = await handler({ toolName: "web_fetch", params: ORIGINAL });
+
+    expect(result?.params).toEqual(MASKED);
+    expect(result?.params).not.toEqual(ORIGINAL);
+    expect(result?.block).toBeFalsy();
+    expect(result?.requireApproval).toMatchObject({
+      title: expect.stringContaining("web_fetch"),
+      severity: "critical",
+      timeoutBehavior: "deny",
+    });
   });
 
   it("leaves parameters untouched when the platform masked nothing", async () => {
