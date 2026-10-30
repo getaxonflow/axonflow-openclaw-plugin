@@ -1,11 +1,10 @@
 /**
  * Community-SaaS first-run bootstrap (TypeScript).
  *
- * Mirrors the bash plugins' scripts/community-saas-bootstrap.sh contract:
- * registers the plugin against try.getaxonflow.com on first run when the
- * user has not provided explicit clientId/clientSecret, persists the
- * resulting credential to a 0600 file under the user's config dir, and
- * returns Basic-auth credentials the caller can hand to the AxonFlow client.
+ * Loads a client credential linked from a verified Hosted Portal account.
+ * Fresh default installs ask the user to pair from the website. The former
+ * anonymous registrar remains available only under an explicit compatibility
+ * switch for existing deployments.
  *
  * Design rules:
  *   - Stamp-on-delivery: registration file is written ONLY after the
@@ -69,6 +68,7 @@ export interface BootstrapResult {
    * Source for telemetry / logging:
    *   "fresh-registration"  — first-time POST to /api/v1/register succeeded.
    *   "cached-registration" — existing on-disk credential is fresh enough.
+   *   "link-required"       — no saved credential; website pairing required.
    *   "rate-limited"        — 429 from the registrar; backoff active.
    *   "failed"              — network or response error; no credential.
    *   "opted-out"           — operator set AXONFLOW_COMMUNITY_SAAS=0.
@@ -76,6 +76,7 @@ export interface BootstrapResult {
   source:
     | "fresh-registration"
     | "cached-registration"
+    | "link-required"
     | "rate-limited"
     | "failed"
     | "opted-out";
@@ -181,14 +182,22 @@ async function bootstrapCommunitySaasInner(
   }
 
   // Fast path: existing registration is fresh enough.
-  const cached = readRegistrationIfFreshAndSafe(registrationFile, now, REFRESH_WINDOW_MS);
-  if (cached) {
+  const cached = readRegistrationIfFreshAndSafe(registrationFile, now, 0);
+  const legacyRefresh = process.env["AXONFLOW_LEGACY_AUTO_REGISTER"] === "1" && cached?.link_method !== "portal-device";
+  if (cached && (!legacyRefresh || Date.parse(cached.expires_at) - now().getTime() >= REFRESH_WINDOW_MS)) {
     return buildBootstrapResult(
       resolveRegisteredEndpoint(cached.endpoint, endpoint),
       cached.tenant_id,
       cached.secret,
       "cached-registration",
     );
+  }
+
+  // New Hosted accounts begin on the website. Keep the old registrar behind
+  // an explicit compatibility switch for existing test harnesses and older
+  // deployments; a fresh default install must not create an anonymous tenant.
+  if (process.env["AXONFLOW_LEGACY_AUTO_REGISTER"] !== "1") {
+    return buildBootstrapResult(endpoint, "", "", "link-required");
   }
 
   // Backoff path: 429 told us to slow down. Honour it.

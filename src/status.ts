@@ -730,8 +730,8 @@ export function formatStatusReport(report: StatusReport): string {
   } else {
     lines.push("  client_id:  (not registered)  (formerly tenant_id)");
     lines.push(`              No registration file at ${report.registration_file}`);
-    lines.push("              The plugin auto-registers with Community SaaS on first init.");
-    lines.push("              Lost your registration? Run `axonflow-openclaw-recover <email>`");
+    lines.push("              Start at https://getaxonflow.com/saas-pricing/, then run axonflow-openclaw-link.");
+    lines.push("              Existing accounts can link a fresh client from the Portal.");
   }
   lines.push(`  endpoint:   ${endpoint}  (mode=${report.mode})`);
   // Provenance belongs on the endpoint line only when the RECORDED endpoint
@@ -779,7 +779,7 @@ export function formatStatusReport(report: StatusReport): string {
     if (report.mode === "community-saas") {
       lines.push("  tier:       Hosted Starter (payment status checked by AxonFlow)");
       lines.push(`  checkout:   POST ${report.upgrade_url}`);
-      lines.push("              The first unpaid governed call opens the dedicated $9.99/month checkout.");
+      lines.push("              Manage payment at https://portal.try.getaxonflow.com/hosted/start.");
     } else {
       lines.push("  tier:       Self-hosted Community");
     }

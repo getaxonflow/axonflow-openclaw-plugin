@@ -477,7 +477,7 @@ describe("formatStatusReport", () => {
     });
     expect(out).toContain("(not registered)");
     expect(out).toContain("(formerly tenant_id)");
-    expect(out).toContain("axonflow-openclaw-recover");
+    expect(out).toContain("axonflow-openclaw-link");
     expect(out).toContain("/tmp/x/try-registration.json");
   });
 

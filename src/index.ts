@@ -261,6 +261,12 @@ export function registerAxonFlowGovernance(api: {
         }
       },
     }).then((result) => {
+      if (result?.source === "link-required") {
+        const msg = "AxonFlow Hosted account required. Start at https://getaxonflow.com/saas-pricing/ then run axonflow-openclaw-link and restart OpenClaw. Governed calls stay blocked until the client is linked.";
+        if (api.logger.warn) api.logger.warn(msg);
+        else api.logger.error(msg);
+        return;
+      }
       if (!result || result.source === "failed" || result.source === "rate-limited") {
         const detail = result?.source === "rate-limited"
           ? "rate-limited (will retry)"

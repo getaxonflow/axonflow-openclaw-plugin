@@ -72,6 +72,7 @@ export interface PersistedRegistration {
   secret: string;
   expires_at: string;
   endpoint?: string;
+  link_method?: 'portal-device';
 }
 
 /**
