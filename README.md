@@ -202,7 +202,7 @@ The same values are available to the agent through the `axonflow_get_tenant_id` 
 
 ### Recover lost Community-SaaS credentials
 
-If you registered with Community SaaS, lost the auto-bootstrapped credential file (`$AXONFLOW_CONFIG_DIR/try-registration.json`), and want your tenant + audit history back:
+If you registered through the older Community SaaS auto-bootstrap flow, lost its credential file (`$AXONFLOW_CONFIG_DIR/try-registration.json`), and want your tenant + audit history back, use the legacy recovery command:
 
 ```bash
 # Installed via OpenClaw plugin install:
@@ -217,6 +217,8 @@ The CLI:
 2. Prompts you to paste the magic-link token (or the full magic-link URL) from the email you receive.
 3. Posts the token to `/api/v1/recover/verify`, which returns a freshly-issued tenant_id + secret bound to the original email.
 4. Persists the new credentials at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0o600`).
+
+For a new Hosted Starter account, use `axonflow-openclaw-link` and approve its code in the Portal. Legacy recovery does not create or restore a new website-linked client credential.
 
 Reload OpenClaw and the plugin picks up the recovered registration on the next init — no other config change required. Magic-link tokens are one-shot and short-lived; replays return 401.
 
@@ -419,7 +421,7 @@ openclaw plugins install "./$TGZ"
 
 ### Step 3: point the plugin at the platform
 
-Without this step the plugin auto-registers with Community SaaS regardless of whether you ran Step 1 — it does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them):
+Without this step the plugin uses the Hosted endpoint; a fresh install then asks you to verify, pay, and link the client through the Portal. It does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them) for a self-hosted stack:
 
 ```yaml
 # openclaw.config.yaml
