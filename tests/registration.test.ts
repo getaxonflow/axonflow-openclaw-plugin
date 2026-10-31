@@ -78,6 +78,28 @@ describe("registerAxonFlowGovernance", () => {
     );
   });
 
+  it("describes the unlinked Hosted state without promising a block under onError=allow", async () => {
+    const previousLegacy = process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
+    delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
+    try {
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
+      registerAxonFlowGovernance({
+        pluginConfig: { onError: "allow" },
+        logger,
+        on: jest.fn(),
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(
+        "with onError=allow, calls may run ungoverned",
+      ));
+      expect(logger.warn.mock.calls.map(([message]) => message).join("\n"))
+        .not.toContain("stay blocked until the client is linked");
+    } finally {
+      if (previousLegacy === undefined) delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
+      else process.env.AXONFLOW_LEGACY_AUTO_REGISTER = previousLegacy;
+    }
+  });
+
   it("treats undefined pluginConfig as community-saas mode (no throw)", () => {
     // Per ADR-048, undefined pluginConfig is the same as no explicit user
     // configuration: plugin defaults to Community SaaS. This is a behavior

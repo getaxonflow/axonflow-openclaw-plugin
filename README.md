@@ -150,11 +150,11 @@ Sample output (hosted account registered):
 AxonFlow OpenClaw plugin status
 
   client_id:  cs_demo_tenant_abc123  (formerly tenant_id)
-              (authenticated identity; hosted checkout binds it automatically)
+              (tenant identity used for authenticated Hosted calls)
   endpoint:   https://try.getaxonflow.com  (mode=community-saas)
   tier:       Hosted Starter (payment status checked by AxonFlow)
   checkout:   POST https://try.getaxonflow.com/api/v1/billing/checkout
-              The first unpaid governed call opens the dedicated $9.99/month checkout.
+              Manage payment at https://portal.try.getaxonflow.com/hosted/start.
 ```
 
 Sample output (self-hosted):
@@ -176,13 +176,13 @@ Sample output (legacy prepaid term active):
 AxonFlow OpenClaw plugin status
 
   client_id:  cs_demo_tenant_abc123  (formerly tenant_id)
-              (authenticated identity; hosted checkout binds it automatically)
+              (tenant identity used for authenticated Hosted calls)
   endpoint:   https://try.getaxonflow.com  (mode=community-saas)
   tier:       Prepaid Pro (expires 2026-10-14, 78 days remaining)
   license:    ...XYZ9 (redacted; last 4 chars only)
 ```
 
-The license token is **never** printed in full — only the last four characters are shown so you can confirm the token is the one you expect without exposing it via screen-share, copy-paste, or shell history. If `client_id` is missing, the CLI points you at `axonflow-openclaw-recover` to re-issue credentials against your registered email. JSON output (`--json`) populates BOTH `client_id` and the legacy `tenant_id` key with the same value so v2.4.x consumers keep working unchanged.
+The license token is **never** printed in full — only the last four characters are shown so you can confirm the token is the one you expect without exposing it via screen-share, copy-paste, or shell history. If `client_id` is missing, the CLI points you at `axonflow-openclaw-link` to pair with your Hosted account. Legacy auto-registered clients can use `axonflow-openclaw-recover` to re-issue credentials against their registered email. JSON output (`--json`) populates BOTH `client_id` and the legacy `tenant_id` key with the same value so v2.4.x consumers keep working unchanged.
 
 **Self-hosted installs.** The CLI runs as its own process. It can see neither OpenClaw's `pluginConfig` nor the environment the OpenClaw runtime was started with, so through v2.8.4 it reported the Community-SaaS default endpoint and the cached Community-SaaS `client_id` even when governed traffic was going to a self-hosted stack ([#167](https://github.com/getaxonflow/axonflow-openclaw-plugin/issues/167)).
 

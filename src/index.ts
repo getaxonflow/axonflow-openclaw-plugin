@@ -262,7 +262,7 @@ export function registerAxonFlowGovernance(api: {
       },
     }).then((result) => {
       if (result?.source === "link-required") {
-        const msg = "AxonFlow Hosted account required. Start at https://getaxonflow.com/saas-pricing/ then run axonflow-openclaw-link and restart OpenClaw. Governed calls stay blocked until the client is linked.";
+        const msg = "AxonFlow Hosted account required. Start at https://getaxonflow.com/saas-pricing/ then run axonflow-openclaw-link and restart OpenClaw. Until linked, policy checks cannot authenticate; with onError=allow, calls may run ungoverned.";
         if (api.logger.warn) api.logger.warn(msg);
         else api.logger.error(msg);
         return;
