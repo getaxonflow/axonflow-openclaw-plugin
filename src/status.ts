@@ -679,8 +679,7 @@ export function resolveStatusInputs(
  * stdout. Stable line shape so users can grep / pipe it.
  *
  * The report is intentionally chatty for first-time users: we explain
- * what client_id is for, how authenticated checkout binds it without
- * customer entry, and where to recover lost credentials. Power users who
+ * what client_id is for and how to link a Hosted client. Power users who
  * want a stable structured surface should consume `buildStatusReport()`
  * directly — both `client_id` and `tenant_id` keys are populated in
  * the report for v2.4.x → v2.5.0 JSON-consumer compat.
@@ -688,7 +687,7 @@ export function resolveStatusInputs(
  * The identity block is mode-aware (#167). Self-hosted installs get the
  * tenant identity their traffic actually authenticates with and no Stripe
  * copy (there is nothing to buy against a self-hosted tenant); Community-SaaS
- * installs show the authenticated hosted checkout action.
+ * installs show the Hosted tenant identity and billing action.
  *
  * #171: the endpoint and identity values are routed through
  * `stripControlCharacters` before they hit stdout. The identity comes from
@@ -726,12 +725,12 @@ export function formatStatusReport(report: StatusReport): string {
     }
   } else if (report.client_id) {
     lines.push(`  client_id:  ${clientId}  (formerly tenant_id)`);
-    lines.push("              (authenticated identity; hosted checkout binds it automatically)");
+    lines.push("              (tenant identity used for authenticated Hosted calls)");
   } else {
     lines.push("  client_id:  (not registered)  (formerly tenant_id)");
     lines.push(`              No registration file at ${report.registration_file}`);
-    lines.push("              The plugin auto-registers with Community SaaS on first init.");
-    lines.push("              Lost your registration? Run `axonflow-openclaw-recover <email>`");
+    lines.push("              Start at https://getaxonflow.com/saas-pricing/, then run axonflow-openclaw-link.");
+    lines.push("              Existing accounts can link a fresh client from the Portal.");
   }
   lines.push(`  endpoint:   ${endpoint}  (mode=${report.mode})`);
   // Provenance belongs on the endpoint line only when the RECORDED endpoint
@@ -779,7 +778,7 @@ export function formatStatusReport(report: StatusReport): string {
     if (report.mode === "community-saas") {
       lines.push("  tier:       Hosted Starter (payment status checked by AxonFlow)");
       lines.push(`  checkout:   POST ${report.upgrade_url}`);
-      lines.push("              The first unpaid governed call opens the dedicated $9.99/month checkout.");
+      lines.push("              Manage payment at https://portal.try.getaxonflow.com/hosted/start.");
     } else {
       lines.push("  tier:       Self-hosted Community");
     }

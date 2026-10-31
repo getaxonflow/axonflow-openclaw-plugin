@@ -198,6 +198,21 @@ describe("deriveConnectorType", () => {
 // ---------------------------------------------------------------------------
 
 describe("createBeforeToolCallHandler", () => {
+  it("blocks before network when Hosted linking is required, then resumes after linking", async () => {
+    const client = mockClient({ checkInputAllowed: true });
+    const clientRef = { current: client, hostedLinkRequired: true };
+    const handler = createBeforeToolCallHandler(clientRef, baseConfig({ onError: "allow" }));
+    const event = { toolName: "web_fetch", params: { url: "https://example.com" } };
+    expect(await handler(event)).toMatchObject({
+      block: true,
+      blockReason: expect.stringContaining("Link this client"),
+    });
+    expect(client.mcpCheckInput).not.toHaveBeenCalled();
+    clientRef.hostedLinkRequired = false;
+    expect(await handler(event)).toBeUndefined();
+    expect(client.mcpCheckInput).toHaveBeenCalledTimes(1);
+  });
+
   it("allows clean tool call", async () => {
     const client = mockClient({ checkInputAllowed: true });
     const handler = createBeforeToolCallHandler({ current: client }, baseConfig());

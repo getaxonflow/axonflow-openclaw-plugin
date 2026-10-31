@@ -370,7 +370,8 @@ describe("formatStatusReport", () => {
     // v1.5.0 invariant: status MUST NOT use `tenant_id:` as the primary
     // labeled field. Bridge parenthetical "(formerly tenant_id)" is OK.
     expect(out).not.toMatch(/^\s*tenant_id:\s+cs_/m);
-    expect(out).toContain("hosted checkout binds it automatically");
+    expect(out).toContain("tenant identity used for authenticated Hosted calls");
+    expect(out).toContain("Manage payment at https://portal.try.getaxonflow.com/hosted/start.");
     expect(out).toContain("tier:       Hosted Starter (payment status checked by AxonFlow)");
     expect(out).toContain("checkout:   POST https://getaxonflow.com/pricing/");
     expect(out).not.toContain("license:");
@@ -477,7 +478,7 @@ describe("formatStatusReport", () => {
     });
     expect(out).toContain("(not registered)");
     expect(out).toContain("(formerly tenant_id)");
-    expect(out).toContain("axonflow-openclaw-recover");
+    expect(out).toContain("axonflow-openclaw-link");
     expect(out).toContain("/tmp/x/try-registration.json");
   });
 

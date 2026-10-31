@@ -12,6 +12,7 @@
     }
   },
   "bin": {
+    "axonflow-openclaw-link": "bin/axonflow-openclaw-link.mjs",
     "axonflow-openclaw-recover": "bin/axonflow-openclaw-recover.mjs",
     "axonflow-openclaw-status": "bin/axonflow-openclaw-status.mjs"
   },
@@ -30,6 +31,7 @@
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.types.json",
     "lint": "eslint src/ tests/",
     "test": "jest",
+    "test:link": "npm run build && node tests/e2e/hosted-link-cli-smoke.mjs",
     "test:coverage": "jest --coverage",
     "check:publish-bait": "node scripts/check-publish-bait.mjs",
     "scan": "npm run build && npm run check:publish-bait && node scripts/scan-tarball.mjs --no-build",

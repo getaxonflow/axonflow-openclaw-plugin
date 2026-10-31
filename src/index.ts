@@ -34,6 +34,7 @@ import { createMessageSendingHandler } from "./message-guard.js";
 import { createLlmInputHandler, createLlmOutputHandler } from "./llm-audit.js";
 import { sendTelemetryPing } from "./telemetry.js";
 import { bootstrapCommunitySaas } from "./community-saas-bootstrap.js";
+import { isCommunitySaasOptedOut } from "./community-saas-context.js";
 import { resetMetrics } from "./metrics.js";
 import { runPluginVersionCheck } from "./plugin-version-check.js";
 import { buildAgentTools, type AgentToolDef } from "./agent-tools.js";
@@ -235,7 +236,12 @@ export function registerAxonFlowGovernance(api: {
   // client after the async bootstrap completes propagates immediately.
   // Without this indirection the bootstrap would silently no-op for hooks
   // (they'd keep using the empty-credential client they were registered with).
-  const clientRef: ClientRef = { current: new AxonFlowClient(config) };
+  const clientRef: ClientRef = {
+    current: new AxonFlowClient(config),
+    hostedLinkRequired: config.mode === "community-saas" &&
+      process.env["AXONFLOW_LEGACY_AUTO_REGISTER"] !== "1" &&
+      !isCommunitySaasOptedOut(),
+  };
   // V1 Plugin Pro upgrade-prompt sink — when the agent returns a 429 /
   // 403 with a structured upgrade envelope, the plugin surfaces the
   // locked wording + buy URL through the host's standard logger.
@@ -261,6 +267,12 @@ export function registerAxonFlowGovernance(api: {
         }
       },
     }).then((result) => {
+      if (result?.source === "link-required") {
+        const msg = "AxonFlow Hosted account required. Start at https://getaxonflow.com/saas-pricing/ then run axonflow-openclaw-link and restart OpenClaw. Governed tools and outbound messages stay blocked until the client is linked.";
+        if (api.logger.warn) api.logger.warn(msg);
+        else api.logger.error(msg);
+        return;
+      }
       if (!result || result.source === "failed" || result.source === "rate-limited") {
         const detail = result?.source === "rate-limited"
           ? "rate-limited (will retry)"
@@ -292,6 +304,7 @@ export function registerAxonFlowGovernance(api: {
       const enriched: typeof config = { ...config, endpoint: result.endpoint, clientId: result.clientId };
       enriched["clientSecret"] = result.clientSecret;
       clientRef.current = new AxonFlowClient(enriched);
+      clientRef.hostedLinkRequired = false;
       api.logger.info(
         `[AxonFlow] Community SaaS registration ${result.source === "fresh-registration" ? "complete" : "loaded from cache"} (tenant=${result.clientId.slice(0, 16)}...)`,
       );

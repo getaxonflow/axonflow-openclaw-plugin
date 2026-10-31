@@ -36,6 +36,7 @@ beforeEach(() => {
   cacheDir = path.join(testDir, "cache");
   process.env.AXONFLOW_CONFIG_DIR = configDir;
   process.env.AXONFLOW_CACHE_DIR = cacheDir;
+  process.env.AXONFLOW_LEGACY_AUTO_REGISTER = "1";
   registrationFile = path.join(configDir, "try-registration.json");
   backoffFile = path.join(cacheDir, "openclaw-plugin-register-backoff");
   _resetBootstrapInFlightForTests();
@@ -66,6 +67,26 @@ function jsonResponse(status: number, body: Record<string, unknown>): Response {
 }
 
 describe("bootstrapCommunitySaas", () => {
+  it("requires website pairing on a fresh default install without contacting the anonymous registrar", async () => {
+    delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
+    const fetchSpy = jest.fn();
+    const result = await bootstrapCommunitySaas({ fetchImpl: fetchSpy as unknown as typeof fetch });
+    expect(result?.source).toBe("link-required");
+    expect(result?.clientId).toBe("");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+  it("keeps a paired client usable through its actual expiry even when legacy refresh is enabled", async () => {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(registrationFile, JSON.stringify({
+      tenant_id: 'cs_abc123', secret: 'paired-secret', endpoint: 'https://try.getaxonflow.com',
+      link_method: 'portal-device', expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    }), { mode: 0o600 });
+    const fetchSpy = jest.fn();
+    const result = await bootstrapCommunitySaas({ fetchImpl: fetchSpy as unknown as typeof fetch });
+    expect(result?.source).toBe('cached-registration');
+    expect(result?.clientSecret).toBe('paired-secret');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
   describe("operator opt-out via AXONFLOW_COMMUNITY_SAAS", () => {
     it("short-circuits with source=opted-out when AXONFLOW_COMMUNITY_SAAS=0", async () => {
       process.env.AXONFLOW_COMMUNITY_SAAS = "0";
