@@ -25,6 +25,17 @@ const baseConfig: AxonFlowPluginConfig = {
 };
 
 describe("createMessageSendingHandler", () => {
+  it("cancels before network when Hosted linking is required, then resumes after linking", async () => {
+    const client = mockClient();
+    const clientRef = { current: client, hostedLinkRequired: true };
+    const handler = createMessageSendingHandler(clientRef, { ...baseConfig, onError: "allow" });
+    expect(await handler({ to: "user", content: "Hello" })).toEqual({ cancel: true });
+    expect(client.mcpCheckOutput).not.toHaveBeenCalled();
+    clientRef.hostedLinkRequired = false;
+    expect(await handler({ to: "user", content: "Hello" })).toBeUndefined();
+    expect(client.mcpCheckOutput).toHaveBeenCalledTimes(1);
+  });
+
   it("allows clean message", async () => {
     const client = mockClient();
     const handler = createMessageSendingHandler({ current: client }, baseConfig);

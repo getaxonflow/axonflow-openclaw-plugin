@@ -66,6 +66,8 @@ See the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deploym
 
 Start at [Hosted Starter pricing](https://getaxonflow.com/saas-pricing/), verify your email, and complete the $9.99/month Checkout in the secure Portal. Then run `axonflow-openclaw-link` and enter its 10-character code in the Portal. The client generates its own secret and stores it at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`); the browser never shows it. A fresh plugin install does not create an anonymous tenant. Existing saved registrations still load, and `AXONFLOW_LEGACY_AUTO_REGISTER=1` temporarily retains the old registrar for migration.
 
+Until a fresh Hosted install loads a linked credential, governed tool calls are blocked and outbound messages are cancelled, even with `onError: "allow"`. The explicit legacy registrar and self-hosted modes keep their existing error behavior.
+
 **Use only for early exploration of the plugin's behaviour. Not for production workloads, regulated environments, real user data, personal data, or any other sensitive information.**
 
 | What goes to `try.getaxonflow.com` | What does NOT |

@@ -78,22 +78,48 @@ describe("registerAxonFlowGovernance", () => {
     );
   });
 
-  it("describes the unlinked Hosted state without promising a block under onError=allow", async () => {
+  it("blocks unlinked Hosted tool and message calls even with onError=allow", async () => {
     const previousLegacy = process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
     delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
     try {
       const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
+      const hooks = new Map<string, (event: any) => Promise<any>>();
       registerAxonFlowGovernance({
         pluginConfig: { onError: "allow" },
         logger,
-        on: jest.fn(),
+        on: jest.fn((name: string, handler: (event: any) => Promise<any>) => {
+          hooks.set(name, handler);
+        }),
       });
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(
-        "with onError=allow, calls may run ungoverned",
+        "Governed tools and outbound messages stay blocked until the client is linked",
       ));
-      expect(logger.warn.mock.calls.map(([message]) => message).join("\n"))
-        .not.toContain("stay blocked until the client is linked");
+      expect(await hooks.get("before_tool_call")!({ toolName: "exec", params: { command: "true" } }))
+        .toMatchObject({ block: true, blockReason: expect.stringContaining("Link this client") });
+      expect(await hooks.get("message_sending")!({ to: "user", content: "Hello" }))
+        .toEqual({ cancel: true });
+    } finally {
+      if (previousLegacy === undefined) delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
+      else process.env.AXONFLOW_LEGACY_AUTO_REGISTER = previousLegacy;
+    }
+  });
+
+  it("retains the explicit legacy registrar's onError behavior", async () => {
+    const previousLegacy = process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
+    process.env.AXONFLOW_LEGACY_AUTO_REGISTER = "1";
+    try {
+      const hooks = new Map<string, (event: any) => Promise<any>>();
+      registerAxonFlowGovernance({
+        pluginConfig: { onError: "allow" },
+        logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },
+        on: jest.fn((name: string, handler: (event: any) => Promise<any>) => {
+          hooks.set(name, handler);
+        }),
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(await hooks.get("before_tool_call")!({ toolName: "web_fetch", params: {} }))
+        .toBeUndefined();
     } finally {
       if (previousLegacy === undefined) delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
       else process.env.AXONFLOW_LEGACY_AUTO_REGISTER = previousLegacy;
