@@ -319,10 +319,11 @@ function buildDisclosureBanner(endpoint: string, registerUrl: string): string {
   const url = new URL(registerUrl);
   const host = url.host;
   return [
-    "AxonFlow Governance — Community SaaS auto-registration",
+    "AxonFlow Governance — legacy Community SaaS auto-registration",
     "",
-    `  This plugin will register with ${host} (Community SaaS) and use it`,
-    "  for account setup. Hosted governance requires the $9.99/month Starter plan.",
+    `  AXONFLOW_LEGACY_AUTO_REGISTER=1 will register with ${host} (Community SaaS).`,
+    "  New Hosted accounts begin with website email verification and Portal Checkout.",
+    "  Hosted governance requires the $9.99/month Starter plan.",
     "  The first unpaid governed call opens authenticated Checkout and stays blocked",
     "  until payment activates this tenant.",
     "",
@@ -331,8 +332,7 @@ function buildDisclosureBanner(endpoint: string, registerUrl: string): string {
     "    - outbound message bodies before delivery",
     "  What is NOT sent: LLM provider keys, OpenClaw conversation history",
     "  outside governed tools, or any data outside the OpenClaw runtime.",
-    "  Starter includes limited governance, FinCrime, payment exception, support",
-    "  refund, and secure Customer Portal access. Current limits appear in Checkout.",
+    "  The verified account shows its plan allowances before Checkout.",
     "",
     "  To opt out: set AXONFLOW_COMMUNITY_SAAS=0 in your environment, or",
     "  point the plugin at your own AxonFlow instance:",

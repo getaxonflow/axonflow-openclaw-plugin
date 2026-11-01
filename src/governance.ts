@@ -159,10 +159,12 @@ export function isAxonFlowHostedLimitReached(err: unknown): boolean {
     status?: number;
     statusCode?: number;
     responseBody?: Record<string, unknown>;
+    tierLimit?: string;
   };
   const status = candidate.status ?? candidate.statusCode;
   return status === 429 &&
-    candidate.responseBody?.["error"] === "hosted_monthly_limit_reached";
+    (candidate.responseBody?.["error"] === "hosted_monthly_limit_reached" ||
+      candidate.tierLimit === "monthly_governed_events");
 }
 
 /**

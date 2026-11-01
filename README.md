@@ -13,7 +13,7 @@
 > **Rolling this plugin out for a real team or production workflow?**
 >
 > Choose the path that fits:
-> - **Self-serve hosted:** $9.99/month Hosted Starter after registration, with published usage limits
+> - **Self-serve hosted:** $9.99/month Hosted Starter through website email verification and Portal Checkout; review the account's allowances before payment
 > - **Free self-hosted:** Community Edition on infrastructure you operate
 > - **Paid production program:** [Design Partner or Confidential Pilot](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw)  -  one scoped workflow over 60 or 75 days, founder-led rollout support, upfront conversion pricing, and a fixed decision date; public track from $2,000 or confidential track from $4,000
 >
@@ -40,7 +40,7 @@ OpenClaw handles agent runtime, MCP connectivity, channels, and tool execution. 
 
 The plugin governs tool calls and outbound messages by sending each one to an AxonFlow endpoint for policy enforcement and audit. Pick the deployment mode that fits your workload:
 
-> **Privacy notice — read before installing.** AxonFlow [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) at `try.getaxonflow.com` is the zero-config endpoint the plugin uses if no other endpoint is configured. In that mode, governed tool inputs (tool name + arguments) and outbound message bodies are checked by AxonFlow's policy enforcement endpoint. **Community SaaS is for early exploration only** — not for production workloads, regulated environments, real user data, personal data, or any other sensitive information. It is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention, deletion, or incident-response timelines.
+> **Privacy notice — read before installing.** AxonFlow [Community SaaS](https://docs.getaxonflow.com/docs/deployment/community-saas/) at `try.getaxonflow.com` is the default hosted endpoint when no other endpoint is configured. A fresh install must first link to a verified Hosted account; until then, governed calls are blocked locally. Once linked, governed tool inputs (tool name + arguments) and outbound message bodies are checked by AxonFlow's policy enforcement endpoint. **Community SaaS is for early exploration only** — not for production workloads, regulated environments, real user data, personal data, or any other sensitive information. It is offered "as is" on a best-effort basis with no SLA, no warranties, and no commitment to retention, deletion, or incident-response timelines.
 >
 > For any serious use, choose one of the following instead:
 >
@@ -48,7 +48,7 @@ The plugin governs tool calls and outbound messages by sending each one to an Ax
 > 2. **Community Edition with an [Evaluation License](https://docs.getaxonflow.com/docs/deployment/evaluation-rollout-guide/)** — for production use with real users or clients on the open core; adds production-fit limits and license-gated features. Free 90-day [evaluation license](https://getaxonflow.com/plugins/evaluation-license).
 > 3. **[AxonFlow Enterprise](https://docs.getaxonflow.com/docs/deployment/community-to-enterprise-migration/)** — production-grade governance, regulatory-grade controls, SLOs, and contractual commitments suitable for regulated industries. Contact [hello@getaxonflow.com](mailto:hello@getaxonflow.com).
 >
-> To skip Community SaaS entirely: set `pluginConfig.endpoint` to a self-hosted AxonFlow URL. That alone flips the plugin into self-hosted mode — the Community SaaS auto-bootstrap is not attempted, and no env var is required. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for the Docker Compose setup. For air-gapped environments where AxonFlow is not yet reachable but you want to suppress the bootstrap attempt, set `AXONFLOW_COMMUNITY_SAAS=0`; set `AXONFLOW_TELEMETRY=off` to also disable the 7-day usage heartbeat.
+> To skip Community SaaS entirely: set `pluginConfig.endpoint` to a self-hosted AxonFlow URL. That alone flips the plugin into self-hosted mode — hosted linking is not attempted, and no env var is required. Get the AxonFlow platform from [getaxonflow/axonflow](https://github.com/getaxonflow/axonflow) and follow the [Getting Started](https://docs.getaxonflow.com/docs/getting-started/) guide for the Docker Compose setup. For air-gapped environments where AxonFlow is not yet reachable but you want to suppress hosted setup, set `AXONFLOW_COMMUNITY_SAAS=0`; set `AXONFLOW_TELEMETRY=off` to also disable the 7-day usage heartbeat.
 
 ### Self-hosted (recommended for any real use)
 
@@ -76,7 +76,7 @@ Until a fresh Hosted install loads a linked credential, governed tool calls are 
 | Outbound message bodies before delivery (PII/secret scan) | OpenClaw conversation history outside governed tools |
 | Usage heartbeat (plugin version, OS, runtime, instance ID) | Files outside the OpenClaw runtime |
 
-Hosted Starter includes the governance foundation plus limited FinCrime, payment exception, support refund, and secure Customer Portal access. The exact governed-event, case, seat, integration, retention, and burst limits are shown before purchase and by the billing status API. Higher volume, additional integrations, longer retention, production financial actions, and contractual controls follow the paid Enterprise PoC or design-partner path. Read the [Community SaaS documentation](https://docs.getaxonflow.com/docs/deployment/community-saas/) for the data boundary and current limits.
+Hosted Starter includes the governance foundation and a Hosted case Portal. The verified account shows its exact governed-event, case, seat, integration, retention, and burst limits before purchase and through billing status. Higher volume, additional integrations, longer retention, production financial actions, and contractual controls follow the paid Enterprise PoC or design-partner path. Read the [Community SaaS documentation](https://docs.getaxonflow.com/docs/deployment/community-saas/) for the data boundary and current limits.
 
 ### Air-gapped: zero outbound
 
@@ -111,7 +111,7 @@ This table is the published declaration for user-facing environment variables. T
 
 ## Activate Hosted Starter
 
-Hosted Starter starts at **$9.99 USD per month**. It includes the governance foundation plus limited FinCrime, payment exception, support refund, and secure Customer Portal access. The dedicated checkout shows the current governed-event, case, seat, integration, retention, and burst allowances before purchase.
+Hosted Starter starts at **$9.99 USD per month**. It includes the governance foundation and a Hosted case Portal. The verified account shows the current governed-event, case, seat, integration, retention, and burst allowances before purchase.
 
 To activate an installed plugin:
 
@@ -454,8 +454,8 @@ See [Configure](#configure) below for the full pluginConfig schema (`highRiskToo
 | Option | Required | Default | Description |
 |--------|----------|---------|-------------|
 | `endpoint` | No | `https://try.getaxonflow.com` (Community SaaS) when unset; `http://localhost:8080` when self-hosted with no endpoint specified | AxonFlow agent gateway URL |
-| `clientId` | No | `"community"` (self-hosted) or auto-bootstrapped `cs_<uuid>` (Community SaaS) | Tenant identity for data isolation. Override for Evaluation License or Enterprise tenants. |
-| `clientSecret` | No | `""` (self-hosted) or auto-bootstrapped (Community SaaS) | Basic-auth secret paired with `clientId`. Required for self-hosted Community Edition with an Evaluation License or AxonFlow Enterprise; auto-populated for Community SaaS; can be left unset for self-hosted Community Edition without a license. |
+| `clientId` | No | `"community"` (self-hosted) or the ID from a saved Hosted link | Tenant identity for data isolation. Override for Evaluation License or Enterprise tenants. |
+| `clientSecret` | No | `""` (self-hosted) or the secret from a saved Hosted link | Basic-auth secret paired with `clientId`. Required for self-hosted Community Edition with an Evaluation License or AxonFlow Enterprise; supplied by device linking for a new Hosted account; can be left unset for self-hosted Community Edition without a license. |
 | `licenseToken` | No | `process.env.AXONFLOW_LICENSE_TOKEN` if set | Legacy prepaid plugin-claim token. Existing 90-day purchases remain valid through expiry. New monthly hosted subscriptions need no token. Env var wins over `pluginConfig.licenseToken`. |
 | `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
 | `userToken` | No | `process.env.AXONFLOW_USER_TOKEN`, else `~/.config/axonflow/user-token.json` (mode `0600`) | Per-user authorization token, sent as `X-User-Token` on every governed request. Yields a **validated** `{identity, role}` on the platform's fleet plane — role-scoped reads return this developer's own rows (a token-less caller gets zero rows on those read tools against current platforms), and audit attribution keys on the token's canonical email rather than the forgeable `userEmail` label on the header-consuming planes (MCP tools + audit/decisions/overrides REST; the `check-input`/`check-output` hook plane keeps client-scoped attribution on current platforms). Minted by an org admin via the platform's user-token mint API. This config value wins over the env var, which wins over the provisioning file; a malformed candidate at any source is dropped with a warning (never sent) and resolution falls through to the next source. Unset: header omitted, wire behavior unchanged. |
@@ -569,13 +569,13 @@ See [Decision Explainability](https://docs.getaxonflow.com/docs/governance/expla
 
 ### Hosted payment and limit prompts
 
-An unpaid hosted call receives HTTP 402. The plugin creates authenticated Checkout, blocks the governed action even when `onError` is `allow`, and logs one actionable URL. A paid account that reaches a published allowance receives a structured limit response with its reset or Enterprise PoC path.
+An unpaid hosted call receives HTTP 402. The plugin creates authenticated Checkout, blocks the governed action even when `onError` is `allow`, and logs one actionable URL. A paid account that reaches its monthly governed-event allowance receives HTTP 429; the plugin blocks that governed action even when `onError` is `allow`.
 
 ```
 [AxonFlow] Hosted governance needs an active plan. Complete checkout: https://checkout.stripe.com/...
 ```
 
-The plugin also stamps a local back-off file from the response's `Retry-After` header so subsequent governed calls fall through immediately (no thundering herd against the agent) until the cap clears. The upgrade nudge is shown at most once per UTC day.
+Separate legacy Plugin Pro limits can stamp a local back-off file from `Retry-After`; this does not apply to the Hosted Starter monthly refusal. The legacy upgrade nudge is shown at most once per UTC day.
 
 ---
 

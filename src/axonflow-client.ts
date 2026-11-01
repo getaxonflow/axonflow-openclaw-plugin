@@ -226,12 +226,14 @@ export class AxonFlowHttpError extends Error {
   readonly status: number;
   readonly statusText: string;
   readonly responseBody: Record<string, unknown>;
+  readonly tierLimit?: string;
 
   constructor(
     status: number,
     statusText: string,
     responseBody: Record<string, unknown>,
     context: string,
+    tierLimit?: string,
   ) {
     const serverError = describeErrorBody(responseBody);
     super(`AxonFlow ${context} failed: HTTP ${status} ${statusText}${serverError ? " — " + serverError : ""}`);
@@ -239,6 +241,7 @@ export class AxonFlowHttpError extends Error {
     this.status = status;
     this.statusText = statusText;
     this.responseBody = responseBody;
+    this.tierLimit = tierLimit;
     // Preserve prototype chain for instanceof checks across module boundaries.
     Object.setPrototypeOf(this, AxonFlowHttpError.prototype);
   }
@@ -904,11 +907,22 @@ export class AxonFlowClient {
       );
     }
 
-    const data = (await response.json()) as Record<string, unknown>;
-
     if (response.status === 402) {
-      return this.throwHostedPaymentRequired(data, "check-input");
+      return this.throwHostedPaymentRequired(await readErrorBody(response, this.requestTimeoutMs), "check-input");
     }
+    if (response.status === 429) {
+      const body = await readErrorBody(response, this.requestTimeoutMs);
+      const tierLimit = response.headers?.get?.("X-Axonflow-Tier-Limit") ?? undefined;
+      if (body["error"] === "hosted_monthly_limit_reached" || tierLimit === "monthly_governed_events") {
+        throw new AxonFlowHttpError(429, response.statusText, body, "check-input", tierLimit);
+      }
+      if (this.handleEnvelope(response.status, body, response)) {
+        return { allowed: true, policies_evaluated: 0 };
+      }
+      throw new AxonFlowHttpError(429, response.statusText, body, "check-input", tierLimit);
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
 
     // V1 Plugin Pro envelope detection runs BEFORE the policy-block
     // branch — an envelope-bearing 403 (graduated cap, Pro-only feature)
@@ -1015,11 +1029,22 @@ export class AxonFlowClient {
       );
     }
 
-    const data = (await response.json()) as Record<string, unknown>;
-
     if (response.status === 402) {
-      return this.throwHostedPaymentRequired(data, "check-output");
+      return this.throwHostedPaymentRequired(await readErrorBody(response, this.requestTimeoutMs), "check-output");
     }
+    if (response.status === 429) {
+      const body = await readErrorBody(response, this.requestTimeoutMs);
+      const tierLimit = response.headers?.get?.("X-Axonflow-Tier-Limit") ?? undefined;
+      if (body["error"] === "hosted_monthly_limit_reached" || tierLimit === "monthly_governed_events") {
+        throw new AxonFlowHttpError(429, response.statusText, body, "check-output", tierLimit);
+      }
+      if (this.handleEnvelope(response.status, body, response)) {
+        return { allowed: true, policies_evaluated: 0 };
+      }
+      throw new AxonFlowHttpError(429, response.statusText, body, "check-output", tierLimit);
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
 
     // V1 Plugin Pro envelope detection — see mcpCheckInput for rationale.
     // Output scan falls open on cap (no PII detection during back-off
