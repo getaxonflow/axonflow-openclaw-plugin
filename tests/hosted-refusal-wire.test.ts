@@ -67,7 +67,10 @@ describe("Hosted refusal wire responses", () => {
       const client = new AxonFlowClient(config);
       if (hook === "tool") {
         const check = createBeforeToolCallHandler({ current: client }, config);
-        expect(await check({ toolName: "web_fetch", params: {} })).toMatchObject({ block: true });
+        expect(await check({ toolName: "web_fetch", params: {} })).toMatchObject({
+          block: true,
+          blockReason: expect.stringContaining("Complete checkout: https://checkout.stripe.com/test"),
+        });
       } else {
         const check = createMessageSendingHandler({ current: client }, config);
         expect(await check({ to: "user", content: "hello" })).toEqual({ cancel: true });

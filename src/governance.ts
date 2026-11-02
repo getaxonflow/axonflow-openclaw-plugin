@@ -282,11 +282,12 @@ export function createBeforeToolCallHandler(
 
       if (isAxonFlowPaymentRequired(err)) {
         recordToolCallBlocked();
+        const checkoutUrl = (err as { checkoutUrl?: unknown }).checkoutUrl;
         return {
           block: true,
-          blockReason: err instanceof Error
-            ? err.message
-            : "AxonFlow hosted governance requires an active paid plan.",
+          blockReason: typeof checkoutUrl === "string" && checkoutUrl.startsWith("https://")
+            ? `AxonFlow Hosted governance needs an active plan. Complete checkout: ${checkoutUrl}`
+            : "AxonFlow Hosted governance needs an active paid plan. Open the Hosted Portal to complete checkout.",
         };
       }
 

@@ -304,6 +304,7 @@ export function registerAxonFlowGovernance(api: {
       const enriched: typeof config = { ...config, endpoint: result.endpoint, clientId: result.clientId };
       enriched["clientSecret"] = result.clientSecret;
       clientRef.current = new AxonFlowClient(enriched);
+      clientRef.current.setUpgradePromptLogger(api.logger);
       clientRef.hostedLinkRequired = false;
       api.logger.info(
         `[AxonFlow] Community SaaS registration ${result.source === "fresh-registration" ? "complete" : "loaded from cache"} (tenant=${result.clientId.slice(0, 16)}...)`,
