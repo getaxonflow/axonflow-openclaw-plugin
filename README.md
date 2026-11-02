@@ -64,9 +64,9 @@ See the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deploym
 
 ### Community SaaS hosted starter
 
-Start at [Hosted Starter pricing](https://getaxonflow.com/saas-pricing/), verify your email, and complete the $9.99/month Checkout in the secure Portal. Then run `axonflow-openclaw-link` and enter its 10-character code in the Portal. The client generates its own secret and stores it at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`); the browser never shows it. A fresh plugin install does not create an anonymous tenant. Existing saved registrations still load, and `AXONFLOW_LEGACY_AUTO_REGISTER=1` temporarily retains the old registrar for migration.
+Start at [Hosted Starter pricing](https://getaxonflow.com/saas-pricing/), verify your email, and complete the $9.99/month Checkout in the secure Portal. Then run `axonflow-openclaw-link` and enter its 10-character code in the Portal. The client generates its own secret and stores it at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`); the browser never shows it. Fresh Hosted installs never create an anonymous tenant, even with `AXONFLOW_LEGACY_AUTO_REGISTER=1`. Existing saved credentials remain usable until expiry; users of older anonymous Hosted credentials should sign in on the website and device-link this client before expiry because the legacy flag cannot renew them.
 
-Until a fresh Hosted install loads a linked credential, governed tool calls are blocked and outbound messages are cancelled, even with `onError: "allow"`. The explicit legacy registrar and self-hosted modes keep their existing error behavior.
+Until a fresh Hosted install loads a linked credential, governed tool calls are blocked and outbound messages are cancelled, even with `onError: "allow"`. Explicit self-hosted Community configurations keep their existing behavior.
 
 **Use only for early exploration of the plugin's behaviour. Not for production workloads, regulated environments, real user data, personal data, or any other sensitive information.**
 
@@ -640,7 +640,7 @@ Opt out: set `AXONFLOW_TELEMETRY=off` in the environment OpenClaw runs in.
 | Usage heartbeat | Once per 7 days | Plugin version, OS, arch, Node version, platform version, the platform's licence tier, edition and own deployment mode, this plugin's deployment-mode and endpoint-type classification, org_id, hook config summary, persistent instance ID | `AXONFLOW_TELEMETRY=off` (also accepts `0`, `false`, `no`) |
 | Platform version, licence tier, edition + platform deployment mode probe | During heartbeat (if not opted out) | Nothing (one GET to /health; all four fields are read from the same response, and redirects are refused) | Disabled when `AXONFLOW_TELEMETRY=off` |
 | Version compatibility check | On plugin init | Plugin version | Fire-and-forget |
-| Community SaaS registration | First run (community-saas mode only) | Machine label (plugin version + OS) | `AXONFLOW_COMMUNITY_SAAS=0` or self-hosted endpoint |
+| Hosted account linking | When you run `axonflow-openclaw-link` | Locally generated client secret to Portal device start, then an approval code to enter in the Portal | Don't run the CLI; use an explicit self-hosted endpoint for Community Edition instead |
 | Credential recovery | Only when you run `axonflow-openclaw-recover` | The email address you pass on the command line, then the magic-link token you paste back | Don't run the CLI — it never fires from the plugin runtime |
 
 ---

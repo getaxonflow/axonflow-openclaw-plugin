@@ -17,9 +17,21 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import {
-  bootstrapCommunitySaas,
+  bootstrapCommunitySaas as bootstrapProductionHosted,
   _resetBootstrapInFlightForTests,
+  type BootstrapOptions,
 } from "../src/community-saas-bootstrap.js";
+
+// Existing registrar tests exercise an explicitly configured self-hosted
+// Community instance. The production Hosted default is tested separately.
+const selfHostedEndpoint = "http://127.0.0.1:8080";
+function bootstrapCommunitySaas(opts?: BootstrapOptions) {
+  return bootstrapProductionHosted({
+    endpoint: selfHostedEndpoint,
+    registerUrl: `${selfHostedEndpoint}/api/v1/register`,
+    ...opts,
+  });
+}
 
 const originalEnv = { ...process.env };
 
@@ -70,9 +82,26 @@ describe("bootstrapCommunitySaas", () => {
   it("requires website pairing on a fresh default install without contacting the anonymous registrar", async () => {
     delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
     const fetchSpy = jest.fn();
-    const result = await bootstrapCommunitySaas({ fetchImpl: fetchSpy as unknown as typeof fetch });
+    const result = await bootstrapProductionHosted({ fetchImpl: fetchSpy as unknown as typeof fetch });
     expect(result?.source).toBe("link-required");
     expect(result?.clientId).toBe("");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+  it("requires website pairing with the legacy flag and never calls the Hosted registrar", async () => {
+    const fetchSpy = jest.fn();
+    const result = await bootstrapProductionHosted({ fetchImpl: fetchSpy as unknown as typeof fetch });
+    expect(result?.source).toBe("link-required");
+    expect(result?.clientId).toBe("");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+  it("refuses an explicitly supplied Hosted registrar URL even with a self-hosted endpoint", async () => {
+    const fetchSpy = jest.fn();
+    const result = await bootstrapProductionHosted({
+      endpoint: selfHostedEndpoint,
+      registerUrl: "http://try.getaxonflow.com/api/v1/register",
+      fetchImpl: fetchSpy as unknown as typeof fetch,
+    });
+    expect(result?.source).toBe("link-required");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
   it("keeps a paired client usable through its actual expiry even when legacy refresh is enabled", async () => {
@@ -82,9 +111,29 @@ describe("bootstrapCommunitySaas", () => {
       link_method: 'portal-device', expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     }), { mode: 0o600 });
     const fetchSpy = jest.fn();
-    const result = await bootstrapCommunitySaas({ fetchImpl: fetchSpy as unknown as typeof fetch });
+    const result = await bootstrapProductionHosted({ fetchImpl: fetchSpy as unknown as typeof fetch });
     expect(result?.source).toBe('cached-registration');
     expect(result?.clientSecret).toBe('paired-secret');
+    expect(result?.needsHostedMigration).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+  it("loads an existing anonymous Hosted credential and asks for website/device migration", async () => {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(registrationFile, makeFreshRegistration(), { mode: 0o600 });
+    const fetchSpy = jest.fn();
+    const result = await bootstrapProductionHosted({ fetchImpl: fetchSpy as unknown as typeof fetch });
+    expect(result?.source).toBe("cached-registration");
+    expect(result?.needsHostedMigration).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+  it("does not renew an expired anonymous Hosted credential under the legacy flag", async () => {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(registrationFile, makeFreshRegistration({
+      expires_at: new Date(Date.now() - 60_000).toISOString(),
+    }), { mode: 0o600 });
+    const fetchSpy = jest.fn();
+    const result = await bootstrapProductionHosted({ fetchImpl: fetchSpy as unknown as typeof fetch });
+    expect(result?.source).toBe("link-required");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
   describe("operator opt-out via AXONFLOW_COMMUNITY_SAAS", () => {
@@ -146,7 +195,7 @@ describe("bootstrapCommunitySaas", () => {
       });
       expect(disclosureLogger).toHaveBeenCalledTimes(1);
       const banner = (disclosureLogger.mock.calls[0]?.[0] ?? "") as string;
-      expect(banner).toMatch(/Community SaaS/);
+      expect(banner).toMatch(/explicit self-hosted Community registration/);
       expect(banner).toMatch(/AXONFLOW_COMMUNITY_SAAS=0/);
       // Order: log first, then fetch.
       const logIdx = callLog.findIndex((c) => c.kind === "log");
@@ -215,7 +264,7 @@ describe("bootstrapCommunitySaas", () => {
           // disclosureLogger intentionally omitted
         });
         const calls = stderrSpy.mock.calls.map((args) => String(args[0]));
-        const hadBanner = calls.some((s) => /Community SaaS/.test(s));
+        const hadBanner = calls.some((s) => /explicit self-hosted Community registration/.test(s));
         expect(hadBanner).toBe(true);
       } finally {
         stderrSpy.mockRestore();

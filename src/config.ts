@@ -181,7 +181,7 @@ export interface AxonFlowPluginConfig {
   /**
    * Resolved deployment mode (set by `resolveConfig`):
    *   - "community-saas": user provided no explicit endpoint/clientId/clientSecret;
-   *     plugin will register against try.getaxonflow.com on first run.
+   *     plugin requires a website-linked Hosted credential on first run.
    *   - "self-hosted": user provided at least one of endpoint/clientId/clientSecret;
    *     plugin uses those values verbatim (no Community-SaaS bootstrap).
    *
@@ -203,7 +203,7 @@ export interface AxonFlowPluginConfig {
  *   2. If the user provided NONE → mode is "community-saas". Endpoint
  *      defaults to https://try.getaxonflow.com. clientId/clientSecret stay
  *      EMPTY here — the caller (registerAxonFlowGovernance) is expected to
- *      bootstrap the registration via community-saas-bootstrap.ts and
+ *      load a website-linked credential via community-saas-bootstrap.ts and
  *      override clientId/clientSecret on the resulting client.
  *
  * "User provided an endpoint" covers BOTH channels (#162): the

@@ -1,4 +1,7 @@
 import { registerAxonFlowGovernance } from "../src/index.js";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 // Mock fetch for AxonFlowClient + bootstrap.
 const mockFetch = jest.fn();
@@ -99,30 +102,66 @@ describe("registerAxonFlowGovernance", () => {
         .toMatchObject({ block: true, blockReason: expect.stringContaining("Link this client") });
       expect(await hooks.get("message_sending")!({ to: "user", content: "Hello" }))
         .toEqual({ cancel: true });
+      expect(mockFetch.mock.calls.filter(([url]) => String(url).includes("/api/v1/register")))
+        .toHaveLength(0);
     } finally {
       if (previousLegacy === undefined) delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
       else process.env.AXONFLOW_LEGACY_AUTO_REGISTER = previousLegacy;
     }
   });
 
-  it("retains the explicit legacy registrar's onError behavior", async () => {
+  it("blocks fresh Hosted calls under the legacy flag without registering", async () => {
     const previousLegacy = process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
     process.env.AXONFLOW_LEGACY_AUTO_REGISTER = "1";
     try {
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
       const hooks = new Map<string, (event: any) => Promise<any>>();
       registerAxonFlowGovernance({
         pluginConfig: { onError: "allow" },
-        logger: { info: jest.fn(), error: jest.fn(), warn: jest.fn() },
+        logger,
         on: jest.fn((name: string, handler: (event: any) => Promise<any>) => {
           hooks.set(name, handler);
         }),
       });
       await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(
+        "New and existing Hosted users",
+      ));
       expect(await hooks.get("before_tool_call")!({ toolName: "web_fetch", params: {} }))
-        .toBeUndefined();
+        .toMatchObject({ block: true, blockReason: expect.stringContaining("Link this client") });
+      expect(await hooks.get("message_sending")!({ to: "user", content: "Hello" }))
+        .toEqual({ cancel: true });
+      expect(mockFetch.mock.calls.filter(([url]) => String(url).includes("/api/v1/register")))
+        .toHaveLength(0);
     } finally {
       if (previousLegacy === undefined) delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
       else process.env.AXONFLOW_LEGACY_AUTO_REGISTER = previousLegacy;
+    }
+  });
+
+  it("warns existing anonymous Hosted users to migrate by website and device link", async () => {
+    const previousConfigDir = process.env.AXONFLOW_CONFIG_DIR;
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-legacy-hosted-"));
+    process.env.AXONFLOW_CONFIG_DIR = configDir;
+    fs.writeFileSync(path.join(configDir, "try-registration.json"), JSON.stringify({
+      tenant_id: "cs_existing",
+      secret: "existing-secret",
+      endpoint: "https://try.getaxonflow.com",
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    }), { mode: 0o600 });
+    try {
+      const logger = { info: jest.fn(), error: jest.fn(), warn: jest.fn() };
+      registerAxonFlowGovernance({ pluginConfig: {}, logger, on: jest.fn() });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(
+        "run axonflow-openclaw-link and approve its device code",
+      ));
+      expect(mockFetch.mock.calls.filter(([url]) => String(url).includes("/api/v1/register")))
+        .toHaveLength(0);
+    } finally {
+      if (previousConfigDir === undefined) delete process.env.AXONFLOW_CONFIG_DIR;
+      else process.env.AXONFLOW_CONFIG_DIR = previousConfigDir;
+      fs.rmSync(configDir, { recursive: true, force: true });
     }
   });
 

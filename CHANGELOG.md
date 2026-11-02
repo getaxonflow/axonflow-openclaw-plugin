@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- Fresh Hosted installs no longer call the anonymous `/api/v1/register` route, even with `AXONFLOW_LEGACY_AUTO_REGISTER=1`. Valid saved credentials continue to work until expiry; older Hosted users receive website and device-link migration guidance. Explicit self-hosted Community registration remains available.
+- Unlinked Hosted tool and outbound-message governance stays closed under `onError: "allow"`. Existing paid-tenant HTTP 402 and monthly-cap 429 refusals remain closed.
+
+### Validation
+
+- Add default and legacy-flag no-register tests, existing-credential migration tests, and keep the explicit self-hosted registration and Hosted refusal checks.
+
 ## [2.10.2] - 2026-10-29
 
 ### Security

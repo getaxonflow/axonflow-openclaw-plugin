@@ -2,9 +2,10 @@
  * Community-SaaS first-run bootstrap (TypeScript).
  *
  * Loads a client credential linked from a verified Hosted Portal account.
- * Fresh default installs ask the user to pair from the website. The former
- * anonymous registrar remains available only under an explicit compatibility
- * switch for existing deployments.
+ * Fresh Hosted installs ask the user to pair from the website. The former
+ * anonymous Hosted registrar is never called, even with the legacy flag.
+ * Explicit self-hosted Community registration remains available to callers
+ * that supply both a self-hosted endpoint and registrar URL.
  *
  * Design rules:
  *   - Stamp-on-delivery: registration file is written ONLY after the
@@ -64,6 +65,8 @@ export interface BootstrapResult {
   clientId: string;
   /** Plain-text credential paired with clientId for Basic auth. */
   clientSecret: string;
+  /** Legacy Hosted credential should be moved to website/device linking. */
+  needsHostedMigration?: boolean;
   /**
    * Source for telemetry / logging:
    *   "fresh-registration"  — first-time POST to /api/v1/register succeeded.
@@ -162,7 +165,9 @@ async function bootstrapCommunitySaasInner(
   //    try.getaxonflow.com.
   const harness = resolveHarnessInputs();
   const registerUrl = opts?.registerUrl ?? (harness.harnessRegisterUrl || REGISTER_URL_DEFAULT);
-  const endpoint = opts?.endpoint ?? (harness.harnessAgentEndpoint || ENDPOINT_DEFAULT);
+  const endpoint = harness.harnessOn && harness.harnessAgentEndpoint
+    ? harness.harnessAgentEndpoint
+    : (opts?.endpoint ?? ENDPOINT_DEFAULT);
   const fetchFn = opts?.fetchImpl ?? fetch;
   const now = opts?.now ?? (() => new Date());
 
@@ -183,20 +188,27 @@ async function bootstrapCommunitySaasInner(
 
   // Fast path: existing registration is fresh enough.
   const cached = readRegistrationIfFreshAndSafe(registrationFile, now, 0);
-  const legacyRefresh = process.env["AXONFLOW_LEGACY_AUTO_REGISTER"] === "1" && cached?.link_method !== "portal-device";
-  if (cached && (!legacyRefresh || Date.parse(cached.expires_at) - now().getTime() >= REFRESH_WINDOW_MS)) {
-    return buildBootstrapResult(
+  const explicitSelfHostedRegistration = isExplicitSelfHostedRegistration(
+    endpoint,
+    registerUrl,
+    Boolean(opts?.endpoint && opts.registerUrl) ||
+      Boolean(harness.harnessOn && harness.harnessAgentEndpoint && harness.harnessRegisterUrl),
+  );
+  const shouldRefresh = explicitSelfHostedRegistration && cached?.link_method !== "portal-device";
+  if (cached && (!shouldRefresh || Date.parse(cached.expires_at) - now().getTime() >= REFRESH_WINDOW_MS)) {
+    const result = buildBootstrapResult(
       resolveRegisteredEndpoint(cached.endpoint, endpoint),
       cached.tenant_id,
       cached.secret,
       "cached-registration",
     );
+    result.needsHostedMigration = !explicitSelfHostedRegistration && cached.link_method !== "portal-device";
+    return result;
   }
 
-  // New Hosted accounts begin on the website. Keep the old registrar behind
-  // an explicit compatibility switch for existing test harnesses and older
-  // deployments; a fresh default install must not create an anonymous tenant.
-  if (process.env["AXONFLOW_LEGACY_AUTO_REGISTER"] !== "1") {
+  // New and expired Hosted accounts must use website/device linking. The
+  // legacy environment flag cannot authorize an anonymous Hosted POST.
+  if (!explicitSelfHostedRegistration) {
     return buildBootstrapResult(endpoint, "", "", "link-required");
   }
 
@@ -293,6 +305,19 @@ async function bootstrapCommunitySaasInner(
   );
 }
 
+function isExplicitSelfHostedRegistration(endpoint: string, registerUrl: string, explicit: boolean): boolean {
+  if (!explicit) return false;
+  try {
+    const selfHosted = (value: string): boolean => {
+      const host = new URL(value).hostname.toLowerCase();
+      return host !== "getaxonflow.com" && !host.endsWith(".getaxonflow.com");
+    };
+    return selfHosted(endpoint) && selfHosted(registerUrl);
+  } catch {
+    return false;
+  }
+}
+
 interface DisclosureEmitInputs {
   configDir: string;
   endpoint: string;
@@ -319,24 +344,18 @@ function buildDisclosureBanner(endpoint: string, registerUrl: string): string {
   const url = new URL(registerUrl);
   const host = url.host;
   return [
-    "AxonFlow Governance — legacy Community SaaS auto-registration",
+    "AxonFlow Governance — explicit self-hosted Community registration",
     "",
-    `  AXONFLOW_LEGACY_AUTO_REGISTER=1 will register with ${host} (Community SaaS).`,
-    "  New Hosted accounts begin with website email verification and Portal Checkout.",
-    "  Hosted governance requires the $9.99/month Starter plan.",
-    "  The first unpaid governed call opens authenticated Checkout and stays blocked",
-    "  until payment activates this tenant.",
+    `  This explicit self-hosted setup will register with ${host}.`,
+    "  The Hosted service never uses this anonymous registrar.",
     "",
-    "  What is sent off-host on each governed call:",
+    "  What is sent to the configured instance on each governed call:",
     "    - tool name + arguments before execution",
     "    - outbound message bodies before delivery",
     "  What is NOT sent: LLM provider keys, OpenClaw conversation history",
     "  outside governed tools, or any data outside the OpenClaw runtime.",
-    "  The verified account shows its plan allowances before Checkout.",
-    "",
-    "  To opt out: set AXONFLOW_COMMUNITY_SAAS=0 in your environment, or",
-    "  point the plugin at your own AxonFlow instance:",
-    "      pluginConfig.endpoint = \"https://your-axonflow.example.com\"",
+    "  To opt out of this bootstrap: set AXONFLOW_COMMUNITY_SAAS=0 or",
+    "  remove the explicit self-hosted registrar configuration.",
     "",
     "  This message shows once per machine; remove the disclosure stamp",
     `  to re-display: rm "$AXONFLOW_CONFIG_DIR"/openclaw-plugin-community-saas-disclosure-shown`,

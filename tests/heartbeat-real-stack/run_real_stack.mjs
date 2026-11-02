@@ -1,6 +1,8 @@
 /**
  * Real-stack E2E harness for the OpenClaw plugin Community-SaaS-default
- * rollout (ADR-048).
+ * rollout (ADR-048). Its harness URLs explicitly point registration at a
+ * local self-hosted Community server; production Hosted startup never
+ * anonymously registers, even with the legacy flag.
  *
  * Drives the plugin through its actual public registration entry point
  * (registerAxonFlowGovernance) twice:

@@ -3,7 +3,7 @@
  *
  * Mirrors the split applied to the heartbeat path: env access and fs
  * reads/writes live here, away from the network-sending side
- * Handles opt-out checks, registration file persistence, rate-limit
+ * Handles opt-out checks, credential file persistence, rate-limit
  * backoff, and first-load disclosure stamps. The network-sending side
  * lives in community-saas-bootstrap.ts.
  */
@@ -33,15 +33,13 @@ export function resolveHarnessInputs(): HarnessInputs {
 }
 
 /**
- * Operator opt-out for Community-SaaS auto-bootstrap. Honours
+ * Operator opt-out for Hosted credential bootstrap. Honours
  *   AXONFLOW_COMMUNITY_SAAS = "0" | "false" | "off" | "no"
  * (case-insensitive). Any other value (including unset) leaves the default
- * auto-bootstrap behaviour unchanged.
+ * Hosted credential loading behaviour unchanged.
  *
- * This is the only programmatic way an operator can disable the implicit
- * try.getaxonflow.com registration without supplying a self-hosted
- * endpoint. Documented in README and surfaced in the first-load disclosure
- * banner so the consent surface is real.
+ * Operators can also provide a self-hosted endpoint. Hosted startup no longer
+ * posts to the anonymous registrar under any value of the legacy flag.
  */
 export function isCommunitySaasOptedOut(): boolean {
   const raw = process.env["AXONFLOW_COMMUNITY_SAAS"];
@@ -100,7 +98,7 @@ export function readRegistrationIfFreshAndSafe(
       try {
         process.stderr.write(
           `[AxonFlow] ${file} has unsafe permissions (${mode.toString(8).padStart(3, "0")}); refusing to use. ` +
-          `Re-register: rm ${JSON.stringify(file)} and reload.\n`,
+          "Restore mode 0600, or use axonflow-openclaw-link to replace a Hosted credential.\n",
         );
       } catch { /* stderr unavailable in some hosts */ }
       return null;
