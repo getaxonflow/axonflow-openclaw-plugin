@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-Release candidate: 2.10.3. This version has not been published.
+## [2.10.3] - Unpublished release candidate
+
+This version has not been published. Set the release date when the reviewed artifact is approved for publication.
 
 ### Security
 
