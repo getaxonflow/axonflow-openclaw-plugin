@@ -34,7 +34,6 @@ import { createMessageSendingHandler } from "./message-guard.js";
 import { createLlmInputHandler, createLlmOutputHandler } from "./llm-audit.js";
 import { sendTelemetryPing } from "./telemetry.js";
 import { bootstrapCommunitySaas } from "./community-saas-bootstrap.js";
-import { isCommunitySaasOptedOut } from "./community-saas-context.js";
 import { resetMetrics } from "./metrics.js";
 import { runPluginVersionCheck } from "./plugin-version-check.js";
 import { buildAgentTools, type AgentToolDef } from "./agent-tools.js";
@@ -234,7 +233,9 @@ export function registerAxonFlowGovernance(api: {
   // (they'd keep using the empty-credential client they were registered with).
   const clientRef: ClientRef = {
     current: new AxonFlowClient(config),
-    hostedLinkRequired: config.mode === "community-saas" && !isCommunitySaasOptedOut(),
+    // Opting out of bootstrap does not opt out of the Hosted link gate. An
+    // unlinked default endpoint must never send governed payloads to Hosted.
+    hostedLinkRequired: config.mode === "community-saas",
   };
   // V1 Plugin Pro upgrade-prompt sink — when the agent returns a 429 /
   // 403 with a structured upgrade envelope, the plugin surfaces the
@@ -281,11 +282,11 @@ export function registerAxonFlowGovernance(api: {
       }
       if (result.source === "opted-out") {
         // Operator set AXONFLOW_COMMUNITY_SAAS=0. The plugin loaded but
-        // is not registered with any AxonFlow instance. Surface this so
-        // the operator sees why governance calls might fail-open or
-        // fail-closed depending on onError config.
+        // is not linked to Hosted. Keep the Hosted link gate closed even
+        // under onError=allow until an explicit self-hosted endpoint is set.
         const msg =
           "AxonFlow Community SaaS auto-bootstrap skipped (AXONFLOW_COMMUNITY_SAAS=0). " +
+          "Governed tools and outbound messages stay blocked until the client is linked. " +
           "Set AXONFLOW_ENDPOINT or pluginConfig.endpoint to a self-hosted AxonFlow " +
           "instance, or unset the opt-out env var and link a verified Hosted account through the website.";
         if (api.logger.warn) {

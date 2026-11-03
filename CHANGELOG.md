@@ -2,14 +2,19 @@
 
 ## [Unreleased]
 
+Release candidate: 2.10.3. This version has not been published.
+
 ### Security
 
 - Fresh Hosted installs no longer call the anonymous `/api/v1/register` route, even with `AXONFLOW_LEGACY_AUTO_REGISTER=1`. Valid saved credentials continue to work until expiry; older Hosted users receive website and device-link migration guidance. Explicit self-hosted Community registration remains available.
 - Unlinked Hosted tool and outbound-message governance stays closed under `onError: "allow"`. Existing paid-tenant HTTP 402 and monthly-cap 429 refusals remain closed.
+- Keep that link gate closed when `AXONFLOW_COMMUNITY_SAAS=0` skips bootstrap at the default Hosted endpoint, including under `onError: "allow"`.
+- Treat terminal DNS dots on explicit `getaxonflow.com` endpoints and registrar URLs as Hosted, so they cannot reach the anonymous registration route.
 
 ### Validation
 
 - Add default and legacy-flag no-register tests, existing-credential migration tests, and keep the explicit self-hosted registration and Hosted refusal checks.
+- Add opt-out tool/message hook and trailing-dot registrar regression tests.
 
 ## [2.10.2] - 2026-10-29
 

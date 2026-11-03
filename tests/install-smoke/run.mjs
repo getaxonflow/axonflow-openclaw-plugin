@@ -295,6 +295,41 @@ try {
         fail(`legacy=${legacyFlag ?? 'unset'}: unlinked Hosted governance did not fail closed`);
       }
     }
+    process.env.AXONFLOW_COMMUNITY_SAAS = '0';
+    process.env.AXONFLOW_CONFIG_DIR = join(consumer, 'hosted-opted-out');
+    const optedOutHooks = new Map();
+    const optedOutCalls = [];
+    globalThis.fetch = async (url) => {
+      optedOutCalls.push(String(url));
+      return new Response('', { status: 503 });
+    };
+    mod.registerAxonFlowGovernance({
+      pluginConfig: { onError: 'allow' },
+      logger: { info() {}, error() {}, warn() {} },
+      on(name, handler) { optedOutHooks.set(name, handler); },
+    });
+    const optedOutTool = await optedOutHooks.get('before_tool_call')?.({ toolName: 'web_fetch', params: { secret: 'private' } });
+    const optedOutMessage = await optedOutHooks.get('message_sending')?.({ to: 'user', content: 'private' });
+    if (optedOutTool?.block !== true || optedOutMessage?.cancel !== true ||
+        optedOutCalls.some((url) => url.includes('/api/v1/register'))) {
+      fail('opted-out default Hosted install did not keep both governance hooks closed');
+    }
+    delete process.env.AXONFLOW_COMMUNITY_SAAS;
+    const bootstrap = await import(join(installed, 'dist', 'community-saas-bootstrap.js'));
+    bootstrap._resetBootstrapInFlightForTests();
+    const registrarCalls = [];
+    globalThis.fetch = async (url) => {
+      registrarCalls.push(String(url));
+      return new Response('', { status: 503 });
+    };
+    const trailingDot = await bootstrap.bootstrapCommunitySaas({
+      endpoint: 'https://try.getaxonflow.com.',
+      registerUrl: 'https://try.getaxonflow.com./api/v1/register',
+      fetchImpl: globalThis.fetch,
+    });
+    if (trailingDot?.source !== 'link-required' || registrarCalls.length !== 0) {
+      fail('packed install accepted a trailing-dot Hosted registrar');
+    }
   } finally {
     globalThis.fetch = savedFetch;
     for (const [key, value] of Object.entries(savedEnv)) {

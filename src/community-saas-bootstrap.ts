@@ -309,7 +309,8 @@ function isExplicitSelfHostedRegistration(endpoint: string, registerUrl: string,
   if (!explicit) return false;
   try {
     const selfHosted = (value: string): boolean => {
-      const host = new URL(value).hostname.toLowerCase();
+      // A terminal DNS dot names the same Hosted origin; URL.hostname keeps it.
+      const host = new URL(value).hostname.toLowerCase().replace(/\.+$/, "");
       return host !== "getaxonflow.com" && !host.endsWith(".getaxonflow.com");
     };
     return selfHosted(endpoint) && selfHosted(registerUrl);

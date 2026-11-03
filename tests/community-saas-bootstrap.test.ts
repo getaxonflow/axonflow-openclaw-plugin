@@ -104,6 +104,21 @@ describe("bootstrapCommunitySaas", () => {
     expect(result?.source).toBe("link-required");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+  it.each([
+    ["https://try.getaxonflow.com.", "https://try.getaxonflow.com./api/v1/register"],
+    [selfHostedEndpoint, "https://try.getaxonflow.com./api/v1/register"],
+    ["https://try.getaxonflow.com.", `${selfHostedEndpoint}/api/v1/register`],
+    ["https://portal.try.getaxonflow.com.", "https://portal.try.getaxonflow.com./api/v1/register"],
+  ])("refuses an explicitly supplied Hosted origin with a terminal DNS dot: %s", async (endpoint, registerUrl) => {
+    const fetchSpy = jest.fn();
+    const result = await bootstrapProductionHosted({
+      endpoint,
+      registerUrl,
+      fetchImpl: fetchSpy as unknown as typeof fetch,
+    });
+    expect(result?.source).toBe("link-required");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
   it("keeps a paired client usable through its actual expiry even when legacy refresh is enabled", async () => {
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(registrationFile, JSON.stringify({
