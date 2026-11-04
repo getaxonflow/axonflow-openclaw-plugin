@@ -2,9 +2,7 @@
 
 ## [Unreleased]
 
-## [2.10.3] - Unpublished release candidate
-
-This version has not been published. Set the release date when the reviewed artifact is approved for publication.
+## [2.10.3] - 2026-11-04
 
 ### Security
 
