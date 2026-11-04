@@ -20,7 +20,7 @@ try {
       throw new Error('unexpected request');
     };
   `);
-  const bin = resolve('bin/axonflow-openclaw-link.mjs');
+  const bin = resolve(process.env.AXONFLOW_LINK_CLI_PATH || 'bin/axonflow-openclaw-link.mjs');
   const env = { ...process.env, AXONFLOW_CONFIG_DIR: join(root, 'config') };
   const run = (...args) => spawnSync(process.execPath, ['--import', preload, bin, ...args],
     { env, encoding: 'utf8', timeout: 10_000 });

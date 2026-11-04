@@ -98,7 +98,7 @@ export function readRegistrationIfFreshAndSafe(
       try {
         process.stderr.write(
           `[AxonFlow] ${file} has unsafe permissions (${mode.toString(8).padStart(3, "0")}); refusing to use. ` +
-          "Restore mode 0600, or use axonflow-openclaw-link to replace a Hosted credential.\n",
+          "Restore mode 0600, or run the installed plugin link script (README: Activate Hosted Starter) to replace a Hosted credential.\n",
         );
       } catch { /* stderr unavailable in some hosts */ }
       return null;

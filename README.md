@@ -64,7 +64,7 @@ See the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deploym
 
 ### Community SaaS hosted starter
 
-Start at [Hosted Starter pricing](https://getaxonflow.com/saas-pricing/), verify your email, and complete the $9.99/month Checkout in the secure Portal. Then run `axonflow-openclaw-link` and enter its 10-character code in the Portal. The client generates its own secret and stores it at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`); the browser never shows it. Fresh Hosted installs never create an anonymous tenant, even with `AXONFLOW_LEGACY_AUTO_REGISTER=1`. Existing saved credentials remain usable until expiry; users of older anonymous Hosted credentials should sign in on the website and device-link this client before expiry because the legacy flag cannot renew them.
+Start at [Hosted Starter pricing](https://getaxonflow.com/saas-pricing/), verify your email, and complete the $9.99/month Checkout in the secure Portal. Then [run the link command from the installed plugin](#link-your-hosted-account) and enter its 10-character code in the Portal. The client generates its own secret and stores it at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`); the browser never shows it. Fresh Hosted installs never create an anonymous tenant, even with `AXONFLOW_LEGACY_AUTO_REGISTER=1`. Existing saved credentials remain usable until expiry; users of older anonymous Hosted credentials should sign in on the website and device-link this client before expiry because the legacy flag cannot renew them.
 
 Until a fresh Hosted install loads a linked credential, governed tool calls are blocked and outbound messages are cancelled, even with `onError: "allow"`. Explicit self-hosted Community configurations keep their existing behavior.
 
@@ -109,6 +109,7 @@ The plugin recognizes the following environment variables. All are optional with
 
 This table is the published declaration for user-facing environment variables. The [`manifest-envvars-coverage`](.github/workflows/manifest-envvars-coverage.yml) gate keeps it aligned with shipped code. The code-plugin manifest intentionally omits unsupported top-level `envVars` and `runtimeBehavior` fields.
 
+<a id="link-your-hosted-account"></a>
 ## Activate Hosted Starter
 
 Hosted Starter starts at **$9.99 USD per month**. It includes the governance foundation and a Hosted case Portal. The verified account shows the current governed-event, case, seat, integration, retention, and burst allowances before purchase.
@@ -117,12 +118,18 @@ To activate an installed plugin:
 
 1. **Create the Hosted account.** Verify your email and complete Checkout from the [pricing page](https://getaxonflow.com/saas-pricing/).
 
-2. **Link OpenClaw.** Run `axonflow-openclaw-link`, then approve its code in the Portal. Each linked client receives its own owner-revocable credential. Up to 10 OpenClaw installations share the included OpenClaw integration. Use `--replace` only when you intend to replace an existing local credential file.
+2. **Link OpenClaw.** After [installing the plugin](#step-2-install-the-plugin), run the link script from OpenClaw's installed extension directory:
+
+    ```bash
+    node "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/extensions/axonflow-governance/bin/axonflow-openclaw-link.mjs"
+    ```
+
+    Approve its code in the Portal. Each linked client receives its own owner-revocable credential. Up to 10 OpenClaw installations share the included OpenClaw integration. Use `--replace` only when you intend to replace an existing local credential file. OpenClaw's plugin installer does not add the package's `bin` commands to your shell `PATH`; this command also works when `OPENCLAW_STATE_DIR` points to a custom state directory.
 
 3. **Restart and check status.** Run:
 
     ```bash
-    npx @axonflow/openclaw axonflow-openclaw-status
+    node "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/extensions/axonflow-governance/bin/axonflow-openclaw-status.mjs"
     ```
 
     The status output confirms the linked client identity and endpoint.
@@ -137,13 +144,13 @@ Use the status command to confirm the registered identity, endpoint, deployment 
 
 ```bash
 # Installed via OpenClaw plugin install:
-npx @axonflow/openclaw axonflow-openclaw-status
+node "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/extensions/axonflow-governance/bin/axonflow-openclaw-status.mjs"
 
 # Or directly from a clone:
 node bin/axonflow-openclaw-status.mjs
 
 # Machine-readable JSON, suitable for piping into jq:
-axonflow-openclaw-status --json
+node "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/extensions/axonflow-governance/bin/axonflow-openclaw-status.mjs" --json
 ```
 
 Sample output (hosted account registered):
@@ -184,7 +191,7 @@ AxonFlow OpenClaw plugin status
   license:    ...XYZ9 (redacted; last 4 chars only)
 ```
 
-The license token is **never** printed in full — only the last four characters are shown so you can confirm the token is the one you expect without exposing it via screen-share, copy-paste, or shell history. If `client_id` is missing, the CLI points you at `axonflow-openclaw-link` to pair with your Hosted account. Legacy auto-registered clients can use `axonflow-openclaw-recover` to re-issue credentials against their registered email. JSON output (`--json`) populates BOTH `client_id` and the legacy `tenant_id` key with the same value so v2.4.x consumers keep working unchanged.
+The license token is **never** printed in full — only the last four characters are shown so you can confirm the token is the one you expect without exposing it via screen-share, copy-paste, or shell history. If `client_id` is missing, the CLI points you at the [installed plugin's link command](#link-your-hosted-account) to pair with your Hosted account. Legacy auto-registered clients can use `axonflow-openclaw-recover` to re-issue credentials against their registered email. JSON output (`--json`) populates BOTH `client_id` and the legacy `tenant_id` key with the same value so v2.4.x consumers keep working unchanged.
 
 **Self-hosted installs.** The CLI runs as its own process. It can see neither OpenClaw's `pluginConfig` nor the environment the OpenClaw runtime was started with, so through v2.8.4 it reported the Community-SaaS default endpoint and the cached Community-SaaS `client_id` even when governed traffic was going to a self-hosted stack ([#167](https://github.com/getaxonflow/axonflow-openclaw-plugin/issues/167)).
 
@@ -208,7 +215,7 @@ If you registered through the older Community SaaS auto-bootstrap flow, lost its
 
 ```bash
 # Installed via OpenClaw plugin install:
-npx @axonflow/openclaw axonflow-openclaw-recover you@example.com
+node "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/extensions/axonflow-governance/bin/axonflow-openclaw-recover.mjs" you@example.com
 
 # Or directly from a clone:
 node bin/axonflow-openclaw-recover.mjs you@example.com
@@ -220,7 +227,7 @@ The CLI:
 3. Posts the token to `/api/v1/recover/verify`, which returns a freshly-issued tenant_id + secret bound to the original email.
 4. Persists the new credentials at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0o600`).
 
-For a new Hosted Starter account, use `axonflow-openclaw-link` and approve its code in the Portal. Legacy recovery does not create or restore a new website-linked client credential.
+For a new Hosted Starter account, use the [installed plugin's link command](#link-your-hosted-account) and approve its code in the Portal. Legacy recovery does not create or restore a new website-linked client credential.
 
 Reload OpenClaw and the plugin picks up the recovered registration on the next init — no other config change required. Magic-link tokens are one-shot and short-lived; replays return 401.
 
@@ -640,7 +647,7 @@ Opt out: set `AXONFLOW_TELEMETRY=off` in the environment OpenClaw runs in.
 | Usage heartbeat | Once per 7 days | Plugin version, OS, arch, Node version, platform version, the platform's licence tier, edition and own deployment mode, this plugin's deployment-mode and endpoint-type classification, org_id, hook config summary, persistent instance ID | `AXONFLOW_TELEMETRY=off` (also accepts `0`, `false`, `no`) |
 | Platform version, licence tier, edition + platform deployment mode probe | During heartbeat (if not opted out) | Nothing (one GET to /health; all four fields are read from the same response, and redirects are refused) | Disabled when `AXONFLOW_TELEMETRY=off` |
 | Version compatibility check | On plugin init | Plugin version | Fire-and-forget |
-| Hosted account linking | When you run `axonflow-openclaw-link` | Locally generated client secret to Portal device start, then an approval code to enter in the Portal | Don't run the CLI; use an explicit self-hosted endpoint for Community Edition instead |
+| Hosted account linking | When you run the [installed plugin's link command](#link-your-hosted-account) | Locally generated client secret to Portal device start, then an approval code to enter in the Portal | Don't run the CLI; use an explicit self-hosted endpoint for Community Edition instead |
 | Credential recovery | Only when you run `axonflow-openclaw-recover` | The email address you pass on the command line, then the magic-link token you paste back | Don't run the CLI — it never fires from the plugin runtime |
 
 ---

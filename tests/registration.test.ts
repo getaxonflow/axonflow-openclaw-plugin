@@ -209,7 +209,7 @@ describe("registerAxonFlowGovernance", () => {
       registerAxonFlowGovernance({ pluginConfig: {}, logger, on: jest.fn() });
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(
-        "run axonflow-openclaw-link and approve its device code",
+        "run the installed plugin link script (README: Activate Hosted Starter) and approve its device code",
       ));
       expect(mockFetch.mock.calls.filter(([url]) => String(url).includes("/api/v1/register")))
         .toHaveLength(0);

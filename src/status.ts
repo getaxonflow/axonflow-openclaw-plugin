@@ -729,7 +729,7 @@ export function formatStatusReport(report: StatusReport): string {
   } else {
     lines.push("  client_id:  (not registered)  (formerly tenant_id)");
     lines.push(`              No registration file at ${report.registration_file}`);
-    lines.push("              Start at https://getaxonflow.com/saas-pricing/, then run axonflow-openclaw-link.");
+    lines.push("              Start at https://getaxonflow.com/saas-pricing/, then run the installed plugin link script (README: Activate Hosted Starter).");
     lines.push("              Existing accounts can link a fresh client from the Portal.");
   }
   lines.push(`  endpoint:   ${endpoint}  (mode=${report.mode})`);

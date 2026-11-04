@@ -263,7 +263,7 @@ export function registerAxonFlowGovernance(api: {
       },
     }).then((result) => {
       if (result?.source === "link-required") {
-        const msg = "AxonFlow Hosted account required. New and existing Hosted users: visit https://getaxonflow.com/saas-pricing/, sign in or verify your email, then run axonflow-openclaw-link and approve its device code in the Portal. AXONFLOW_LEGACY_AUTO_REGISTER=1 no longer creates Hosted tenants. Governed tools and outbound messages stay blocked until the client is linked.";
+        const msg = "AxonFlow Hosted account required. New and existing Hosted users: visit https://getaxonflow.com/saas-pricing/, sign in or verify your email, then run the installed plugin link script (README: Activate Hosted Starter) and approve its device code in the Portal. AXONFLOW_LEGACY_AUTO_REGISTER=1 no longer creates Hosted tenants. Governed tools and outbound messages stay blocked until the client is linked.";
         if (api.logger.warn) api.logger.warn(msg);
         else api.logger.error(msg);
         return;
@@ -272,7 +272,7 @@ export function registerAxonFlowGovernance(api: {
         const detail = result?.source === "rate-limited"
           ? "rate-limited (will retry)"
           : "failed (network error or non-2xx response)";
-        const msg = `AxonFlow Hosted credential load ${detail}. Visit https://getaxonflow.com/saas-pricing/ and run axonflow-openclaw-link. Governed tools and outbound messages stay blocked until the client is linked.`;
+        const msg = `AxonFlow Hosted credential load ${detail}. Visit https://getaxonflow.com/saas-pricing/ and run the installed plugin link script (README: Activate Hosted Starter). Governed tools and outbound messages stay blocked until the client is linked.`;
         if (api.logger.warn) {
           api.logger.warn(msg);
         } else {
@@ -305,7 +305,7 @@ export function registerAxonFlowGovernance(api: {
         `[AxonFlow] ${result.source === "fresh-registration" ? "Community SaaS registration complete" : "Hosted credential loaded from cache"} (tenant=${result.clientId.slice(0, 16)}...)`,
       );
       if (result.needsHostedMigration) {
-        const msg = "AxonFlow legacy Hosted credential loaded. To migrate, sign in or verify your email at https://getaxonflow.com/saas-pricing/, then run axonflow-openclaw-link and approve its device code in the Portal before this credential expires. AXONFLOW_LEGACY_AUTO_REGISTER=1 cannot renew it.";
+        const msg = "AxonFlow legacy Hosted credential loaded. To migrate, sign in or verify your email at https://getaxonflow.com/saas-pricing/, then run the installed plugin link script (README: Activate Hosted Starter) and approve its device code in the Portal before this credential expires. AXONFLOW_LEGACY_AUTO_REGISTER=1 cannot renew it.";
         if (api.logger.warn) api.logger.warn(msg);
         else api.logger.error(msg);
       }
