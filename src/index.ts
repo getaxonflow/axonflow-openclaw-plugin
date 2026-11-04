@@ -223,19 +223,20 @@ export function registerAxonFlowGovernance(api: {
     );
   }
 
-  // In community-saas mode, register asynchronously against try.getaxonflow.com
-  // and override the client credentials with the bootstrapped values once
-  // they arrive. The startup health check + the first hook fire happen
-  // immediately; if the bootstrap is still pending when a hook fires, the
-  // existing AxonFlowClient handles the (transient) 401 and retries with
-  // the new credentials on the next call once they're loaded.
+  // In community-saas mode, load an existing Hosted credential linked from
+  // the Portal. A fresh install must link before governed calls can proceed.
   // Mutable holder so the bootstrap reassignment below is visible to every
   // hook factory we register. Hook factories close over `clientRef` and read
   // `clientRef.current.<method>(...)` so swapping in a freshly-credentialled
   // client after the async bootstrap completes propagates immediately.
   // Without this indirection the bootstrap would silently no-op for hooks
   // (they'd keep using the empty-credential client they were registered with).
-  const clientRef: ClientRef = { current: new AxonFlowClient(config) };
+  const clientRef: ClientRef = {
+    current: new AxonFlowClient(config),
+    // Opting out of bootstrap does not opt out of the Hosted link gate. An
+    // unlinked default endpoint must never send governed payloads to Hosted.
+    hostedLinkRequired: config.mode === "community-saas",
+  };
   // V1 Plugin Pro upgrade-prompt sink — when the agent returns a 429 /
   // 403 with a structured upgrade envelope, the plugin surfaces the
   // locked wording + buy URL through the host's standard logger.
@@ -261,11 +262,17 @@ export function registerAxonFlowGovernance(api: {
         }
       },
     }).then((result) => {
+      if (result?.source === "link-required") {
+        const msg = "AxonFlow Hosted account required. New and existing Hosted users: visit https://getaxonflow.com/saas-pricing/, sign in or verify your email, then run the installed plugin link script (README: Activate Hosted Starter) and approve its device code in the Portal. AXONFLOW_LEGACY_AUTO_REGISTER=1 no longer creates Hosted tenants. Governed tools and outbound messages stay blocked until the client is linked.";
+        if (api.logger.warn) api.logger.warn(msg);
+        else api.logger.error(msg);
+        return;
+      }
       if (!result || result.source === "failed" || result.source === "rate-limited") {
         const detail = result?.source === "rate-limited"
           ? "rate-limited (will retry)"
           : "failed (network error or non-2xx response)";
-        const msg = `AxonFlow Community SaaS registration ${detail}. Tool calls will fail-${config.onError === "allow" ? "open (allow through)" : "closed (block)"} until registration succeeds.`;
+        const msg = `AxonFlow Hosted credential load ${detail}. Visit https://getaxonflow.com/saas-pricing/ and run the installed plugin link script (README: Activate Hosted Starter). Governed tools and outbound messages stay blocked until the client is linked.`;
         if (api.logger.warn) {
           api.logger.warn(msg);
         } else {
@@ -275,13 +282,13 @@ export function registerAxonFlowGovernance(api: {
       }
       if (result.source === "opted-out") {
         // Operator set AXONFLOW_COMMUNITY_SAAS=0. The plugin loaded but
-        // is not registered with any AxonFlow instance. Surface this so
-        // the operator sees why governance calls might fail-open or
-        // fail-closed depending on onError config.
+        // is not linked to Hosted. Keep the Hosted link gate closed even
+        // under onError=allow until an explicit self-hosted endpoint is set.
         const msg =
           "AxonFlow Community SaaS auto-bootstrap skipped (AXONFLOW_COMMUNITY_SAAS=0). " +
+          "Governed tools and outbound messages stay blocked until the client is linked. " +
           "Set AXONFLOW_ENDPOINT or pluginConfig.endpoint to a self-hosted AxonFlow " +
-          "instance, or unset the opt-out env var to register with try.getaxonflow.com.";
+          "instance, or unset the opt-out env var and link a verified Hosted account through the website.";
         if (api.logger.warn) {
           api.logger.warn(msg);
         } else {
@@ -292,12 +299,19 @@ export function registerAxonFlowGovernance(api: {
       const enriched: typeof config = { ...config, endpoint: result.endpoint, clientId: result.clientId };
       enriched["clientSecret"] = result.clientSecret;
       clientRef.current = new AxonFlowClient(enriched);
+      clientRef.current.setUpgradePromptLogger(api.logger);
+      clientRef.hostedLinkRequired = false;
       api.logger.info(
-        `[AxonFlow] Community SaaS registration ${result.source === "fresh-registration" ? "complete" : "loaded from cache"} (tenant=${result.clientId.slice(0, 16)}...)`,
+        `[AxonFlow] ${result.source === "fresh-registration" ? "Community SaaS registration complete" : "Hosted credential loaded from cache"} (tenant=${result.clientId.slice(0, 16)}...)`,
       );
+      if (result.needsHostedMigration) {
+        const msg = "AxonFlow legacy Hosted credential loaded. To migrate, sign in or verify your email at https://getaxonflow.com/saas-pricing/, then run the installed plugin link script (README: Activate Hosted Starter) and approve its device code in the Portal before this credential expires. AXONFLOW_LEGACY_AUTO_REGISTER=1 cannot renew it.";
+        if (api.logger.warn) api.logger.warn(msg);
+        else api.logger.error(msg);
+      }
     }).catch(() => {
       // Silent — bootstrap should never block plugin registration. The
-      // governance handlers will fail-open or fail-closed per onError config.
+      // unlinked Hosted governance handlers remain blocked.
     });
     void bootstrapPromise;
   }
@@ -307,7 +321,10 @@ export function registerAxonFlowGovernance(api: {
     if (healthy) {
       api.logger.info(`AxonFlow connected: ${config.endpoint}`);
     } else {
-      const msg = `AxonFlow health check failed: ${config.endpoint} is unreachable. Governance hooks will ${config.onError === "allow" ? "fail-open (allow through)" : "fail-closed (block)"}`;
+      const behavior = clientRef.hostedLinkRequired
+        ? "stay blocked until the client is linked"
+        : config.onError === "allow" ? "fail-open (allow through)" : "fail-closed (block)";
+      const msg = `AxonFlow health check failed: ${config.endpoint} is unreachable. Governance hooks will ${behavior}`;
       if (api.logger.warn) {
         api.logger.warn(msg);
       } else {

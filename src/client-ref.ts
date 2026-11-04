@@ -17,4 +17,6 @@ import type { AxonFlowClient } from "./axonflow-client.js";
 
 export interface ClientRef {
   current: AxonFlowClient;
+  /** Fresh Hosted installs block governed output until a linked credential loads. */
+  hostedLinkRequired?: boolean;
 }

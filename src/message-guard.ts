@@ -41,6 +41,11 @@ export function createMessageSendingHandler(
 
     recordMessageScanned();
 
+    if (clientRef.hostedLinkRequired) {
+      recordMessageCancelled();
+      return { cancel: true };
+    }
+
     let check;
     try {
       check = await clientRef.current.mcpCheckOutput(

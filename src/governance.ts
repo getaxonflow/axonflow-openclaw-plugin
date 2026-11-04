@@ -159,10 +159,12 @@ export function isAxonFlowHostedLimitReached(err: unknown): boolean {
     status?: number;
     statusCode?: number;
     responseBody?: Record<string, unknown>;
+    tierLimit?: string;
   };
   const status = candidate.status ?? candidate.statusCode;
   return status === 429 &&
-    candidate.responseBody?.["error"] === "hosted_monthly_limit_reached";
+    (candidate.responseBody?.["error"] === "hosted_monthly_limit_reached" ||
+      candidate.tierLimit === "monthly_governed_events");
 }
 
 /**
@@ -239,6 +241,13 @@ export function createBeforeToolCallHandler(
 
     recordToolCallEvaluated();
 
+    // The default Hosted flow has no credential before Portal pairing. Fence
+    // locally, before throttle/network fail-open handling or onError=allow.
+    if (clientRef.hostedLinkRequired) {
+      recordToolCallBlocked();
+      return { block: true, blockReason: "Link this client to a Hosted account before making governed calls." };
+    }
+
     // V1 Plugin Pro back-off gate. When a recent governed call returned
     // a 429 / 403 envelope, the throttle stamp suppresses outbound
     // traffic until the envelope's resets_at deadline. Fall open
@@ -273,11 +282,12 @@ export function createBeforeToolCallHandler(
 
       if (isAxonFlowPaymentRequired(err)) {
         recordToolCallBlocked();
+        const checkoutUrl = (err as { checkoutUrl?: unknown }).checkoutUrl;
         return {
           block: true,
-          blockReason: err instanceof Error
-            ? err.message
-            : "AxonFlow hosted governance requires an active paid plan.",
+          blockReason: typeof checkoutUrl === "string" && checkoutUrl.startsWith("https://")
+            ? `AxonFlow Hosted governance needs an active plan. Complete checkout: ${checkoutUrl}`
+            : "AxonFlow Hosted governance needs an active paid plan. Open the Hosted Portal to complete checkout.",
         };
       }
 

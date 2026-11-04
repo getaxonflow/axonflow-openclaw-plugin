@@ -31,6 +31,7 @@
 // on 127.0.0.1.
 
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -99,6 +100,7 @@ if (!existsSync(tarballPath)) {
   process.exit(2);
 }
 console.log(`packed: ${tarballPath}`);
+console.log(`SHA-256: ${createHash('sha256').update(readFileSync(tarballPath)).digest('hex')}`);
 
 // ---------------------------------------------------------------
 // 3. Validate tarball file list.
@@ -251,9 +253,95 @@ const cleanup = () => {
 
 try {
   // ---------------------------------------------------------------
-  // 7. Deny case: SQLi statement → 403 with Plugin Batch 1 fields.
+  // 7. Fresh Hosted installs from this exact tarball must not register,
+  //    including when the old compatibility flag is present.
   // ---------------------------------------------------------------
-  console.log('\n--- Step 7: deny case (SQLi) ---');
+  console.log('\n--- Step 7: fresh Hosted registration guard (packed install) ---');
+  const savedFetch = globalThis.fetch;
+  const savedEnv = Object.fromEntries(
+    ['AXONFLOW_CONFIG_DIR', 'AXONFLOW_ENDPOINT', 'AXONFLOW_COMMUNITY_SAAS', 'AXONFLOW_LEGACY_AUTO_REGISTER', 'AXONFLOW_TELEMETRY']
+      .map((key) => [key, process.env[key]]),
+  );
+  try {
+    delete process.env.AXONFLOW_ENDPOINT;
+    delete process.env.AXONFLOW_COMMUNITY_SAAS;
+    process.env.AXONFLOW_TELEMETRY = 'off';
+    for (const legacyFlag of [undefined, '1']) {
+      process.env.AXONFLOW_CONFIG_DIR = join(consumer, `hosted-${legacyFlag ?? 'default'}`);
+      if (legacyFlag === undefined) delete process.env.AXONFLOW_LEGACY_AUTO_REGISTER;
+      else process.env.AXONFLOW_LEGACY_AUTO_REGISTER = legacyFlag;
+      const calls = [];
+      globalThis.fetch = async (url) => {
+        calls.push(String(url));
+        return new Response('', { status: 503 });
+      };
+      const hooks = new Map();
+      const warnings = [];
+      mod.registerAxonFlowGovernance({
+        pluginConfig: { onError: 'allow' },
+        logger: { info() {}, error(msg) { warnings.push(msg); }, warn(msg) { warnings.push(msg); } },
+        on(name, handler) { hooks.set(name, handler); },
+      });
+      await new Promise((resolveP) => setImmediate(resolveP));
+      if (calls.some((url) => url.includes('/api/v1/register'))) {
+        fail(`legacy=${legacyFlag ?? 'unset'}: packed install called anonymous Hosted registrar`);
+      }
+      if (!warnings.some((line) => line.includes('New and existing Hosted users'))) {
+        fail(`legacy=${legacyFlag ?? 'unset'}: website/device-link guidance missing`);
+      }
+      const tool = await hooks.get('before_tool_call')?.({ toolName: 'web_fetch', params: {} });
+      const message = await hooks.get('message_sending')?.({ to: 'user', content: 'hello' });
+      if (tool?.block !== true || message?.cancel !== true) {
+        fail(`legacy=${legacyFlag ?? 'unset'}: unlinked Hosted governance did not fail closed`);
+      }
+    }
+    process.env.AXONFLOW_COMMUNITY_SAAS = '0';
+    process.env.AXONFLOW_CONFIG_DIR = join(consumer, 'hosted-opted-out');
+    const optedOutHooks = new Map();
+    const optedOutCalls = [];
+    globalThis.fetch = async (url) => {
+      optedOutCalls.push(String(url));
+      return new Response('', { status: 503 });
+    };
+    mod.registerAxonFlowGovernance({
+      pluginConfig: { onError: 'allow' },
+      logger: { info() {}, error() {}, warn() {} },
+      on(name, handler) { optedOutHooks.set(name, handler); },
+    });
+    const optedOutTool = await optedOutHooks.get('before_tool_call')?.({ toolName: 'web_fetch', params: { secret: 'private' } });
+    const optedOutMessage = await optedOutHooks.get('message_sending')?.({ to: 'user', content: 'private' });
+    if (optedOutTool?.block !== true || optedOutMessage?.cancel !== true ||
+        optedOutCalls.some((url) => url.includes('/api/v1/register'))) {
+      fail('opted-out default Hosted install did not keep both governance hooks closed');
+    }
+    delete process.env.AXONFLOW_COMMUNITY_SAAS;
+    const bootstrap = await import(join(installed, 'dist', 'community-saas-bootstrap.js'));
+    bootstrap._resetBootstrapInFlightForTests();
+    const registrarCalls = [];
+    globalThis.fetch = async (url) => {
+      registrarCalls.push(String(url));
+      return new Response('', { status: 503 });
+    };
+    const trailingDot = await bootstrap.bootstrapCommunitySaas({
+      endpoint: 'https://try.getaxonflow.com.',
+      registerUrl: 'https://try.getaxonflow.com./api/v1/register',
+      fetchImpl: globalThis.fetch,
+    });
+    if (trailingDot?.source !== 'link-required' || registrarCalls.length !== 0) {
+      fail('packed install accepted a trailing-dot Hosted registrar');
+    }
+  } finally {
+    globalThis.fetch = savedFetch;
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // 8. Deny case: SQLi statement → 403 with Plugin Batch 1 fields.
+  // ---------------------------------------------------------------
+  console.log('\n--- Step 8: deny case (SQLi) ---');
   const client = new mod.AxonFlowClient({
     endpoint: `http://127.0.0.1:${stubPort}`,
     clientId: SMOKE_CLIENT_ID,
@@ -279,9 +367,9 @@ try {
   );
 
   // ---------------------------------------------------------------
-  // 8. Allow case: benign statement → 200 allowed=true.
+  // 9. Allow case: benign statement → 200 allowed=true.
   // ---------------------------------------------------------------
-  console.log('\n--- Step 8: allow case (benign) ---');
+  console.log('\n--- Step 9: allow case (benign) ---');
   const allow = await client.mcpCheckInput(
     'postgresql',
     'SELECT id, email FROM users LIMIT 10',
@@ -300,7 +388,7 @@ process.exit(exitCode);
 function printSummary() {
   console.log('');
   if (exitCode === 0) {
-    console.log('PASS: install-smoke — tarball install + Plugin Batch 1 wire shape verified end-to-end');
+    console.log('PASS: install-smoke — packed Hosted guard + Plugin Batch 1 wire shape verified end-to-end');
   } else {
     console.error(`FAIL: install-smoke — ${failures.length} assertion(s) failed`);
     for (const f of failures) console.error(`  - ${f}`);

@@ -16,9 +16,8 @@
  *   - Packs into a tmp dir so the scanner sees exactly what ClawHub
  *     will see (npm-pack `files` whitelist applied — no scripts/, no
  *     tests/, no src/).
- *   - Isolates OpenClaw state under a tmp OPENCLAW_STATE_DIR so the
- *     scan does not pollute the developer's ~/.openclaw or override
- *     an existing axonflow-governance install.
+ *   - Isolates OpenClaw and AxonFlow config/cache state under a temp dir so
+ *     the scan neither reads real Hosted credentials nor changes installs.
  *   - Parses scanner stdout/stderr for WARNING + critical + blocked
  *     patterns. Any finding fails the scan with a non-zero exit.
  *
@@ -144,11 +143,14 @@ try {
 const stateDir = mkdtempSync(join(tmpdir(), "openclaw-scan-state-"));
 info(`Scanner state isolated under ${stateDir}`);
 configureInstallPolicy(stateDir);
-const env = {
+const scanEnv = (dir) => ({
   ...process.env,
-  OPENCLAW_STATE_DIR: stateDir,
+  OPENCLAW_STATE_DIR: dir,
+  AXONFLOW_CONFIG_DIR: join(dir, "axonflow-config"),
+  AXONFLOW_CACHE_DIR: join(dir, "axonflow-cache"),
   AXONFLOW_TELEMETRY: "off",
-};
+});
+const env = scanEnv(stateDir);
 
 let scanStdout = "";
 let scanStderr = "";
@@ -211,7 +213,7 @@ try {
     ["plugins", "install", hostileTarballPath, "--force"],
     {
       encoding: "utf8",
-      env: { ...env, OPENCLAW_STATE_DIR: hostileStateDir },
+      env: scanEnv(hostileStateDir),
       timeout: 120_000,
     },
   );
