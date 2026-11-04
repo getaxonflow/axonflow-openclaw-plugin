@@ -24,23 +24,31 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - 'bin/**'
+      - 'README.md'
       - 'policies/**'
       - 'openclaw.plugin.json'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
       - 'tests/install-smoke/**'
+      - 'tests/e2e/hosted-link-cli-smoke.mjs'
+      - 'tests/e2e/hosted-link-host-install.mjs'
       - '.github/workflows/install-smoke.yml'
   push:
     branches: [main]
     paths:
       - 'src/**'
+      - 'bin/**'
+      - 'README.md'
       - 'policies/**'
       - 'openclaw.plugin.json'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
       - 'tests/install-smoke/**'
+      - 'tests/e2e/hosted-link-cli-smoke.mjs'
+      - 'tests/e2e/hosted-link-host-install.mjs'
       - '.github/workflows/install-smoke.yml'
 
 permissions:
@@ -98,6 +106,14 @@ jobs:
 
       - name: Run install-smoke harness
         run: node tests/install-smoke/run.mjs
+
+      - name: Install packed plugin in OpenClaw and run Hosted link
+        run: |
+          set -euo pipefail
+          PACK_DIR=$(mktemp -d)
+          trap 'rm -rf "$PACK_DIR"' EXIT
+          npm pack --pack-destination "$PACK_DIR" --silent
+          PATH="$PWD/node_modules/.bin:$PATH" node tests/e2e/hosted-link-host-install.mjs "$PACK_DIR"/axonflow-openclaw-*.tgz
 
       - name: Verify plugin doctor has zero diagnostics
         run: |
