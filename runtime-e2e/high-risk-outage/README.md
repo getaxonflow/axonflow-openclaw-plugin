@@ -1,0 +1,3 @@
+# High-risk outage runtime E2E
+
+Run `bash runtime-e2e/high-risk-outage/test.sh` on a dedicated OpenClaw E2E host with a configured model, a reachable AxonFlow agent (`AXONFLOW_ENDPOINT`), and test client credentials. The script installs the packed plugin into OpenClaw, copies a secret file through a real agent tool against the live AxonFlow stack as a positive control, then points the high-risk `exec` tool at a refused local port. The control copy must contain the secret and the outage copy must not exist. Both turns must record an actual tool attempt, so a model-only reply cannot pass. The script restores the OpenClaw config and removes its temporary files.
