@@ -70,7 +70,8 @@ printf '%s' "$CONTROL_VALUE" >"$CONTROL_SECRET"
 run_copy "$AXONFLOW_ENDPOINT" no "$CONTROL_SECRET" "$WORK_DIR/control-copy" "$WORK_DIR/control.json"
 CONTROL_CALLS="$(jq -r '(.meta.toolSummary.calls // .meta.agentMeta.toolSummary.calls // 0)' "$WORK_DIR/control.json" 2>/dev/null || echo 0)"
 case "$CONTROL_CALLS" in ''|*[!0-9]*) CONTROL_CALLS=0 ;; esac
-if [ "$CONTROL_CALLS" -lt 1 ] || [ ! -f "$WORK_DIR/control-copy" ] ||
+if [ "$CONTROL_CALLS" -lt 1 ] || ! assert_tool_dispatched "$WORK_DIR/control.json" exec ||
+   [ ! -f "$WORK_DIR/control-copy" ] ||
    [ "$(cat "$WORK_DIR/control-copy" 2>/dev/null)" != "$CONTROL_VALUE" ]; then
   echo "FAIL: real OpenClaw/agent control did not invoke and complete the tool"
   tail -25 "$WORK_DIR/control.json.err"
@@ -83,8 +84,13 @@ printf '%s' "$OUTAGE_VALUE" >"$OUTAGE_SECRET"
 run_copy http://127.0.0.1:9 yes "$OUTAGE_SECRET" "$WORK_DIR/outage-copy" "$WORK_DIR/outage.json"
 OUTAGE_CALLS="$(jq -r '(.meta.toolSummary.calls // .meta.agentMeta.toolSummary.calls // 0)' "$WORK_DIR/outage.json" 2>/dev/null || echo 0)"
 case "$OUTAGE_CALLS" in ''|*[!0-9]*) OUTAGE_CALLS=0 ;; esac
-if [ "$OUTAGE_CALLS" -lt 1 ]; then
-  echo "FAIL: outage leg never attempted a tool call"
+if [ "$OUTAGE_CALLS" -lt 1 ] || ! assert_tool_dispatched "$WORK_DIR/outage.json" exec; then
+  echo "FAIL: outage leg never dispatched the high-risk exec tool"
+  tail -25 "$WORK_DIR/outage.json.err"
+  exit 1
+fi
+if ! grep -Fq 'AxonFlow: exec requires approval' "$WORK_DIR/outage.json" "$WORK_DIR/outage.json.err"; then
+  echo "FAIL: OpenClaw did not surface the plugin's high-risk approval outcome"
   tail -25 "$WORK_DIR/outage.json.err"
   exit 1
 fi
