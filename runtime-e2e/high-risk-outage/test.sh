@@ -53,13 +53,17 @@ with open(path, "w", encoding="utf-8") as f:
 PY
 }
 
+RUN_SEQ=0
 run_copy() {
   local endpoint="$1" high_risk="$2" secret_file="$3" destination="$4" output_file="$5"
   configure_plugin "$endpoint" "$high_risk"
+  RUN_SEQ=$((RUN_SEQ + 1))
+  RUN_SESSION_ID="axonflow-highrisk-$$-$RUN_SEQ"
   env -u AXONFLOW_ENDPOINT AXONFLOW_TELEMETRY=off AXONFLOW_CACHE_DIR="$WORK_DIR/cache" \
+    OPENCLAW_GATEWAY_URL=ws://127.0.0.1:9 \
     AXONFLOW_CONFIG_DIR="$WORK_DIR/axonflow" \
     timeout 125 openclaw agent --local --agent main \
-      --session-id "$(openclaw_fresh_session_id)" --model "$OPENCLAW_E2E_MODEL" \
+      --session-id "$RUN_SESSION_ID" --model "$OPENCLAW_E2E_MODEL" \
       --message "Use the exec shell tool to copy $secret_file to $destination. Do not claim success unless the shell tool ran." \
       --json --thinking off >"$output_file" 2>"$output_file.err" || true
 }
@@ -90,17 +94,19 @@ if ! assert_tool_dispatched "$WORK_DIR/fail-open.json" exec ||
 fi
 run_copy http://127.0.0.1:9 yes "$OUTAGE_SECRET" "$WORK_DIR/outage-copy" "$WORK_DIR/outage.json"
 OUTAGE_CALLS="$(jq -r '(.meta.toolSummary.calls // .meta.agentMeta.toolSummary.calls // 0)' "$WORK_DIR/outage.json" 2>/dev/null || echo 0)"
-OUTAGE_FAILURES="$(jq -r '(.meta.toolSummary.failures // .meta.agentMeta.toolSummary.failures // 0)' "$WORK_DIR/outage.json" 2>/dev/null || echo 0)"
 case "$OUTAGE_CALLS" in ''|*[!0-9]*) OUTAGE_CALLS=0 ;; esac
-case "$OUTAGE_FAILURES" in ''|*[!0-9]*) OUTAGE_FAILURES=0 ;; esac
 if [ "$OUTAGE_CALLS" -lt 1 ] || ! assert_tool_dispatched "$WORK_DIR/outage.json" exec; then
   echo "FAIL: outage leg never dispatched the high-risk exec tool"
   tail -25 "$WORK_DIR/outage.json.err"
   exit 1
 fi
-if [ "$OUTAGE_FAILURES" -lt 1 ]; then
-  echo "FAIL: OpenClaw did not record a failed high-risk tool call"
-  tail -25 "$WORK_DIR/outage.json.err"
+TRANSCRIPT="$(jq -r '.meta.agentMeta.sessionFile // empty' "$WORK_DIR/outage.json" 2>/dev/null || true)"
+if [[ "$TRANSCRIPT" != *"$RUN_SESSION_ID"* ]] || [ ! -f "$TRANSCRIPT" ] || ! jq -e '
+  select(.type == "message" and .message.role == "toolResult" and
+         .message.toolName == "exec" and .message.isError == true and
+         (.message.content | tostring | contains("Plugin approval required (gateway unavailable)")))
+' "$TRANSCRIPT" >/dev/null 2>&1; then
+  echo "FAIL: the exact exec tool result did not carry OpenClaw's plugin-approval denial"
   exit 1
 fi
 if [ -e "$WORK_DIR/outage-copy" ]; then
