@@ -16,6 +16,68 @@ const baseConfig: AxonFlowPluginConfig = {
 };
 
 describe("LLM audit hooks", () => {
+  it("does not transmit pre-link prompt or response excerpts across a link transition", async () => {
+    const client = mockClient();
+    const clientRef = { current: client, hostedLinkRequired: true };
+    const config = { ...baseConfig, mode: "community-saas" as const };
+    const state = new Map();
+    const onInput = createLlmInputHandler(clientRef, config, state);
+    const onOutput = createLlmOutputHandler(clientRef, config, state);
+
+    onInput({
+      runId: "pre-link-run", sessionId: "session", provider: "test", model: "test",
+      prompt: "pre-link private prompt", historyMessages: [], imagesCount: 0,
+    });
+    clientRef.hostedLinkRequired = false;
+    await onOutput({
+      runId: "pre-link-run", sessionId: "session", provider: "test", model: "test",
+      assistantTexts: ["pre-link private response"],
+    });
+    expect(client.auditLLMCall).not.toHaveBeenCalled();
+
+    await onOutput({
+      runId: "orphan-run", sessionId: "session", provider: "test", model: "test",
+      assistantTexts: ["unknown start time response"],
+    });
+    expect(client.auditLLMCall).not.toHaveBeenCalled();
+  });
+
+  it("does not send LLM output while Hosted linking is required", async () => {
+    const client = mockClient();
+    const state = new Map();
+    const handler = createLlmOutputHandler(
+      { current: client, hostedLinkRequired: true },
+      { ...baseConfig, mode: "community-saas" },
+      state,
+    );
+
+    await handler({
+      runId: "unlinked", sessionId: "session", provider: "test", model: "test",
+      assistantTexts: ["private response"],
+    });
+    expect(client.auditLLMCall).not.toHaveBeenCalled();
+  });
+
+  it("does not transmit LLM excerpts from a legacy credential awaiting Portal linking", async () => {
+    const client = mockClient();
+    const clientRef = { current: client, hostedLinkRequired: false, hostedAuditLinkRequired: true };
+    const config = { ...baseConfig, mode: "community-saas" as const };
+    const state = new Map();
+    const onInput = createLlmInputHandler(clientRef, config, state);
+    const onOutput = createLlmOutputHandler(clientRef, config, state);
+
+    onInput({
+      runId: "legacy-run", sessionId: "session", provider: "test", model: "test",
+      prompt: "legacy private prompt", historyMessages: [], imagesCount: 0,
+    });
+    clientRef.hostedAuditLinkRequired = false;
+    await onOutput({
+      runId: "legacy-run", sessionId: "session", provider: "test", model: "test",
+      assistantTexts: ["legacy private response"],
+    });
+    expect(client.auditLLMCall).not.toHaveBeenCalled();
+  });
+
   describe("createLlmInputHandler", () => {
     it("stores call state by runId", () => {
       const client = mockClient();

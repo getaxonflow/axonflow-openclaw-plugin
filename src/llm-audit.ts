@@ -17,6 +17,7 @@ interface LLMCallState {
   model: string;
   prompt: string;
   startMs: number;
+  preLink?: boolean;
 }
 
 /**
@@ -26,7 +27,7 @@ interface LLMCallState {
  * Stores state by runId for correlation with the llm_output handler.
  */
 export function createLlmInputHandler(
-  _clientRef: ClientRef,
+  clientRef: ClientRef,
   _config: AxonFlowPluginConfig,
   callState: Map<string, LLMCallState>,
 ) {
@@ -43,8 +44,12 @@ export function createLlmInputHandler(
     callState.set(event.runId, {
       provider: event.provider,
       model: event.model,
-      prompt: event.prompt.slice(0, 500),
+      // Keep only a marker for a call that began before Hosted linking.
+      // A link completed before llm_output must not disclose that prompt.
+      prompt: (clientRef.hostedAuditLinkRequired || clientRef.hostedLinkRequired)
+        ? "" : event.prompt.slice(0, 500),
       startMs: Date.now(),
+      preLink: clientRef.hostedAuditLinkRequired === true || clientRef.hostedLinkRequired === true,
     });
 
     // Prevent unbounded growth: evict entries older than 5 minutes.
@@ -69,7 +74,7 @@ export function createLlmInputHandler(
  */
 export function createLlmOutputHandler(
   clientRef: ClientRef,
-  _config: AxonFlowPluginConfig,
+  config: AxonFlowPluginConfig,
   callState: Map<string, LLMCallState>,
 ) {
   return async (event: {
@@ -87,6 +92,14 @@ export function createLlmOutputHandler(
   }): Promise<void> => {
     const inputState = callState.get(event.runId);
     callState.delete(event.runId);
+
+    // No audit excerpts leave a fresh Hosted install before linking. A
+    // pre-link input stays suppressed even if linking finishes mid-call;
+    // a Hosted output with no matching input cannot establish when it began.
+    if (clientRef.hostedAuditLinkRequired || clientRef.hostedLinkRequired || inputState?.preLink ||
+        (config.mode === "community-saas" && !inputState)) {
+      return;
+    }
 
     const responseSummary = event.assistantTexts.join(" ").slice(0, 200);
     const latencyMs = inputState ? Date.now() - inputState.startMs : 0;

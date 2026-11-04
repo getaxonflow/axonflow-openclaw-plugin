@@ -73,7 +73,8 @@ Until a fresh Hosted install loads a linked credential, governed tool calls are 
 | What goes to `try.getaxonflow.com` | What does NOT |
 |---|---|
 | Tool name + arguments before each governed call | LLM provider API keys |
-| Outbound message bodies before delivery (PII/secret scan) | OpenClaw conversation history outside governed tools |
+| Outbound message bodies before delivery (PII/secret scan) | — |
+| After linking: LLM prompt excerpts (first 500 chars) and response excerpts (first 200 chars) for audit | — |
 | Usage heartbeat (plugin version, OS, runtime, instance ID) | Files outside the OpenClaw runtime |
 
 Hosted Starter includes the governance foundation and a Hosted case Portal. The verified account shows its exact governed-event, case, seat, integration, retention, and burst limits before purchase and through billing status. Higher volume, additional integrations, longer retention, production financial actions, and contractual controls follow the paid Enterprise PoC or design-partner path. Read the [Community SaaS documentation](https://docs.getaxonflow.com/docs/deployment/community-saas/) for the data boundary and current limits.

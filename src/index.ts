@@ -236,6 +236,7 @@ export function registerAxonFlowGovernance(api: {
     // Opting out of bootstrap does not opt out of the Hosted link gate. An
     // unlinked default endpoint must never send governed payloads to Hosted.
     hostedLinkRequired: config.mode === "community-saas",
+    hostedAuditLinkRequired: config.mode === "community-saas",
   };
   // V1 Plugin Pro upgrade-prompt sink — when the agent returns a 429 /
   // 403 with a structured upgrade envelope, the plugin surfaces the
@@ -301,6 +302,7 @@ export function registerAxonFlowGovernance(api: {
       clientRef.current = new AxonFlowClient(enriched);
       clientRef.current.setUpgradePromptLogger(api.logger);
       clientRef.hostedLinkRequired = false;
+      clientRef.hostedAuditLinkRequired = result.needsHostedMigration === true;
       api.logger.info(
         `[AxonFlow] ${result.source === "fresh-registration" ? "Community SaaS registration complete" : "Hosted credential loaded from cache"} (tenant=${result.clientId.slice(0, 16)}...)`,
       );
