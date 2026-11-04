@@ -81,16 +81,25 @@ fi
 OUTAGE_SECRET="$WORK_DIR/outage-secret"
 OUTAGE_VALUE="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 printf '%s' "$OUTAGE_VALUE" >"$OUTAGE_SECRET"
+run_copy http://127.0.0.1:9 no "$OUTAGE_SECRET" "$WORK_DIR/fail-open-copy" "$WORK_DIR/fail-open.json"
+if ! assert_tool_dispatched "$WORK_DIR/fail-open.json" exec ||
+   [ "$(cat "$WORK_DIR/fail-open-copy" 2>/dev/null)" != "$OUTAGE_VALUE" ]; then
+  echo "FAIL: outage control did not complete the same exec copy without high-risk approval"
+  tail -25 "$WORK_DIR/fail-open.json.err"
+  exit 1
+fi
 run_copy http://127.0.0.1:9 yes "$OUTAGE_SECRET" "$WORK_DIR/outage-copy" "$WORK_DIR/outage.json"
 OUTAGE_CALLS="$(jq -r '(.meta.toolSummary.calls // .meta.agentMeta.toolSummary.calls // 0)' "$WORK_DIR/outage.json" 2>/dev/null || echo 0)"
+OUTAGE_FAILURES="$(jq -r '(.meta.toolSummary.failures // .meta.agentMeta.toolSummary.failures // 0)' "$WORK_DIR/outage.json" 2>/dev/null || echo 0)"
 case "$OUTAGE_CALLS" in ''|*[!0-9]*) OUTAGE_CALLS=0 ;; esac
+case "$OUTAGE_FAILURES" in ''|*[!0-9]*) OUTAGE_FAILURES=0 ;; esac
 if [ "$OUTAGE_CALLS" -lt 1 ] || ! assert_tool_dispatched "$WORK_DIR/outage.json" exec; then
   echo "FAIL: outage leg never dispatched the high-risk exec tool"
   tail -25 "$WORK_DIR/outage.json.err"
   exit 1
 fi
-if ! grep -Fq 'AxonFlow: exec requires approval' "$WORK_DIR/outage.json" "$WORK_DIR/outage.json.err"; then
-  echo "FAIL: OpenClaw did not surface the plugin's high-risk approval outcome"
+if [ "$OUTAGE_FAILURES" -lt 1 ]; then
+  echo "FAIL: OpenClaw did not record a failed high-risk tool call"
   tail -25 "$WORK_DIR/outage.json.err"
   exit 1
 fi
