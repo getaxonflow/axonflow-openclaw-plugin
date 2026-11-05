@@ -19,4 +19,6 @@ export interface ClientRef {
   current: AxonFlowClient;
   /** Fresh Hosted installs block governed output until a linked credential loads. */
   hostedLinkRequired?: boolean;
+  /** Hosted audit excerpts require Portal/device linking, including for legacy credentials. */
+  hostedAuditLinkRequired?: boolean;
 }

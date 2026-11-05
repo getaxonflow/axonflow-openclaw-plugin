@@ -215,6 +215,18 @@ function highRiskApproval(
   };
 }
 
+function highRiskApprovalWithoutDecision(
+  toolName: string,
+): NonNullable<BeforeToolCallResult["requireApproval"]> {
+  return {
+    title: `AxonFlow: ${toolName} requires approval`,
+    description: "AxonFlow policy check unavailable; independent approval is required before execution.",
+    severity: "critical",
+    timeoutMs: 60_000,
+    timeoutBehavior: "deny",
+  };
+}
+
 /**
  * Create the before_tool_call hook handler.
  *
@@ -246,22 +258,6 @@ export function createBeforeToolCallHandler(
     if (clientRef.hostedLinkRequired) {
       recordToolCallBlocked();
       return { block: true, blockReason: "Link this client to a Hosted account before making governed calls." };
-    }
-
-    // V1 Plugin Pro back-off gate. When a recent governed call returned
-    // a 429 / 403 envelope, the throttle stamp suppresses outbound
-    // traffic until the envelope's resets_at deadline. Fall open
-    // immediately so the user's tool isn't held up while we wait the
-    // cap out (the upgrade prompt was already surfaced when the
-    // throttle landed).
-    //
-    // The optional-chaining call accommodates tests that pass a mock
-    // client without the V1 helper — the gate degrades to "no
-    // throttle in effect" rather than throwing.
-    if (typeof clientRef.current.isV1ThrottleActive === "function"
-        && clientRef.current.isV1ThrottleActive()) {
-      recordToolCallAllowed();
-      return undefined;
     }
 
     const connectorType = deriveConnectorType(event.toolName);
@@ -324,6 +320,10 @@ export function createBeforeToolCallHandler(
         // changes. Announce once per process that governed calls are running
         // without policy evaluation, so a session cannot go ungoverned
         // without the user being told.
+        if (config.highRiskTools?.includes(event.toolName)) {
+          recordToolCallApprovalRequired();
+          return { requireApproval: highRiskApprovalWithoutDecision(event.toolName) };
+        }
         noteUngovernedFailOpen(failedEndpoint, err);
         recordToolCallAllowed();
         return undefined; // Fail-open: transient network issue
@@ -339,6 +339,10 @@ export function createBeforeToolCallHandler(
         // error exposing no status — previously proceeded with no signal at
         // all: zero policy evaluation, zero warning. The fail-open POLICY is
         // unchanged; only the silence is.
+        if (config.highRiskTools?.includes(event.toolName)) {
+          recordToolCallApprovalRequired();
+          return { requireApproval: highRiskApprovalWithoutDecision(event.toolName) };
+        }
         if (!carriesOwnAuthNotice(err)) {
           noteUngovernedFailOpen(failedEndpoint, err);
         }

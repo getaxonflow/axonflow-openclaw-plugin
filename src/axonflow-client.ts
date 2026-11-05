@@ -484,6 +484,14 @@ const noopUpgradePromptLogger: UpgradePromptLogger = {
   error: () => {},
 };
 
+function deniedGovernedLimit() {
+  return {
+    allowed: false,
+    block_reason: "AxonFlow tier limit reached; this action cannot proceed without governance.",
+    policies_evaluated: 0,
+  };
+}
+
 function truncateStringValues(obj: Record<string, unknown>, maxLen: number): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -513,8 +521,8 @@ export class AxonFlowClient {
   private readonly pepHandshakes: PepHandshakes | undefined;
   // V1 Plugin Pro upgrade-prompt sink — populated via setUpgradePromptLogger.
   // When set, V1 envelope detections on 429 / 403 surface the locked
-  // wording + buy URL via this logger and stamp a throttle deadline so
-  // subsequent governed calls can short-circuit locally.
+  // wording + buy URL via this logger and stamp a throttle deadline for
+  // non-governed service tools. Governed calls must still be checked.
   private upgradePromptLogger: UpgradePromptLogger | null = null;
   private checkoutPromise: Promise<string> | null = null;
   private paymentPromptEmitted = false;
@@ -605,7 +613,7 @@ export class AxonFlowClient {
    *   client.setUpgradePromptLogger(api.logger).
    *
    * Optional — when unset, the client still detects + stamps the
-   * throttle so subsequent calls back off, but no wording is surfaced.
+   * service-tool throttle, but no wording is surfaced.
    */
   setUpgradePromptLogger(logger: UpgradePromptLogger | null): void {
     this.upgradePromptLogger = logger;
@@ -632,8 +640,8 @@ export class AxonFlowClient {
    * the response is not envelope-bearing.
    *
    * Runs whether or not a logger is wired — without a logger the
-   * envelope is still detected and the throttle deadline is still
-   * stamped (so subsequent calls short-circuit), the wording just
+   * envelope is still detected and the service-tool deadline is still
+   * stamped, the wording just
    * drops on the floor instead of landing on the operator-visible
    * channel.
    */
@@ -662,11 +670,8 @@ export class AxonFlowClient {
   }
 
   /**
-   * V1 Plugin Pro back-off gate. Callers (governance.ts) check this
-   * BEFORE issuing a governed call — when the throttle file is in
-   * effect, the call is short-circuited and the caller falls open
-   * (the upgrade prompt was already surfaced when the throttle
-   * landed; the cap clears at the deadline).
+   * V1 Plugin Pro back-off state for service-tool callers. Governed input
+   * and output checks must never use this state to skip policy evaluation.
    */
   isV1ThrottleActive(): boolean {
     return isThrottleActive();
@@ -868,14 +873,6 @@ export class AxonFlowClient {
         "check-input",
       );
     }
-    // V1 Plugin Pro back-off: when a recent governed call returned a
-    // 429 / 403 envelope, the throttle stamp suppresses outbound traffic
-    // until the deadline. Fall open immediately so the user's tool isn't
-    // held up while we wait the cap out (the upgrade prompt was already
-    // surfaced when the throttle landed).
-    if (isThrottleActive()) {
-      return { allowed: true, policies_evaluated: 0 };
-    }
     const url = `${this.endpoint}/api/v1/mcp/check-input`;
     const response = await this.fetchWithTimeout(url, {
       method: "POST",
@@ -917,7 +914,7 @@ export class AxonFlowClient {
         throw new AxonFlowHttpError(429, response.statusText, body, "check-input", tierLimit);
       }
       if (this.handleEnvelope(response.status, body, response)) {
-        return { allowed: true, policies_evaluated: 0 };
+        return deniedGovernedLimit();
       }
       throw new AxonFlowHttpError(429, response.statusText, body, "check-input", tierLimit);
     }
@@ -931,13 +928,8 @@ export class AxonFlowClient {
     // policy block = "this tool call hit a policy",
     // envelope = "this account hit a tier cap; Pro removes it".
     if (this.handleEnvelope(response.status, data, response)) {
-      // Cap reached — fall open (allowed=true). The wording was already
-      // surfaced via the upgrade-prompt logger and a throttle deadline
-      // was stamped so the next call short-circuits at the gate.
-      return {
-        allowed: true,
-        policies_evaluated: 0,
-      };
+      // A recognized limit cannot serve as permission to execute a tool.
+      return deniedGovernedLimit();
     }
 
     if (response.status === 403) {
@@ -1001,10 +993,6 @@ export class AxonFlowClient {
         "check-output",
       );
     }
-    // V1 Plugin Pro back-off — same rationale as mcpCheckInput.
-    if (isThrottleActive()) {
-      return { allowed: true, policies_evaluated: 0 };
-    }
     const url = `${this.endpoint}/api/v1/mcp/check-output`;
     const response = await this.fetchWithTimeout(url, {
       method: "POST",
@@ -1039,7 +1027,7 @@ export class AxonFlowClient {
         throw new AxonFlowHttpError(429, response.statusText, body, "check-output", tierLimit);
       }
       if (this.handleEnvelope(response.status, body, response)) {
-        return { allowed: true, policies_evaluated: 0 };
+        return deniedGovernedLimit();
       }
       throw new AxonFlowHttpError(429, response.statusText, body, "check-output", tierLimit);
     }
@@ -1047,13 +1035,9 @@ export class AxonFlowClient {
     const data = (await response.json()) as Record<string, unknown>;
 
     // V1 Plugin Pro envelope detection — see mcpCheckInput for rationale.
-    // Output scan falls open on cap (no PII detection during back-off
-    // is acceptable — the upgrade prompt was already surfaced).
+    // An output limit cannot authorize unscanned outbound content.
     if (this.handleEnvelope(response.status, data, response)) {
-      return {
-        allowed: true,
-        policies_evaluated: 0,
-      };
+      return deniedGovernedLimit();
     }
 
     if (response.status === 403) {
@@ -1549,8 +1533,8 @@ export class AxonFlowClient {
    * The 429-envelope path is the critical Pro-conversion surface per
    * feedback_429_no_upgrade_hint_is_conversion_gap.md — when the Free user
    * exceeds their tier's page cap, the upgrade wording + buy URL must be
-   * surfaced to the host. We also stamp the throttle-gate file so the
-   * caller's next governed call can short-circuit instead of round-tripping.
+   * surfaced to the host. We also stamp the service-tool throttle file;
+   * governed calls continue to round-trip for a fresh decision.
    */
   async listRecentDecisionsStrict(
     options?: {
@@ -1631,7 +1615,7 @@ export class AxonFlowClient {
    * V1 Plugin Pro envelope detection runs on the call response — if the
    * call hit a Free-tier gate (graduated cap or Pro-only feature), the
    * envelope is detected, the upgrade prompt is surfaced via the host
-   * logger, and the throttle file is stamped. The proxy returns an
+   * logger, and the service-tool throttle file is stamped. The proxy returns an
    * `{ envelope }` shape so the agent-tool wrapper can render the locked
    * V1 wording back to the user instead of a generic error.
    *

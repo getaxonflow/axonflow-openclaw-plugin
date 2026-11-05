@@ -28,7 +28,9 @@ export function createAfterToolCallHandler(
     error?: string;
     durationMs?: number;
   }): Promise<void> => {
-    if (!shouldGovernTool(event.toolName, config)) {
+    // Portal linking is required before Hosted audit details leave the plugin.
+    if (clientRef.hostedAuditLinkRequired || clientRef.hostedLinkRequired ||
+        !shouldGovernTool(event.toolName, config)) {
       return;
     }
 

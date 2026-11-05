@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [2.10.4] - 2026-11-04
+
+### Security
+
+- Keep governed tool and outbound-message checks active after a legacy quota response, including when a shared backoff stamp survives a restart. A recognized quota response now blocks the current governed action; backoff remains limited to non-governed service tools.
+- Preserve configured high-risk tool approval when a governance request fails open because of a network, server, or allowed authentication error.
+- Do not send tool-call or LLM prompt/response audit excerpts before Hosted Portal linking, including valid legacy credentials and calls that span the link transition. Legacy credentials can continue governance until expiry.
+
+### Validation
+
+- Add regression coverage for persistent quota stamps, current quota envelopes, high-risk outage approval, and audit behavior across Hosted linking.
+
 ## [2.10.3] - 2026-11-04
 
 ### Security

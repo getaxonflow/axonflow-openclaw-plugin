@@ -33,8 +33,8 @@
  *   - The wording is logged via the host plugin logger at most once per
  *     UTC day (stamp file at `${cacheDir}/upgrade-prompt-last-shown`).
  *   - A throttle deadline file is stamped at `${cacheDir}/throttle-until`
- *     so subsequent governed calls can short-circuit locally without
- *     re-hammering the agent during the back-off window.
+ *     for non-governed service tools. Governed input/output calls must
+ *     still obtain a fresh decision or block on a recognized limit.
  *
  * Doctrine: `feedback_429_no_upgrade_hint_is_conversion_gap.md` —
  * every Free-tier limit hit pre-V1 was a Pro conversion target lost
@@ -177,8 +177,9 @@ export function resolveDeadlineMs(
 }
 
 /** Returns true if a throttle stamp exists with a future deadline.
- * Caller should fall through (no outbound governed call) when this
- * returns true. Cleans up expired stamps as a side effect. */
+ * Only non-governed service tools may skip their request on this state;
+ * governed input/output must never treat it as an allow. Cleans up
+ * expired stamps as a side effect. */
 export function isThrottleActive(
   cacheDir: string = axonflowCacheDir(),
   now: number = Date.now(),

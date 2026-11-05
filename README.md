@@ -13,7 +13,7 @@
 > **Rolling this plugin out for a real team or production workflow?**
 >
 > Choose the path that fits:
-> - **Self-serve hosted:** $9.99/month Hosted Starter through website email verification and Portal Checkout; review the account's allowances before payment
+> - **Hosted Starter:** $9.99/month when enrollment opens; [check current availability](https://getaxonflow.com/saas-pricing/) before starting email verification or Portal Checkout
 > - **Free self-hosted:** Community Edition on infrastructure you operate
 > - **Paid production program:** [Design Partner or Confidential Pilot](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw)  -  one scoped workflow over 60 or 75 days, founder-led rollout support, upfront conversion pricing, and a fixed decision date; public track from $2,000 or confidential track from $4,000
 >
@@ -64,7 +64,7 @@ See the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deploym
 
 ### Community SaaS hosted starter
 
-Start at [Hosted Starter pricing](https://getaxonflow.com/saas-pricing/), verify your email, and complete the $9.99/month Checkout in the secure Portal. Then [run the link command from the installed plugin](#link-your-hosted-account) and enter its 10-character code in the Portal. The client generates its own secret and stores it at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`); the browser never shows it. Fresh Hosted installs never create an anonymous tenant, even with `AXONFLOW_LEGACY_AUTO_REGISTER=1`. Existing saved credentials remain usable until expiry; users of older anonymous Hosted credentials should sign in on the website and device-link this client before expiry because the legacy flag cannot renew them.
+Start at [Hosted Starter pricing](https://getaxonflow.com/saas-pricing/) to check availability. Paid enrollment and Checkout are not yet open. When enrollment opens, verify your email, complete Checkout in the secure Portal, then [run the link command from the installed plugin](#link-your-hosted-account) and enter its 10-character code in the Portal. The client generates its own secret and stores it at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`); the browser never shows it. Fresh Hosted installs never create an anonymous tenant, even with `AXONFLOW_LEGACY_AUTO_REGISTER=1`. Existing saved credentials remain usable until expiry; users of older anonymous Hosted credentials should sign in on the website and device-link this client before expiry because the legacy flag cannot renew them.
 
 Until a fresh Hosted install loads a linked credential, governed tool calls are blocked and outbound messages are cancelled, even with `onError: "allow"`. Explicit self-hosted Community configurations keep their existing behavior.
 
@@ -73,7 +73,9 @@ Until a fresh Hosted install loads a linked credential, governed tool calls are 
 | What goes to `try.getaxonflow.com` | What does NOT |
 |---|---|
 | Tool name + arguments before each governed call | LLM provider API keys |
-| Outbound message bodies before delivery (PII/secret scan) | OpenClaw conversation history outside governed tools |
+| Outbound message bodies before delivery (PII/secret scan) | — |
+| After linking: LLM prompt excerpts (first 500 chars) and response excerpts (first 200 chars) for audit | — |
+| After linking: governed tool audit records include tool name, tool input (top-level string values are truncated after 500 characters; nested values are not truncated), up to 500 characters of the serialized result, error text when present, and duration | — |
 | Usage heartbeat (plugin version, OS, runtime, instance ID) | Files outside the OpenClaw runtime |
 
 Hosted Starter includes the governance foundation and a Hosted case Portal. The verified account shows its exact governed-event, case, seat, integration, retention, and burst limits before purchase and through billing status. Higher volume, additional integrations, longer retention, production financial actions, and contractual controls follow the paid Enterprise PoC or design-partner path. Read the [Community SaaS documentation](https://docs.getaxonflow.com/docs/deployment/community-saas/) for the data boundary and current limits.
@@ -98,6 +100,7 @@ The plugin recognizes the following environment variables. All are optional with
 | `AXONFLOW_ENDPOINT` | Override the AxonFlow agent gateway endpoint. Wins over `pluginConfig.endpoint` when both are set. Setting this selects self-hosted mode: all governed traffic targets this endpoint. For self-hosted deployments, set this (or `pluginConfig.endpoint`) to your AxonFlow URL. |
 | `AXONFLOW_TELEMETRY=off` | Disables the 7-day usage heartbeat to `checkpoint.getaxonflow.com`. Accepted off-values: `off`, `0`, `false`, `no`. |
 | `AXONFLOW_COMMUNITY_SAAS=0` | Disables Hosted bootstrap entirely. With no explicit self-hosted endpoint, governed tools and outbound messages stay blocked until the client is linked, even under `onError: "allow"`. Set `pluginConfig.endpoint` (or `AXONFLOW_ENDPOINT`) for self-hosted enforcement. Accepted off-values: `0`, `false`, `off`, `no`. |
+| `AXONFLOW_LEGACY_AUTO_REGISTER` | Obsolete Hosted flag. Setting it cannot create or renew an anonymous Hosted credential; link the client through the Portal instead. |
 | `AXONFLOW_CACHE_DIR` | Overrides the per-user cache dir (telemetry stamp, rate-limit backoff, free-tier throttle + upgrade-prompt stamps). Defaults to `$XDG_CACHE_HOME/axonflow` (Linux), `~/Library/Caches/axonflow` (macOS), `%LOCALAPPDATA%\axonflow` (Windows). |
 | `AXONFLOW_CONFIG_DIR` | Overrides the per-user config dir (Community-SaaS registration file, disclosure stamp, plugin runtime-state record read by `axonflow-openclaw-status`). Defaults to OS conventions: `$XDG_CONFIG_HOME/axonflow` (Linux), `~/Library/Application Support/axonflow` (macOS), `%APPDATA%\axonflow` (Windows). |
 | `AXONFLOW_LICENSE_TOKEN` | Legacy prepaid plugin-claim token. Existing 90-day purchases remain valid through their paid term. New monthly hosted subscriptions are resolved from the registered account and require no token. |
@@ -112,11 +115,11 @@ This table is the published declaration for user-facing environment variables. T
 <a id="link-your-hosted-account"></a>
 ## Activate Hosted Starter
 
-Hosted Starter starts at **$9.99 USD per month**. It includes the governance foundation and a Hosted case Portal. The verified account shows the current governed-event, case, seat, integration, retention, and burst allowances before purchase.
+Hosted Starter is planned at **$9.99 USD per month**. Paid enrollment and Checkout are currently closed. When they open, the verified account will show the current governed-event, case, seat, integration, retention, and burst allowances before purchase.
 
 To activate an installed plugin:
 
-1. **Create the Hosted account.** Verify your email and complete Checkout from the [pricing page](https://getaxonflow.com/saas-pricing/).
+1. **Check availability.** Visit the [pricing page](https://getaxonflow.com/saas-pricing/). Once paid enrollment opens, verify your email and complete Checkout in the secure Portal.
 
 2. **Link OpenClaw.** After [installing the plugin](#step-2-install-the-plugin), run the link script from OpenClaw's installed extension directory:
 
@@ -430,7 +433,7 @@ openclaw plugins install "./$TGZ"
 
 ### Step 3: point the plugin at the platform
 
-Without this step the plugin uses the Hosted endpoint; a fresh install then asks you to verify, pay, and link the client through the Portal. It does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them) for a self-hosted stack:
+Without this step the plugin uses the Hosted endpoint; a fresh install directs you to check enrollment availability before verifying your email, completing Checkout, and linking the client through the Portal. Paid enrollment and Checkout are currently closed. It does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them) for a self-hosted stack:
 
 ```yaml
 # openclaw.config.yaml
@@ -466,7 +469,7 @@ See [Configure](#configure) below for the full pluginConfig schema (`highRiskToo
 | `licenseToken` | No | `process.env.AXONFLOW_LICENSE_TOKEN` if set | Legacy prepaid plugin-claim token. Existing 90-day purchases remain valid through expiry. New monthly hosted subscriptions need no token. Env var wins over `pluginConfig.licenseToken`. |
 | `userEmail` | No | — | Per-user identity forwarded on explain/override calls. Shared agents should set this from session context. |
 | `userToken` | No | `process.env.AXONFLOW_USER_TOKEN`, else `~/.config/axonflow/user-token.json` (mode `0600`) | Per-user authorization token, sent as `X-User-Token` on every governed request. Yields a **validated** `{identity, role}` on the platform's fleet plane — role-scoped reads return this developer's own rows (a token-less caller gets zero rows on those read tools against current platforms), and audit attribution keys on the token's canonical email rather than the forgeable `userEmail` label on the header-consuming planes (MCP tools + audit/decisions/overrides REST; the `check-input`/`check-output` hook plane keeps client-scoped attribution on current platforms). Minted by an org admin via the platform's user-token mint API. This config value wins over the env var, which wins over the provisioning file; a malformed candidate at any source is dropped with a warning (never sent) and resolution falls through to the next source. Unset: header omitted, wire behavior unchanged. |
-| `highRiskTools` | No | `[]` | Tools that require human approval even when policy allows |
+| `highRiskTools` | No | `["web_fetch"]` | Tools that require human approval even when policy allows |
 | `governedTools` | No | `[]` (all) | Tools to govern. Empty = all tools. |
 | `excludedTools` | No | `[]` | Tools to exclude from governance. Takes precedence over `governedTools`. |
 | `defaultOperation` | No | `"execute"` | Operation type for `check_input` (`"execute"` or `"query"`) |
@@ -479,11 +482,11 @@ The plugin classifies errors from the AxonFlow client into two buckets and appli
 
 | Hook | Transient network error (timeout, DNS, connection refused, 5xx) | Auth/config error (401 / 403) | Payment required (402) |
 |---|---|---|
-| `before_tool_call` | **Always fail-open**. The tool call proceeds regardless of `onError`. | Respects `onError`. The default blocks. | **Always blocks**, creates authenticated checkout, and surfaces one URL. |
+| `before_tool_call` | Tools listed in `highRiskTools` require native OpenClaw approval. Other governed tools proceed regardless of `onError`, with a one-time warning. | Respects `onError`. The default blocks; with `"allow"`, tools in `highRiskTools` still require approval. | **Always blocks** and surfaces the Portal or available Checkout URL. |
 | `message_sending` | Respects `onError`. The default cancels the message. | Same as network error. | **Always cancels**, regardless of `onError`. |
 | `after_tool_call`, `llm_input`, `llm_output` (audit) | Always silently caught. Governance was already enforced on the pre-execution hook. | Always silently caught. |
 
-The `before_tool_call` network fail-open is not silent. The first time a governed tool call proceeds because the governance check failed for a non-auth reason — the endpoint was unreachable, timed out, or answered 5xx — the plugin emits one warning on the same channel as the auth-failure notice (`console.warn`, so it lands in the OpenClaw plugin log and in the terminal running the session), naming the endpoint, the underlying error, and the fact that the call ran with no policy evaluated:
+The `before_tool_call` network fail-open is not silent. The first time a governed tool call proceeds without approval because the governance check failed for a non-auth reason — the endpoint was unreachable, timed out, or answered 5xx — the plugin emits one warning on the same channel as the auth-failure notice (`console.warn`, so it lands in the OpenClaw plugin log and in the terminal running the session), naming the endpoint, the underlying error, and the fact that the call ran with no policy evaluated. Tools in `highRiskTools` require native approval instead:
 
 ```
 [AxonFlow] Governance check against http://localhost:8080 failed (fetch failed). This tool
@@ -494,7 +497,7 @@ it to resume enforcement. Shown once per process.
 
 It appears once per process rather than once per tool call, mirroring the auth-failure notice, so a long outage does not flood the transcript.
 
-Auth errors do not trigger this notice — they take the `onError` path above. With the default `onError: "block"` nothing runs ungoverned, so there is nothing to announce, and a 401 additionally trips the client's own one-time authentication warning. **One gap remains:** with `onError: "allow"`, an HTTP **403** proceeds ungoverned and emits nothing (only 401 trips the client warning). Tracked in [#170](https://github.com/getaxonflow/axonflow-openclaw-plugin/issues/170); until it is closed, treat `onError: "allow"` as a posture that can go quiet.
+Auth errors take the `onError` path above. With the default `onError: "block"`, governed calls are blocked; a 401 also trips the client's one-time authentication warning. With `onError: "allow"`, a 403 on a tool outside `highRiskTools` proceeds ungoverned and emits the one-time warning; a 401 uses the client's authentication warning. Tools in `highRiskTools` require native approval even in this path.
 
 If you need tool-execution itself to fail-closed during an AxonFlow outage (for example on a production infrastructure agent), pair the plugin with an OpenClaw-side health check or a front-door liveness gate — the plugin alone will not achieve that for `before_tool_call`.
 
@@ -576,7 +579,9 @@ See [Decision Explainability](https://docs.getaxonflow.com/docs/governance/expla
 
 ### Hosted payment and limit prompts
 
-An unpaid hosted call receives HTTP 402. The plugin creates authenticated Checkout, blocks the governed action even when `onError` is `allow`, and logs one actionable URL. A paid account that reaches its monthly governed-event allowance receives HTTP 429; the plugin blocks that governed action even when `onError` is `allow`.
+An unpaid hosted call receives HTTP 402. The plugin blocks the governed action even when `onError` is `allow` and surfaces a Portal link or an authenticated Checkout URL when one is available. Checkout is currently closed. Once paid enrollment opens, a paid account that reaches its monthly governed-event allowance receives HTTP 429; the plugin blocks that governed action even when `onError` is `allow`.
+
+When Checkout is available, a blocked call may show:
 
 ```
 [AxonFlow] Hosted governance needs an active plan. Complete checkout: https://checkout.stripe.com/...

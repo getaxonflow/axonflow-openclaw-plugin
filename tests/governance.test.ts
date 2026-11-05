@@ -498,6 +498,31 @@ describe("createBeforeToolCallHandler", () => {
     expect(result).toBeUndefined();
   });
 
+  it("keeps high-risk approval on a network failure despite policy fail-open", async () => {
+    const client = mockClient({});
+    (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const config = baseConfig({ highRiskTools: ["payments_refund"], onError: "block" });
+    const handler = createBeforeToolCallHandler({ current: client }, config);
+
+    expect(await handler({ toolName: "payments_refund", params: { amount: 100 } }))
+      .toMatchObject({
+        requireApproval: {
+          timeoutBehavior: "deny",
+          description: expect.stringContaining("policy check unavailable"),
+        },
+      });
+  });
+
+  it("keeps high-risk approval when an explicitly allowed auth failure proceeds", async () => {
+    const client = mockClient({});
+    (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce({ status: 401, message: "Unauthorized" });
+    const config = baseConfig({ highRiskTools: ["payments_refund"], onError: "allow" });
+    const handler = createBeforeToolCallHandler({ current: client }, config);
+
+    expect(await handler({ toolName: "payments_refund", params: { amount: 100 } }))
+      .toMatchObject({ requireApproval: { timeoutBehavior: "deny" } });
+  });
+
   it("blocks payment-required responses even when onError=allow", async () => {
     const client = mockClient({});
     (client.mcpCheckInput as jest.Mock).mockRejectedValueOnce(
@@ -609,6 +634,28 @@ describe("isAxonFlowAuthError", () => {
 // ---------------------------------------------------------------------------
 
 describe("createAfterToolCallHandler", () => {
+  it("does not transmit tool parameters before Hosted linking", async () => {
+    const client = mockClient({});
+    const handler = createAfterToolCallHandler(
+      { current: client, hostedLinkRequired: true },
+      baseConfig({ mode: "community-saas" }),
+    );
+
+    await handler({ toolName: "web_fetch", params: { secret: "pre-link" } });
+    expect(client.auditToolCall).not.toHaveBeenCalled();
+  });
+
+  it("does not transmit tool parameters for a valid legacy credential awaiting Portal linking", async () => {
+    const client = mockClient({});
+    const handler = createAfterToolCallHandler(
+      { current: client, hostedLinkRequired: false, hostedAuditLinkRequired: true },
+      baseConfig({ mode: "community-saas" }),
+    );
+
+    await handler({ toolName: "web_fetch", params: { secret: "legacy-unlinked" } });
+    expect(client.auditToolCall).not.toHaveBeenCalled();
+  });
+
   it("logs successful tool call", async () => {
     const client = mockClient({});
     const handler = createAfterToolCallHandler({ current: client }, baseConfig());
