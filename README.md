@@ -75,7 +75,7 @@ Until a fresh Hosted install loads a linked credential, governed tool calls are 
 | Tool name + arguments before each governed call | LLM provider API keys |
 | Outbound message bodies before delivery (PII/secret scan) | — |
 | After linking: LLM prompt excerpts (first 500 chars) and response excerpts (first 200 chars) for audit | — |
-| After linking: governed tool audit records include tool name, input values truncated to 500 characters, up to 500 characters of the serialized result, error text when present, and duration | — |
+| After linking: governed tool audit records include tool name, tool input (top-level string values are truncated after 500 characters; nested values are not truncated), up to 500 characters of the serialized result, error text when present, and duration | — |
 | Usage heartbeat (plugin version, OS, runtime, instance ID) | Files outside the OpenClaw runtime |
 
 Hosted Starter includes the governance foundation and a Hosted case Portal. The verified account shows its exact governed-event, case, seat, integration, retention, and burst limits before purchase and through billing status. Higher volume, additional integrations, longer retention, production financial actions, and contractual controls follow the paid Enterprise PoC or design-partner path. Read the [Community SaaS documentation](https://docs.getaxonflow.com/docs/deployment/community-saas/) for the data boundary and current limits.
@@ -433,7 +433,7 @@ openclaw plugins install "./$TGZ"
 
 ### Step 3: point the plugin at the platform
 
-Without this step the plugin uses the Hosted endpoint; a fresh install then asks you to verify, pay, and link the client through the Portal. It does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them) for a self-hosted stack:
+Without this step the plugin uses the Hosted endpoint; a fresh install directs you to check enrollment availability before verifying your email, completing Checkout, and linking the client through the Portal. Paid enrollment and Checkout are currently closed. It does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them) for a self-hosted stack:
 
 ```yaml
 # openclaw.config.yaml
