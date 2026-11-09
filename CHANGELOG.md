@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- Replace stale closed-enrollment wording with the live $9.99/month Hosted Starter journey: verified email, tenant-bound Portal Checkout, and device linking from the installed OpenClaw plugin.
+- Add a ClawHub governance skill candidate for the monthly Hosted Starter plan and remove the obsolete one-time Plugin Pro offer from that skill.
+- Add a regression test that fails if customer-facing acquisition copy claims Checkout is closed or drops the verified-email, Portal, pricing, or installed-link steps.
+
 ## [2.10.4] - 2026-11-04
 
 ### Security
