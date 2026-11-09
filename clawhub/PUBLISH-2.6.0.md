@@ -58,7 +58,7 @@ Require:
 - the `candidate` tag points to `2.6.0` while the `latest` tag still points to the previously approved version;
 - the stored skill description contains the Hosted Starter purchase and installed-link steps;
 - the stored scan reaches a completed, clean verdict and its downloaded report is reviewed before promotion or announcement;
-- no code-plugin package version, npm dist-tag, or ClawHub package version changed.
+- no code-plugin package version or npm/ClawHub code-plugin tag changed.
 
 If the scan is missing, incomplete, non-clean, or cannot be independently
 reviewed, stop. Do not move `latest`, do not announce the candidate, and retain
