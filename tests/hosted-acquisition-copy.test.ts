@@ -32,6 +32,7 @@ const expectNoStaleAcquisitionClaims = (copy: string): void => {
 describe("Hosted Starter acquisition copy", () => {
   const readme = readRepoFile("README.md");
   const skill = readRepoFile("clawhub/2.6.0/SKILL.md");
+  const publishRunbook = readRepoFile("clawhub/PUBLISH-2.6.0.md");
 
   it.each([
     ["plugin README", readme],
@@ -68,5 +69,21 @@ describe("Hosted Starter acquisition copy", () => {
     expect(skill).toContain(
       "Requires OpenClaw 2026.6.6+ and `@axonflow/openclaw` 2.10.4+.",
     );
+  });
+
+  it("admits the skill as a candidate and withdraws a non-clean version", () => {
+    expect(publishRunbook).toContain("--tags candidate");
+    expect(publishRunbook).not.toContain("--tags latest");
+    expect(publishRunbook).toContain(
+      "clawhub delete @axonflow/governance-policies",
+    );
+    expect(publishRunbook).toContain("--version 2.6.0");
+    expect(publishRunbook).toContain(
+      "! clawhub inspect @axonflow/governance-policies --tag candidate --json",
+    );
+    expect(publishRunbook).toContain(
+      "clawhub hide @axonflow/governance-policies",
+    );
+    expect(publishRunbook).not.toMatch(/has no\s+hide, delete, or withdraw/i);
   });
 });

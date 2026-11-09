@@ -62,10 +62,40 @@ Require:
 
 If the scan is missing, incomplete, non-clean, or cannot be independently
 reviewed, stop. Do not move `latest`, do not announce the candidate, and retain
-the report and exact source SHA for investigation. ClawHub CLI 0.23.3 has no
-hide, delete, or withdraw command; use the authenticated owner dashboard or
-ClawHub support to hide or withdraw version 2.6.0 before preparing a corrected
-version. Never overwrite or promote a flagged candidate.
+the report and exact source SHA for investigation. Withdraw the non-latest
+candidate version with the authenticated owner account:
+
+```bash
+clawhub delete @axonflow/governance-policies \
+  --version 2.6.0 \
+  --reason "Withdraw candidate: stored security scan is missing, incomplete, or non-clean" \
+  --yes
+```
+
+Then require all three checks below to fail for version/tag resolution; a
+withdrawn candidate must no longer be inspectable, candidate-tagged, or
+installable:
+
+```bash
+! clawhub inspect @axonflow/governance-policies --version 2.6.0 --json
+! clawhub inspect @axonflow/governance-policies --tag candidate --json
+! clawhub --workdir /private/tmp/governance-policies-withdrawal-check \
+  --dir skills install @axonflow/governance-policies --version 2.6.0
+```
+
+Also run `clawhub inspect @axonflow/governance-policies --versions --json` and
+confirm that `latest` still resolves to the previously approved version. If the
+targeted withdrawal fails or any check above still serves 2.6.0, put the whole
+skill on a temporary safety hold as a fallback and contact ClawHub support:
+
+```bash
+clawhub hide @axonflow/governance-policies \
+  --reason "Safety hold: governance-policies 2.6.0 candidate withdrawal failed" \
+  --yes
+```
+
+Whole-skill hiding also affects the previously approved release, so it is a
+fallback only. Never overwrite or promote a flagged candidate.
 
 ## Promote only after a clean verdict
 
