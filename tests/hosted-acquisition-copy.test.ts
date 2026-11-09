@@ -12,6 +12,23 @@ const staleClosedEnrollmentClaims = [
   /checkout is currently closed/i,
 ];
 
+const staleLegacyOfferClaims = [
+  /\$9\.99(?:\s+USD)?[^\n]{0,80}\bone[- ]time\b/i,
+  /\$9\.99(?:\s+USD)?[^\n]{0,80}\b90[- ]day\s+license\b/i,
+  /\$9\.99(?:\s+USD)?[^\n]{0,80}\bno auto[- ]renewal\b/i,
+];
+
+const staleAcquisitionClaims = [
+  ...staleClosedEnrollmentClaims,
+  ...staleLegacyOfferClaims,
+];
+
+const expectNoStaleAcquisitionClaims = (copy: string): void => {
+  for (const staleClaim of staleAcquisitionClaims) {
+    expect(copy).not.toMatch(staleClaim);
+  }
+};
+
 describe("Hosted Starter acquisition copy", () => {
   const readme = readRepoFile("README.md");
   const skill = readRepoFile("clawhub/2.6.0/SKILL.md");
@@ -30,10 +47,18 @@ describe("Hosted Starter acquisition copy", () => {
   it.each([
     ["plugin README", readme],
     ["ClawHub skill", skill],
-  ])("does not regress %s to closed-enrollment copy", (_name, copy) => {
-    for (const staleClaim of staleClosedEnrollmentClaims) {
-      expect(copy).not.toMatch(staleClaim);
+  ])("does not regress %s to a stale acquisition offer", (_name, copy) => {
+    expectNoStaleAcquisitionClaims(copy);
+  });
+
+  it("rejects the obsolete one-time 90-day offer", () => {
+    const plantedLegacyOffer =
+      "$9.99 one-time, 90-day license, no auto-renewal.";
+
+    for (const staleClaim of staleLegacyOfferClaims) {
+      expect(plantedLegacyOffer).toMatch(staleClaim);
     }
+    expect(() => expectNoStaleAcquisitionClaims(plantedLegacyOffer)).toThrow();
   });
 
   it("pins the manually published skill to the reviewed runtime floor", () => {

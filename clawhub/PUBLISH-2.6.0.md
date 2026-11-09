@@ -26,7 +26,7 @@ clawhub skill publish clawhub/2.6.0 \
   --name "AxonFlow Governance Policies" \
   --version 2.6.0 \
   --changelog 'Replace obsolete one-time Plugin Pro with live $9.99/month Hosted Starter purchase and OpenClaw device linking; bump plugin floor to 2.10.4.' \
-  --tags latest \
+  --tags candidate \
   --topics "Policies,Agent Security,Approvals,Audit,Compliance" \
   --source-repo getaxonflow/axonflow-openclaw-plugin \
   --source-commit "$MERGED_SHA" \
@@ -36,24 +36,48 @@ clawhub skill publish clawhub/2.6.0 \
   --json
 ```
 
-## Publish manually
+The `candidate` tag is intentional. Do not assign `latest` during admission: the
+official stored ClawHub security scan exists only after upload.
+
+## Publish candidate manually
 
 Publication is an explicit operator action. After reviewing the dry-run, repeat the same command without `--dry-run`.
 
 Do not run `.github/workflows/publish.yml`, create a package tag, or publish npm/ClawHub code-plugin artifacts for this skill-only update.
 
-## Verify after publication
+## Verify the stored scan before promotion
 
 ```bash
 clawhub inspect @axonflow/governance-policies --json
+clawhub scan --slug governance-policies --version 2.6.0 --json
 clawhub scan download governance-policies --version 2.6.0 --output /private/tmp/governance-policies-2.6.0-scan.zip
 ```
 
 Require:
 
-- `latestVersion.version` is `2.6.0` and the `latest` tag points to `2.6.0`;
+- the `candidate` tag points to `2.6.0` while the `latest` tag still points to the previously approved version;
 - the stored skill description contains the Hosted Starter purchase and installed-link steps;
-- the stored scan report is reviewed before announcing the update;
+- the stored scan reaches a completed, clean verdict and its downloaded report is reviewed before promotion or announcement;
 - no code-plugin package version, npm dist-tag, or ClawHub package version changed.
+
+If the scan is missing, incomplete, non-clean, or cannot be independently
+reviewed, stop. Do not move `latest`, do not announce the candidate, and retain
+the report and exact source SHA for investigation. ClawHub CLI 0.23.3 has no
+hide, delete, or withdraw command; use the authenticated owner dashboard or
+ClawHub support to hide or withdraw version 2.6.0 before preparing a corrected
+version. Never overwrite or promote a flagged candidate.
+
+## Promote only after a clean verdict
+
+After all requirements above pass, promote the already scanned immutable
+version and verify the tag movement:
+
+```bash
+clawhub skill tag @axonflow/governance-policies 2.6.0 --tag latest --yes
+clawhub inspect @axonflow/governance-policies --json
+```
+
+Require the `latest` tag to point to `2.6.0` and re-check that the stored
+version and scan evidence are unchanged. Only then announce the update.
 
 ClawHub 0.23.3 no longer supports scanning a local skill folder. Its official security scan is available only after a version is uploaded, so the pre-publication gates are the one-file dry-run, content tests, link checks, and exact checksums above.
