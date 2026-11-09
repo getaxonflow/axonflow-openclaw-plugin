@@ -13,7 +13,7 @@
 > **Rolling this plugin out for a real team or production workflow?**
 >
 > Choose the path that fits:
-> - **Hosted Starter:** $9.99/month when enrollment opens; [check current availability](https://getaxonflow.com/saas-pricing/) before starting email verification or Portal Checkout
+> - **Hosted Starter:** $9.99/month; [verify your email and start secure Checkout](https://getaxonflow.com/saas-pricing/), then link this OpenClaw installation through the Portal
 > - **Free self-hosted:** Community Edition on infrastructure you operate
 > - **Paid production program:** [Design Partner or Confidential Pilot](https://getaxonflow.com/design-partner?utm_source=readme_plugin_openclaw)  -  one scoped workflow over 60 or 75 days, founder-led rollout support, upfront conversion pricing, and a fixed decision date; public track from $2,000 or confidential track from $4,000
 >
@@ -64,7 +64,7 @@ See the [Self-Hosted Deployment Guide](https://docs.getaxonflow.com/docs/deploym
 
 ### Community SaaS hosted starter
 
-Start at [Hosted Starter pricing](https://getaxonflow.com/saas-pricing/) to check availability. Paid enrollment and Checkout are not yet open. When enrollment opens, verify your email, complete Checkout in the secure Portal, then [run the link command from the installed plugin](#link-your-hosted-account) and enter its 10-character code in the Portal. The client generates its own secret and stores it at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`); the browser never shows it. Fresh Hosted installs never create an anonymous tenant, even with `AXONFLOW_LEGACY_AUTO_REGISTER=1`. Existing saved credentials remain usable until expiry; users of older anonymous Hosted credentials should sign in on the website and device-link this client before expiry because the legacy flag cannot renew them.
+Start at [Hosted Starter pricing](https://getaxonflow.com/saas-pricing/), verify your email, review the tenant-bound monthly plan, and complete secure Checkout in the Portal. Then [run the link command from the installed plugin](#link-your-hosted-account) and enter its 10-character code in the Portal. The client generates its own secret and stores it at `$AXONFLOW_CONFIG_DIR/try-registration.json` (mode `0600`); the browser never shows it. Fresh Hosted installs never create an anonymous tenant, even with `AXONFLOW_LEGACY_AUTO_REGISTER=1`. Existing saved credentials remain usable until expiry; users of older anonymous Hosted credentials should sign in on the website and device-link this client before expiry because the legacy flag cannot renew them.
 
 Until a fresh Hosted install loads a linked credential, governed tool calls are blocked and outbound messages are cancelled, even with `onError: "allow"`. Explicit self-hosted Community configurations keep their existing behavior.
 
@@ -115,11 +115,11 @@ This table is the published declaration for user-facing environment variables. T
 <a id="link-your-hosted-account"></a>
 ## Activate Hosted Starter
 
-Hosted Starter is planned at **$9.99 USD per month**. Paid enrollment and Checkout are currently closed. When they open, the verified account will show the current governed-event, case, seat, integration, retention, and burst allowances before purchase.
+Hosted Starter is **$9.99 USD per month**. Self-serve enrollment is open: the verified account shows the current governed-event, case, seat, integration, retention, and burst allowances before purchase.
 
 To activate an installed plugin:
 
-1. **Check availability.** Visit the [pricing page](https://getaxonflow.com/saas-pricing/). Once paid enrollment opens, verify your email and complete Checkout in the secure Portal.
+1. **Create and activate your account.** Visit the [pricing page](https://getaxonflow.com/saas-pricing/), verify your email, review the account-bound plan, and complete Checkout in the secure Portal.
 
 2. **Link OpenClaw.** After [installing the plugin](#step-2-install-the-plugin), run the link script from OpenClaw's installed extension directory:
 
@@ -433,7 +433,7 @@ openclaw plugins install "./$TGZ"
 
 ### Step 3: point the plugin at the platform
 
-Without this step the plugin uses the Hosted endpoint; a fresh install directs you to check enrollment availability before verifying your email, completing Checkout, and linking the client through the Portal. Paid enrollment and Checkout are currently closed. It does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them) for a self-hosted stack:
+Without this step the plugin uses the Hosted endpoint; a fresh install directs you to verify your email, complete Checkout, and link the client through the Portal. It does not auto-detect a locally-running AxonFlow. Set `pluginConfig.endpoint` (and `clientId` / `clientSecret` if you have them) for a self-hosted stack:
 
 ```yaml
 # openclaw.config.yaml
@@ -579,9 +579,9 @@ See [Decision Explainability](https://docs.getaxonflow.com/docs/governance/expla
 
 ### Hosted payment and limit prompts
 
-An unpaid hosted call receives HTTP 402. The plugin blocks the governed action even when `onError` is `allow` and surfaces a Portal link or an authenticated Checkout URL when one is available. Checkout is currently closed. Once paid enrollment opens, a paid account that reaches its monthly governed-event allowance receives HTTP 429; the plugin blocks that governed action even when `onError` is `allow`.
+An unpaid hosted call receives HTTP 402. The plugin blocks the governed action even when `onError` is `allow` and surfaces a Portal link or an authenticated Checkout URL when one is available. A paid account that reaches its monthly governed-event allowance receives HTTP 429; the plugin blocks that governed action even when `onError` is `allow`.
 
-When Checkout is available, a blocked call may show:
+A blocked unpaid call may show:
 
 ```
 [AxonFlow] Hosted governance needs an active plan. Complete checkout: https://checkout.stripe.com/...

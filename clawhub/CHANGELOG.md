@@ -2,6 +2,20 @@
 
 ## @axonflow/governance-policies
 
+### 2.6.0 (2026-11-09)
+
+Replaces the obsolete one-time Plugin Pro offer with the live Hosted Starter monthly purchase and OpenClaw linking journey.
+
+**Hosted Starter is now the primary self-serve path.** The skill points users to the public $9.99/month pricing page, verified-email tenant creation, secure account-bound Checkout, and the installed plugin's device-link command. It states that unlinked or unpaid Hosted calls remain blocked.
+
+**Plugin floor bumped** from `@axonflow/openclaw` 2.6.4 to **2.10.4**, the current published release with paid-first Hosted behavior, Portal device linking, closed unlinked-client gates, and quota/outage hardening.
+
+**OpenClaw floor bumped** from 2026.5.22 to **2026.6.6**, matching the plugin's current peer-dependency security floor.
+
+**Self-hosted guidance preserved.** Community Edition and Enterprise remain separate supported paths, and the skill keeps credentials out of inline examples.
+
+This candidate is source-only. Upload `clawhub/2.6.0/SKILL.md` manually as version 2.6.0 of `@axonflow/governance-policies`; do not publish it as part of the code-plugin package.
+
 ### 2.5.0 (2026-05-27)
 
 Catches the skill up with plugin v2.6.4. Addresses three security-audit findings on v2.4.2 (ASI04, ASI03, ASI02) and adds Plugin Pro tier content.
